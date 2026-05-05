@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sugar Rim</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header id="app-header">
+    <span class="app-title">🍹 Sugar Rim</span>
+    <span id="header-subtitle" class="header-subtitle"></span>
+  </header>
+
+  <main id="app-main">
+
+    <!-- ── SHELF VIEW ───────────────────────────────────────── -->
+    <section id="view-shelf" class="view active">
+      <div class="view-toolbar">
+        <input type="search" id="shelf-search" placeholder="Search ingredients…" class="search-input">
+        <button class="btn btn-primary" onclick="App.shelf.showAddModal()">+ Add</button>
+      </div>
+      <div id="shelf-list" class="card-grid"></div>
+      <div id="shelf-empty" class="empty-state hidden">
+        <p>Your bar shelf is empty.</p>
+        <button class="btn btn-primary" onclick="App.shelf.showAddModal()">Add Ingredients</button>
+      </div>
+    </section>
+
+    <!-- ── COCKTAILS VIEW ───────────────────────────────────── -->
+    <section id="view-cocktails" class="view">
+      <div class="view-toolbar">
+        <input type="search" id="cocktail-search" placeholder="Search cocktails…" class="search-input">
+        <label class="toggle-label">
+          <input type="checkbox" id="shelf-only-toggle"> Shelf only
+        </label>
+        <button class="btn btn-primary" onclick="App.cocktails.showCreate()">+ New</button>
+      </div>
+      <div id="cocktail-list" class="card-grid"></div>
+      <div id="cocktail-empty" class="empty-state hidden"><p>No cocktails found.</p></div>
+      <div class="pagination-bar" id="cocktail-pagination"></div>
+    </section>
+
+    <!-- ── COCKTAIL DETAIL ──────────────────────────────────── -->
+    <section id="view-detail" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.back()">← Back</button>
+        <span id="detail-title" class="toolbar-title"></span>
+        <button class="btn btn-ghost" id="detail-fav-btn" onclick="App.cocktails.toggleFav()">☆</button>
+        <button class="btn btn-ghost" onclick="App.cocktails.editCurrent()">Edit</button>
+      </div>
+      <div id="detail-body" class="detail-body"></div>
+    </section>
+
+    <!-- ── FAVORITES VIEW ───────────────────────────────────── -->
+    <section id="view-favorites" class="view">
+      <div class="view-toolbar">
+        <span class="toolbar-title">Favorites</span>
+      </div>
+      <div id="favorites-list" class="card-grid"></div>
+      <div id="favorites-empty" class="empty-state hidden"><p>No favorites yet. Star a cocktail to save it here.</p></div>
+    </section>
+
+    <!-- ── MANAGE VIEW ──────────────────────────────────────── -->
+    <section id="view-manage" class="view">
+      <div class="manage-grid">
+        <div class="manage-card" onclick="App.nav.go('cocktails'); App.cocktails.showCreate()">
+          <div class="manage-icon">🍸</div>
+          <div>New Cocktail</div>
+        </div>
+        <div class="manage-card" onclick="App.ingredients.showCreate()">
+          <div class="manage-icon">🫙</div>
+          <div>New Ingredient</div>
+        </div>
+        <div class="manage-card" onclick="App.nav.go('ingredients')">
+          <div class="manage-icon">📋</div>
+          <div>All Ingredients</div>
+        </div>
+        <div class="manage-card" onclick="App.nav.go('cocktails')">
+          <div class="manage-icon">📖</div>
+          <div>All Cocktails</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── INGREDIENTS LIST VIEW ────────────────────────────── -->
+    <section id="view-ingredients" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
+        <input type="search" id="ingredient-search" placeholder="Search ingredients…" class="search-input">
+        <button class="btn btn-primary" onclick="App.ingredients.showCreate()">+ New</button>
+      </div>
+      <div id="ingredient-list" class="card-grid"></div>
+      <div id="ingredient-empty" class="empty-state hidden"><p>No ingredients found.</p></div>
+      <div class="pagination-bar" id="ingredient-pagination"></div>
+    </section>
+
+    <!-- ── SETTINGS VIEW ────────────────────────────────────── -->
+    <section id="view-settings" class="view">
+      <div class="settings-form">
+        <h2>API Settings</h2>
+        <label>Bar Assistant API URL
+          <input type="url" id="cfg-url" placeholder="http://localhost:8000/api" class="text-input">
+        </label>
+        <label>API Token
+          <input type="password" id="cfg-token" placeholder="Paste token here (leave blank to keep current)" class="text-input">
+        </label>
+        <div id="cfg-token-status" class="cfg-status"></div>
+        <button class="btn btn-primary btn-wide" onclick="App.settings.saveCredentials()">Save URL &amp; Token</button>
+        <hr>
+        <h2>Active Bar</h2>
+        <label>Select bar
+          <select id="cfg-bar" class="text-input">
+            <option value="">— save URL &amp; token first —</option>
+          </select>
+        </label>
+        <button class="btn btn-primary btn-wide" onclick="App.settings.saveBar()">Set Active Bar</button>
+        <div id="cfg-message" class="cfg-status"></div>
+        <hr>
+        <h2>How to get a token</h2>
+        <ol class="help-list">
+          <li>Open your Bar Assistant web interface</li>
+          <li>Go to Profile → Personal Access Tokens</li>
+          <li>Create a new token and paste it above</li>
+        </ol>
+      </div>
+    </section>
+
+  </main>
+
+  <nav id="app-nav">
+    <button class="nav-btn active" data-view="shelf" onclick="App.nav.go('shelf')">
+      <span class="nav-icon">🥃</span><span class="nav-label">Shelf</span>
+    </button>
+    <button class="nav-btn" data-view="cocktails" onclick="App.nav.go('cocktails')">
+      <span class="nav-icon">🍸</span><span class="nav-label">Cocktails</span>
+    </button>
+    <button class="nav-btn" data-view="favorites" onclick="App.nav.go('favorites')">
+      <span class="nav-icon">⭐</span><span class="nav-label">Favorites</span>
+    </button>
+    <button class="nav-btn" data-view="manage" onclick="App.nav.go('manage')">
+      <span class="nav-icon">⚙️</span><span class="nav-label">Manage</span>
+    </button>
+    <button class="nav-btn" data-view="settings" onclick="App.nav.go('settings')">
+      <span class="nav-icon">🔧</span><span class="nav-label">Settings</span>
+    </button>
+  </nav>
+
+  <!-- ── MODAL OVERLAY ──────────────────────────────────────── -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="App.modal.closeOnBackdrop(event)">
+    <div class="modal-box" id="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title"></h3>
+        <button class="modal-close" onclick="App.modal.close()">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- ── TOAST ──────────────────────────────────────────────── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

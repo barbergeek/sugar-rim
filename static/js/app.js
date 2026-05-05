@@ -1,0 +1,643 @@
+'use strict';
+
+// ── Utility ────────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const resp = await fetch(path, opts);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || data.message || `HTTP ${resp.status}`);
+  return data;
+}
+
+function get(path, params) {
+  const url = params ? `${path}?${new URLSearchParams(params)}` : path;
+  return api('GET', url);
+}
+function post(path, body) { return api('POST', path, body); }
+function put(path, body)  { return api('PUT',  path, body); }
+function del(path)        { return api('DELETE', path); }
+
+function el(id) { return document.getElementById(id); }
+function qs(sel, ctx) { return (ctx || document).querySelector(sel); }
+
+function debounce(fn, ms) {
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+
+const Toast = {
+  _t: null,
+  show(msg, isErr = false) {
+    const t = el('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isErr ? ' err' : '');
+    clearTimeout(this._t);
+    this._t = setTimeout(() => { t.classList.add('hidden'); }, 2800);
+  },
+  err(msg) { this.show(msg, true); }
+};
+
+// ── Modal ──────────────────────────────────────────────────────────────────
+
+const Modal = {
+  open(title, bodyHtml, footerHtml) {
+    el('modal-title').textContent = title;
+    el('modal-body').innerHTML = bodyHtml;
+    el('modal-footer').innerHTML = footerHtml || '';
+    el('modal-overlay').classList.remove('hidden');
+  },
+  close() { el('modal-overlay').classList.add('hidden'); },
+  closeOnBackdrop(e) { if (e.target === el('modal-overlay')) this.close(); },
+  body() { return el('modal-body'); },
+};
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+
+const Nav = {
+  _history: [],
+  current: 'shelf',
+
+  go(view) {
+    if (this.current !== view) this._history.push(this.current);
+    this._activate(view);
+  },
+
+  back() {
+    const prev = this._history.pop() || 'cocktails';
+    this._activate(prev);
+  },
+
+  _activate(view) {
+    this.current = view;
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const section = el(`view-${view}`);
+    if (section) section.classList.add('active');
+    const btn = qs(`[data-view="${view}"]`);
+    if (btn) btn.classList.add('active');
+  }
+};
+
+// ── Settings ───────────────────────────────────────────────────────────────
+
+const Settings = {
+  async load() {
+    try {
+      const cfg = await get('/config');
+      el('cfg-url').value = cfg.api_url || '';
+      el('cfg-token-status').textContent = cfg.token_set ? '✓ Token is set' : 'No token saved yet';
+      el('cfg-token-status').className = 'cfg-status ' + (cfg.token_set ? 'ok' : 'err');
+      if (cfg.token_set) await this._loadBars(cfg.bar_id);
+    } catch (e) { /* silent */ }
+  },
+
+  async saveCredentials() {
+    const url   = el('cfg-url').value.trim();
+    const token = el('cfg-token').value.trim();
+    const msg   = el('cfg-message');
+    try {
+      await post('/config', { api_url: url, ...(token ? { api_token: token } : {}) });
+      msg.textContent = '✓ Saved';
+      msg.className = 'cfg-status ok';
+      el('cfg-token').value = '';
+      el('cfg-token-status').textContent = '✓ Token is set';
+      el('cfg-token-status').className = 'cfg-status ok';
+      await State.loadProfile();
+      const cfg = await get('/config');
+      await this._loadBars(cfg.bar_id);
+    } catch (e) {
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
+    }
+  },
+
+  async _loadBars(currentBarId) {
+    const sel = el('cfg-bar');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    try {
+      const d = await get('/api/bars');
+      const bars = d.data || [];
+      if (!bars.length) { sel.innerHTML = '<option value="">No bars found</option>'; return; }
+      sel.innerHTML = bars.map(b =>
+        `<option value="${b.id}" ${String(b.id) === String(currentBarId) ? 'selected' : ''}>${escHtml(b.name)}</option>`
+      ).join('');
+      // Auto-save if only one bar and none selected yet
+      if (bars.length === 1 && !currentBarId) {
+        await post('/config', { bar_id: bars[0].id });
+        Toast.show(`Bar set to "${bars[0].name}"`);
+      }
+    } catch (e) {
+      sel.innerHTML = '<option value="">Could not load bars</option>';
+    }
+  },
+
+  async saveBar() {
+    const bar_id = el('cfg-bar').value;
+    const msg = el('cfg-message');
+    if (!bar_id) { Toast.err('Select a bar first'); return; }
+    try {
+      await post('/config', { bar_id });
+      msg.textContent = '✓ Bar saved';
+      msg.className = 'cfg-status ok';
+      Toast.show('Active bar updated');
+    } catch (e) {
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
+    }
+  }
+};
+
+// ── App state ──────────────────────────────────────────────────────────────
+
+const State = {
+  profile: null,
+  shelfIds: new Set(),
+
+  async loadProfile() {
+    try {
+      const resp = await fetch('/api/profile');
+      if (resp.ok) {
+        const d = await resp.json();
+        this.profile = d.data;
+        el('header-subtitle').textContent = this.profile?.name || '';
+      }
+      // 403 means token lacks ability:* — non-fatal, just skip name display
+    } catch (e) { /* silent */ }
+  },
+
+  async loadShelfIds() {
+    try {
+      const d = await get('/api/shelf');
+      this.shelfIds = new Set((d.data || []).map(i => i.id));
+    } catch (e) {
+      this.shelfIds = new Set();
+    }
+  }
+};
+
+// ── Shelf ──────────────────────────────────────────────────────────────────
+
+const Shelf = {
+  items: [],
+  filtered: [],
+
+  async load() {
+    const grid  = el('shelf-list');
+    const empty = el('shelf-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/shelf');
+      this.items = d.data || [];
+      State.shelfIds = new Set(this.items.map(i => i.id));
+      this.render(this.items);
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  render(items) {
+    const grid  = el('shelf-list');
+    const empty = el('shelf-empty');
+    if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+    grid.innerHTML = items.map(i => {
+      return `<div class="card shelf-card">
+        <div class="card-name">${escHtml(i.name)}</div>
+        <button class="remove-btn" onclick="App.shelf.remove(${i.id})" title="Remove from shelf">✕</button>
+      </div>`;
+    }).join('');
+  },
+
+  filter(q) {
+    const lq = q.toLowerCase();
+    this.render(q ? this.items.filter(i => (i.name || i.ingredient?.name || '').toLowerCase().includes(lq)) : this.items);
+  },
+
+  async remove(id) {
+    try {
+      await post('/api/shelf/batch-delete', { ingredients: [id] });
+      State.shelfIds.delete(id);
+      this.items = this.items.filter(i => i.id !== id);
+      this.render(this.items);
+      Toast.show('Removed from shelf');
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  showAddModal() {
+    Modal.open('Add to Shelf',
+      `<div class="form-group">
+        <label class="form-label">Search ingredient</label>
+        <input class="text-input" id="shelf-add-search" placeholder="Type to search…">
+        <div id="shelf-add-results" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto"></div>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>`
+    );
+    const inp = el('shelf-add-search');
+    inp.addEventListener('input', debounce(() => this._searchForAdd(inp.value), 300));
+    inp.focus();
+  },
+
+  async _searchForAdd(q) {
+    if (q.length < 2) return;
+    const res = el('shelf-add-results');
+    res.innerHTML = '<div class="spinner"></div>';
+    try {
+      const d = await get('/api/ingredients', { 'filter[name]': q, per_page: 20 });
+      const items = d.data || [];
+      if (!items.length) { res.innerHTML = '<span style="color:var(--text-dim);font-size:.85rem">No results</span>'; return; }
+      res.innerHTML = items.map(i => {
+        const onShelf = State.shelfIds.has(i.id);
+        return `<button class="card" style="min-height:auto;padding:8px 12px;flex-direction:row;align-items:center;gap:8px;cursor:${onShelf?'default':'pointer'};opacity:${onShelf?'.5':'1'}"
+          ${onShelf ? 'disabled' : `onclick="App.shelf.addById(${i.id}, '${escHtml(i.name)}')"`}>
+          <span style="flex:1;font-size:.88rem">${escHtml(i.name)}</span>
+          ${onShelf ? '<span style="color:var(--accent2);font-size:.75rem">on shelf</span>' : ''}
+        </button>`;
+      }).join('');
+    } catch (e) { res.innerHTML = `<span style="color:#f87171;font-size:.85rem">${escHtml(e.message)}</span>`; }
+  },
+
+  async addById(id, name) {
+    try {
+      await post('/api/shelf/batch', { ingredients: [id] });
+      State.shelfIds.add(id);
+      Toast.show(`Added ${name} to shelf`);
+      Modal.close();
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
+// ── Cocktails ──────────────────────────────────────────────────────────────
+
+const Cocktails = {
+  page: 1,
+  lastMeta: null,
+  shelfOnly: false,
+  query: '',
+  currentId: null,
+  currentData: null,
+
+  async load(page = 1) {
+    this.page = page;
+    const grid  = el('cocktail-list');
+    const empty = el('cocktail-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    const params = { page, per_page: 24 };
+    if (this.query) params['filter[name]'] = this.query;
+    if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+    try {
+      const d = await get('/api/cocktails', params);
+      const items = d.data || [];
+      this.lastMeta = d.meta;
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); this._renderPagination(); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(c => this._card(c)).join('');
+      this._renderPagination();
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  _card(c) {
+    const fav = c.is_favorited ? '<span class="card-fav">★</span>' : '';
+    const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
+    return `<div class="card" onclick="App.cocktails.open(${c.id})">
+      <div class="card-name">${escHtml(c.name)}${fav}</div>
+      ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
+      ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+    </div>`;
+  },
+
+  _renderPagination() {
+    const m = this.lastMeta;
+    const bar = el('cocktail-pagination');
+    if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
+    bar.innerHTML = `
+      <button class="btn btn-ghost" ${m.current_page <= 1 ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>
+      <span>${m.current_page} / ${m.last_page}</span>
+      <button class="btn btn-ghost" ${m.current_page >= m.last_page ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>`;
+  },
+
+  async open(id) {
+    this.currentId = id;
+    Nav.go('detail');
+    el('detail-title').textContent = '…';
+    el('detail-body').innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get(`/api/cocktails/${id}`);
+      this.currentData = d.data;
+      this._renderDetail(d.data);
+    } catch (e) {
+      el('detail-body').innerHTML = `<p style="color:#f87171">${escHtml(e.message)}</p>`;
+    }
+  },
+
+  _renderDetail(c) {
+    el('detail-title').textContent = c.name;
+    el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
+
+    const ings = (c.ingredients || []).map(i => {
+      const onShelf = State.shelfIds.has(i.ingredient_id ?? i.ingredient?.id);
+      return `<div class="ingredient-row">
+        <span class="ing-amount">${escHtml(i.amount ? `${i.amount} ${i.units || ''}`.trim() : '')}</span>
+        <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}</span>
+        ${!onShelf ? '<span class="ing-missing">not on shelf</span>' : ''}
+      </div>`;
+    }).join('');
+
+    const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
+
+    el('detail-body').innerHTML = `
+      ${c.images?.[0] ? `<img class="detail-image" src="${escHtml(c.images[0].url)}" alt="${escHtml(c.name)}">` : ''}
+      <div class="detail-section">
+        <div class="detail-meta">
+          ${c.glass   ? `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>` : ''}
+          ${c.method  ? `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>` : ''}
+          ${c.abv     ? `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>` : ''}
+        </div>
+        ${tags ? `<div class="card-tags" style="margin-top:8px">${tags}</div>` : ''}
+      </div>
+      <div class="detail-section"><h3>Ingredients</h3>${ings || '<p style="color:var(--text-dim)">None listed</p>'}</div>
+      ${c.instructions ? `<div class="detail-section"><h3>Instructions</h3><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
+      ${c.garnish ? `<div class="detail-section"><h3>Garnish</h3><p class="detail-instructions">${escHtml(c.garnish)}</p></div>` : ''}
+      ${c.description ? `<div class="detail-section"><h3>Notes</h3><p class="detail-instructions">${escHtml(c.description)}</p></div>` : ''}
+    `;
+  },
+
+  async toggleFav() {
+    if (!this.currentId) return;
+    try {
+      await post(`/api/cocktails/${this.currentId}/toggle-favorite`);
+      const btn = el('detail-fav-btn');
+      const nowFav = btn.textContent === '☆';
+      btn.textContent = nowFav ? '★' : '☆';
+      if (this.currentData) this.currentData.is_favorited = nowFav;
+      Toast.show(nowFav ? 'Added to favorites' : 'Removed from favorites');
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  editCurrent() {
+    if (this.currentData) this.showEdit(this.currentData);
+  },
+
+  showCreate() {
+    this._showForm(null);
+  },
+
+  showEdit(c) {
+    this._showForm(c);
+  },
+
+  _showForm(c) {
+    const title = c ? `Edit: ${c.name}` : 'New Cocktail';
+    Modal.open(title,
+      `<div class="form-group"><label class="form-label">Name *</label>
+        <input class="text-input" id="cf-name" value="${escHtml(c?.name || '')}" placeholder="Cocktail name"></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Glass</label>
+          <input class="text-input" id="cf-glass" value="${escHtml(c?.glass?.name || '')}" placeholder="e.g. Rocks"></div>
+        <div class="form-group"><label class="form-label">Method</label>
+          <input class="text-input" id="cf-method" value="${escHtml(c?.method?.name || '')}" placeholder="e.g. Stirred"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Instructions</label>
+        <textarea class="text-input" id="cf-instructions">${escHtml(c?.instructions || '')}</textarea></div>
+      <div class="form-group"><label class="form-label">Garnish</label>
+        <input class="text-input" id="cf-garnish" value="${escHtml(c?.garnish || '')}" placeholder="Optional garnish"></div>
+      <div class="form-group"><label class="form-label">Tags (comma-separated)</label>
+        <input class="text-input" id="cf-tags" value="${(c?.tags || []).map(t => t.name || t).join(', ')}"></div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" onclick="App.cocktails._submitForm(${c?.id || 'null'})">${c ? 'Save' : 'Create'}</button>`
+    );
+    el('cf-name').focus();
+  },
+
+  async _submitForm(id) {
+    const name = el('cf-name').value.trim();
+    if (!name) { Toast.err('Name is required'); return; }
+    const body = {
+      name,
+      instructions: el('cf-instructions').value.trim(),
+      garnish:       el('cf-garnish').value.trim(),
+      tags:          el('cf-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+    };
+    try {
+      if (id) {
+        await put(`/api/cocktails/${id}`, body);
+        Toast.show('Cocktail updated');
+        this.open(id);
+      } else {
+        const d = await post('/api/cocktails', body);
+        Toast.show('Cocktail created');
+        this.load();
+        if (d.data?.id) this.open(d.data.id);
+      }
+      Modal.close();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async deleteCurrent() {
+    if (!this.currentId) return;
+    if (!confirm(`Delete "${this.currentData?.name}"?`)) return;
+    try {
+      await del(`/api/cocktails/${this.currentId}`);
+      Toast.show('Deleted');
+      Nav.go('cocktails');
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
+// ── Favorites ──────────────────────────────────────────────────────────────
+
+const Favorites = {
+  async load() {
+    const grid  = el('favorites-list');
+    const empty = el('favorites-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/favorites');
+      const items = d.data || [];
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(c => `
+        <div class="card" onclick="App.cocktails.open(${c.id})">
+          <div class="card-name">${escHtml(c.name)}<span class="card-fav">★</span></div>
+          ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
+        </div>`).join('');
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  }
+};
+
+// ── Ingredients ────────────────────────────────────────────────────────────
+
+const Ingredients = {
+  page: 1,
+  lastMeta: null,
+  query: '',
+
+  async load(page = 1) {
+    this.page = page;
+    const grid  = el('ingredient-list');
+    const empty = el('ingredient-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    const params = { page, per_page: 30 };
+    if (this.query) params['filter[name]'] = this.query;
+    try {
+      const d = await get('/api/ingredients', params);
+      const items = d.data || [];
+      this.lastMeta = d.meta;
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); this._renderPagination(); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(i => {
+        const onShelf = State.shelfIds.has(i.id);
+        return `<div class="card" onclick="App.ingredients.showEdit(${i.id})">
+          <div class="card-name">${escHtml(i.name)}</div>
+          <div class="card-sub">${escHtml(i.category?.name || '')}</div>
+          ${onShelf ? '<div class="card-tags"><span class="tag on-shelf">on shelf</span></div>' : ''}
+        </div>`;
+      }).join('');
+      this._renderPagination();
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  _renderPagination() {
+    const m = this.lastMeta;
+    const bar = el('ingredient-pagination');
+    if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
+    bar.innerHTML = `
+      <button class="btn btn-ghost" ${m.current_page <= 1 ? 'disabled' : ''} onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>
+      <span>${m.current_page} / ${m.last_page}</span>
+      <button class="btn btn-ghost" ${m.current_page >= m.last_page ? 'disabled' : ''} onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>`;
+  },
+
+  showCreate() {
+    this._showForm(null);
+  },
+
+  async showEdit(id) {
+    Modal.open('Loading…', '<div class="loading-row"><div class="spinner"></div></div>', '');
+    try {
+      const d = await get(`/api/ingredients/${id}`);
+      this._showForm(d.data);
+    } catch (e) { Modal.close(); Toast.err(e.message); }
+  },
+
+  _showForm(i) {
+    const title = i ? `Edit: ${i.name}` : 'New Ingredient';
+    Modal.open(title,
+      `<div class="form-group"><label class="form-label">Name *</label>
+        <input class="text-input" id="if-name" value="${escHtml(i?.name || '')}" placeholder="Ingredient name"></div>
+      <div class="form-group"><label class="form-label">Category</label>
+        <input class="text-input" id="if-category" value="${escHtml(i?.category?.name || '')}" placeholder="e.g. Spirits"></div>
+      <div class="form-group"><label class="form-label">Color (hex)</label>
+        <input class="text-input" id="if-color" value="${escHtml(i?.color || '')}" placeholder="#ffffff"></div>
+      <div class="form-group"><label class="form-label">Description</label>
+        <textarea class="text-input" id="if-desc">${escHtml(i?.description || '')}</textarea></div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       ${i ? `<button class="btn btn-danger" onclick="App.ingredients._delete(${i.id})">Delete</button>` : ''}
+       <button class="btn btn-primary" onclick="App.ingredients._submit(${i?.id || 'null'})">${i ? 'Save' : 'Create'}</button>`
+    );
+    el('if-name').focus();
+  },
+
+  async _submit(id) {
+    const name = el('if-name').value.trim();
+    if (!name) { Toast.err('Name is required'); return; }
+    const body = {
+      name,
+      description: el('if-desc').value.trim(),
+      color: el('if-color').value.trim(),
+    };
+    try {
+      if (id) {
+        await put(`/api/ingredients/${id}`, body);
+        Toast.show('Ingredient updated');
+      } else {
+        await post('/api/ingredients', body);
+        Toast.show('Ingredient created');
+      }
+      Modal.close();
+      this.load(this.page);
+      State.loadShelfIds();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async _delete(id) {
+    if (!confirm('Delete this ingredient?')) return;
+    try {
+      await del(`/api/ingredients/${id}`);
+      Toast.show('Deleted');
+      Modal.close();
+      this.load(this.page);
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
+// ── App bootstrap ──────────────────────────────────────────────────────────
+
+const App = {
+  nav:         Nav,
+  modal:       Modal,
+  shelf:       Shelf,
+  cocktails:   Cocktails,
+  favorites:   Favorites,
+  ingredients: Ingredients,
+  settings:    Settings,
+
+  async init() {
+    await Settings.load();
+    await State.loadProfile();
+    await State.loadShelfIds();
+
+    // Wire search inputs
+    el('shelf-search').addEventListener('input', debounce(e => Shelf.filter(e.target.value), 250));
+
+    el('cocktail-search').addEventListener('input', debounce(e => {
+      Cocktails.query = e.target.value;
+      Cocktails.load(1);
+    }, 350));
+
+    el('shelf-only-toggle').addEventListener('change', e => {
+      Cocktails.shelfOnly = e.target.checked;
+      Cocktails.load(1);
+    });
+
+    el('ingredient-search').addEventListener('input', debounce(e => {
+      Ingredients.query = e.target.value;
+      Ingredients.load(1);
+    }, 350));
+
+    // Load initial view
+    await Shelf.load();
+
+    // Lazy-load other views on tab activation
+    const origGo = Nav.go.bind(Nav);
+    Nav.go = async (view) => {
+      origGo(view);
+      if (view === 'cocktails' && !Cocktails.lastMeta) Cocktails.load();
+      if (view === 'favorites') Favorites.load();
+      if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
+    };
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => App.init());
