@@ -103,6 +103,10 @@
           <div class="manage-icon">📖</div>
           <div>All Cocktails</div>
         </div>
+        <div class="manage-card" onclick="App.nav.go('shopping-list')">
+          <div class="manage-icon">🛒</div>
+          <div>Shopping List</div>
+        </div>
         <div class="manage-card" onclick="App.nav.go('tokens')">
           <div class="manage-icon">🔑</div>
           <div>API Tokens</div>
@@ -112,6 +116,17 @@
           <div>Users</div>
         </div>
       </div>
+    </section>
+
+    <!-- ── SHOPPING LIST VIEW ──────────────────────────────── -->
+    <section id="view-shopping-list" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.back()">← Back</button>
+        <span class="toolbar-title">Shopping List</span>
+        <button class="btn btn-ghost" onclick="App.shoppingList.clearAll()">Clear all</button>
+      </div>
+      <div id="shopping-list-items" class="card-grid"></div>
+      <div id="shopping-list-empty" class="empty-state hidden"><p>Your shopping list is empty.</p></div>
     </section>
 
     <!-- ── INGREDIENTS LIST VIEW ────────────────────────────── -->
@@ -200,6 +215,9 @@
     </button>
     <button class="nav-btn" data-view="favorites" onclick="App.nav.go('favorites')">
       <span class="nav-icon">⭐</span><span class="nav-label">Favorites</span>
+    </button>
+    <button class="nav-btn" data-view="shopping-list" onclick="App.nav.go('shopping-list')">
+      <span class="nav-icon">🛒</span><span class="nav-label">List</span>
     </button>
     <button class="nav-btn" data-view="manage" onclick="App.nav.go('manage')">
       <span class="nav-icon">⚙️</span><span class="nav-label">Manage</span>

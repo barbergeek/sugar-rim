@@ -926,20 +926,104 @@ const Users = {
   }
 };
 
+// ── Shopping List ──────────────────────────────────────────────────────────
+
+const ShoppingList = {
+  async load() {
+    const grid  = el('shopping-list-items');
+    const empty = el('shopping-list-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/shopping-list');
+      const items = d.data || [];
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(item => {
+        const ing = item.ingredient;
+        const onShelf = State.shelfIds.has(ing.id);
+        return `<div class="card row-layout shelf-card">
+          <div class="card-content">
+            <div class="card-name">${escHtml(ing.name)}</div>
+            ${item.quantity ? `<div class="card-sub">Qty: ${item.quantity}</div>` : ''}
+          </div>
+          ${!onShelf ? `<button class="ing-action-btn" style="flex-shrink:0"
+            onclick="App.shoppingList.addToShelf(${ing.id}, '${escHtml(ing.name)}')"
+            title="Add to bar shelf">+ shelf</button>` : ''}
+          <button class="remove-btn" style="position:static;margin-left:${onShelf ? 'auto' : '6px'}"
+            onclick="App.shoppingList.remove(${ing.id})" title="Remove from list">✕</button>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  async remove(id) {
+    try {
+      await post('/api/shopping-list/batch-delete', { ingredients: [{ id }] });
+      const btn = el(`icart-${id}`);
+      if (btn) {
+        btn.textContent = '+ list';
+        btn.className = 'ing-action-btn';
+        btn.title = 'Add to shopping list';
+        Ingredients._cartState.set(id, false);
+      }
+      Toast.show('Removed from list');
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async addToShelf(id, name) {
+    try {
+      await post('/api/shelf/batch', { ingredients: [id] });
+      State.shelfIds.add(id);
+      const shelfBtn = el(`ishelf-${id}`);
+      if (shelfBtn) {
+        shelfBtn.textContent = '✓ shelf';
+        shelfBtn.className = 'ing-action-btn shelf-active';
+        Ingredients._shelfState.set(id, true);
+      }
+      Toast.show(`${name} added to shelf`);
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async clearAll() {
+    if (!confirm('Remove all items from your shopping list?')) return;
+    try {
+      const d = await get('/api/shopping-list');
+      const ids = (d.data || []).map(i => ({ id: i.ingredient.id }));
+      if (!ids.length) return;
+      await post('/api/shopping-list/batch-delete', { ingredients: ids });
+      // Reset any visible ingredient card buttons
+      ids.forEach(({ id }) => {
+        const btn = el(`icart-${id}`);
+        if (btn) { btn.textContent = '+ list'; btn.className = 'ing-action-btn'; }
+        Ingredients._cartState.set(id, false);
+      });
+      Toast.show('Shopping list cleared');
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
 
 
 const App = {
-  nav:         Nav,
-  modal:       Modal,
-  auth:        Auth,
-  shelf:       Shelf,
-  cocktails:   Cocktails,
-  favorites:   Favorites,
-  ingredients: Ingredients,
-  tokens:      Tokens,
-  users:       Users,
-  settings:    Settings,
+  nav:          Nav,
+  modal:        Modal,
+  auth:         Auth,
+  shelf:        Shelf,
+  cocktails:    Cocktails,
+  favorites:    Favorites,
+  ingredients:  Ingredients,
+  shoppingList: ShoppingList,
+  tokens:       Tokens,
+  users:        Users,
+  settings:     Settings,
 
   async init() {
     try {
@@ -983,6 +1067,7 @@ const App = {
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
         if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
+        if (view === 'shopping-list') ShoppingList.load();
         if (view === 'tokens') Tokens.load();
         if (view === 'users') Users.load();
       };
