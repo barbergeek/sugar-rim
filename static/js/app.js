@@ -6,6 +6,10 @@ async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const resp = await fetch(path, opts);
+  if (resp.status === 401 && path !== '/config') {
+    App.nav.go('login');
+    throw new Error('Please login');
+  }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error || data.message || `HTTP ${resp.status}`);
   return data;
@@ -94,8 +98,20 @@ const Settings = {
       el('cfg-url').value = cfg.api_url || '';
       el('cfg-token-status').textContent = cfg.token_set ? '✓ Token is set' : 'No token saved yet';
       el('cfg-token-status').className = 'cfg-status ' + (cfg.token_set ? 'ok' : 'err');
-      if (cfg.token_set) await this._loadBars(cfg.bar_id);
+      if (cfg.token_set) {
+        await this._loadBars(cfg.bar_id);
+        this.loadVersion();
+      }
     } catch (e) { /* silent */ }
+  },
+
+  async loadVersion() {
+    try {
+      const d = await get('/api/server/version');
+      el('server-version').textContent = `API Version: ${d.data?.version || 'Unknown'}`;
+    } catch (e) {
+      el('server-version').textContent = 'API Version: Error';
+    }
   },
 
   async saveCredentials() {
@@ -210,9 +226,13 @@ const Shelf = {
     if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     grid.innerHTML = items.map(i => {
-      return `<div class="card shelf-card">
-        <div class="card-name">${escHtml(i.name)}</div>
-        <button class="remove-btn" onclick="App.shelf.remove(${i.id})" title="Remove from shelf">✕</button>
+      const thumb = i.images?.[0] ? `<img src="/api/images/${i.images[0].id}/thumb" class="card-thumb">` : '';
+      return `<div class="card shelf-card row-layout">
+        ${thumb}
+        <div class="card-content">
+          <div class="card-name">${escHtml(i.name)}</div>
+        </div>
+        <button class="remove-btn" style="position:static;margin-left:auto;" onclick="App.shelf.remove(${i.id})" title="Remove from shelf">✕</button>
       </div>`;
     }).join('');
   },
@@ -312,10 +332,15 @@ const Cocktails = {
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav">★</span>' : '';
     const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
-    return `<div class="card" onclick="App.cocktails.open(${c.id})">
-      <div class="card-name">${escHtml(c.name)}${fav}</div>
-      ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
-      ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+    const imgUrl = c.images?.[0]?.url;
+    const thumb = imgUrl ? `<img src="${escHtml(imgUrl)}" class="card-thumb" loading="lazy">` : '';
+    return `<div class="card row-layout" onclick="App.cocktails.open(${c.id})">
+      ${thumb}
+      <div class="card-content">
+        <div class="card-name" style="display:flex;align-items:center;">${escHtml(c.name)}${fav}</div>
+        ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
+        ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+      </div>
     </div>`;
   },
 
@@ -358,15 +383,18 @@ const Cocktails = {
 
     const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
 
+    const imgHtml = c.images?.[0] ? `<img class="detail-image-side" src="${escHtml(c.images[0].url)}" alt="${escHtml(c.name)}">` : '';
     el('detail-body').innerHTML = `
-      ${c.images?.[0] ? `<img class="detail-image" src="${escHtml(c.images[0].url)}" alt="${escHtml(c.name)}">` : ''}
-      <div class="detail-section">
-        <div class="detail-meta">
-          ${c.glass   ? `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>` : ''}
-          ${c.method  ? `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>` : ''}
-          ${c.abv     ? `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>` : ''}
+      <div class="detail-hero">
+        ${imgHtml}
+        <div class="detail-section" style="flex:1;min-width:0;margin-bottom:0">
+          <div class="detail-meta">
+            ${c.glass   ? `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>` : ''}
+            ${c.method  ? `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>` : ''}
+            ${c.abv     ? `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>` : ''}
+          </div>
+          ${tags ? `<div class="card-tags">${tags}</div>` : ''}
         </div>
-        ${tags ? `<div class="card-tags" style="margin-top:8px">${tags}</div>` : ''}
       </div>
       <div class="detail-section"><h3>Ingredients</h3>${ings || '<p style="color:var(--text-dim)">None listed</p>'}</div>
       ${c.instructions ? `<div class="detail-section"><h3>Instructions</h3><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
@@ -505,10 +533,14 @@ const Ingredients = {
       empty.classList.add('hidden');
       grid.innerHTML = items.map(i => {
         const onShelf = State.shelfIds.has(i.id);
-        return `<div class="card" onclick="App.ingredients.showEdit(${i.id})">
-          <div class="card-name">${escHtml(i.name)}</div>
-          <div class="card-sub">${escHtml(i.category?.name || '')}</div>
-          ${onShelf ? '<div class="card-tags"><span class="tag on-shelf">on shelf</span></div>' : ''}
+        const thumb = i.images?.[0] ? `<img src="/api/images/${i.images[0].id}/thumb" class="card-thumb">` : '';
+        return `<div class="card row-layout" onclick="App.ingredients.showEdit(${i.id})">
+          ${thumb}
+          <div class="card-content">
+            <div class="card-name">${escHtml(i.name)}</div>
+            <div class="card-sub">${escHtml(i.category?.name || '')}</div>
+            ${onShelf ? '<div class="card-tags"><span class="tag on-shelf">on shelf</span></div>' : ''}
+          </div>
         </div>`;
       }).join('');
       this._renderPagination();
@@ -592,51 +624,257 @@ const Ingredients = {
   }
 };
 
+// ── Tokens ─────────────────────────────────────────────────────────────────
+
+const Tokens = {
+  async load() {
+    const grid  = el('token-list');
+    const empty = el('token-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/tokens');
+      const items = d.data || [];
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(t => `
+        <div class="card shelf-card">
+          <div class="card-name">${escHtml(t.token_name || t.name)}</div>
+          <div class="card-sub">Abilities: ${escHtml(t.abilities?.join(', ') || 'none')}</div>
+          <div class="card-sub">Last used: ${t.last_used_at ? new Date(t.last_used_at).toLocaleDateString() : 'Never'}</div>
+          <button class="remove-btn" onclick="App.tokens.delete(${t.id})" title="Revoke token">✕</button>
+        </div>`).join('');
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  showCreate() {
+    Modal.open('New API Token',
+      `<div class="form-group">
+        <label class="form-label">Token Name *</label>
+        <input class="text-input" id="tf-name" placeholder="e.g. Mobile App">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Abilities (comma-separated)</label>
+        <input class="text-input" id="tf-abilities" value="*" placeholder="e.g. *, cocktails.read">
+        <p style="font-size:0.75rem;color:var(--text-dim);margin-top:4px">Use <strong>*</strong> for full access.</p>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" onclick="App.tokens.submit()">Create Token</button>`
+    );
+    el('tf-name').focus();
+  },
+
+  async submit() {
+    const name = el('tf-name').value.trim();
+    const abilities = el('tf-abilities').value.split(',').map(s => s.trim()).filter(Boolean);
+    if (!name) { Toast.err('Name is required'); return; }
+    try {
+      const d = await post('/api/tokens', { name, abilities });
+      const plainToken = d.data?.token;
+      Modal.open('Token Created',
+        `<p style="font-size:0.9rem;margin-bottom:12px">Copy this token now. It will not be shown again!</p>
+         <div class="card" style="background:var(--bg-deep);cursor:text;user-select:all;word-break:break-all;font-family:monospace;font-size:0.85rem;padding:12px;border:1px solid var(--accent)">
+           ${escHtml(plainToken)}
+         </div>`,
+        `<button class="btn btn-primary" onclick="App.modal.close(); App.tokens.load()">I have copied it</button>`
+      );
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async delete(id) {
+    if (!confirm('Are you sure you want to revoke this token?')) return;
+    try {
+      await del(`/api/tokens/${id}`);
+      Toast.show('Token revoked');
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+
+const Auth = {
+  async login() {
+    const email = el('login-email').value.trim();
+    const password = el('login-pass').value.trim();
+    const msg = el('login-msg');
+    if (!email || !password) { msg.textContent = 'Enter email and password'; return; }
+    msg.textContent = 'Logging in…';
+    try {
+      const d = await post('/api/auth/login', { email, password });
+      Toast.show(`Welcome, ${d.user?.name || 'User'}`);
+      el('logout-btn').classList.remove('hidden');
+      App.init(); // Refresh config and go to shelf
+    } catch (e) {
+      msg.textContent = e.message;
+    }
+  },
+
+  async logout() {
+    try {
+      await post('/api/auth/logout');
+      el('logout-btn').classList.add('hidden');
+      App.nav.go('login');
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
+// ── Users ──────────────────────────────────────────────────────────────────
+
+const Users = {
+  async load() {
+    const grid  = el('user-list');
+    const empty = el('user-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/users');
+      const items = d.data || [];
+      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = items.map(u => `
+        <div class="card shelf-card">
+          <div class="card-name">${escHtml(u.name)}</div>
+          <div class="card-sub">${escHtml(u.email)}</div>
+          <div class="card-sub">Role: ${u.is_admin ? 'Admin' : 'User'}</div>
+          <button class="remove-btn" onclick="App.users.delete(${u.id})" title="Delete user">✕</button>
+        </div>`).join('');
+    } catch (e) {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.querySelector('p').textContent = e.message;
+    }
+  },
+
+  showCreate() {
+    Modal.open('New User',
+      `<div class="form-group">
+        <label class="form-label">Name *</label>
+        <input class="text-input" id="uf-name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email *</label>
+        <input type="email" class="text-input" id="uf-email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password *</label>
+        <input type="password" class="text-input" id="uf-pass">
+      </div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" onclick="App.users.submit()">Create User</button>`
+    );
+  },
+
+  async submit() {
+    const name = el('uf-name').value;
+    const email = el('uf-email').value;
+    const password = el('uf-pass').value;
+    if (!name || !email || !password) { Toast.err('All fields are required'); return; }
+    try {
+      await post('/api/users', { name, email, password });
+      Toast.show('User created');
+      Modal.close();
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async delete(id) {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    try {
+      await del(`/api/users/${id}`);
+      Toast.show('User deleted');
+      this.load();
+    } catch (e) { Toast.err(e.message); }
+  }
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
+
 
 const App = {
   nav:         Nav,
   modal:       Modal,
+  auth:        Auth,
   shelf:       Shelf,
   cocktails:   Cocktails,
   favorites:   Favorites,
   ingredients: Ingredients,
+  tokens:      Tokens,
+  users:       Users,
   settings:    Settings,
 
   async init() {
-    await Settings.load();
-    await State.loadProfile();
-    await State.loadShelfIds();
+    try {
+      const cfg = await get('/config');
+      if (!cfg.api_url) {
+        this.nav.go('settings');
+        return;
+      }
+      if (!cfg.is_logged_in) {
+        el('logout-btn').classList.add('hidden');
+        this.nav.go('login');
+        return;
+      }
 
-    // Wire search inputs
-    el('shelf-search').addEventListener('input', debounce(e => Shelf.filter(e.target.value), 250));
+      el('logout-btn').classList.remove('hidden');
+      this.loadVersion();
 
-    el('cocktail-search').addEventListener('input', debounce(e => {
-      Cocktails.query = e.target.value;
-      Cocktails.load(1);
-    }, 350));
+      // Wire search inputs
+      el('shelf-search').addEventListener('input', debounce(e => Shelf.filter(e.target.value), 250));
+      el('cocktail-search').addEventListener('input', debounce(e => {
+        Cocktails.query = e.target.value;
+        Cocktails.load(1);
+      }, 350));
+      el('shelf-only-toggle').addEventListener('change', e => {
+        Cocktails.shelfOnly = e.target.checked;
+        Cocktails.load(1);
+      });
+      el('ingredient-search').addEventListener('input', debounce(e => {
+        Ingredients.query = e.target.value;
+        Ingredients.load(1);
+      }, 350));
 
-    el('shelf-only-toggle').addEventListener('change', e => {
-      Cocktails.shelfOnly = e.target.checked;
-      Cocktails.load(1);
-    });
+      // Load initial view
+      await Cocktails.load();
+      this.nav.go('cocktails');
 
-    el('ingredient-search').addEventListener('input', debounce(e => {
-      Ingredients.query = e.target.value;
-      Ingredients.load(1);
-    }, 350));
+      // Lazy-load other views on tab activation
+      const origGo = Nav.go.bind(Nav);
+      Nav.go = async (view) => {
+        origGo(view);
+        if (view === 'shelf' && !Shelf.items.length) Shelf.load();
+        if (view === 'favorites') Favorites.load();
+        if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
+        if (view === 'tokens') Tokens.load();
+        if (view === 'users') Users.load();
+      };
+    } catch (e) {
+      if (e.message !== 'Please login') console.error('Init error:', e);
+    }
+  },
 
-    // Load initial view
-    await Shelf.load();
+  async _loadBars(selectedId) {
+    try {
+      const d = await get('/api/bars');
+      const bars = d.data || [];
+      const sel = el('cfg-bar');
+      sel.innerHTML = bars.map(b => `<option value="${b.id}" ${b.id == selectedId ? 'selected' : ''}>${escHtml(b.name)}</option>`).join('');
+      if (!selectedId && bars.length) {
+        el('cfg-bar').value = bars[0].id;
+        this.saveBar();
+      }
+    } catch (e) { /* silent */ }
+  },
 
-    // Lazy-load other views on tab activation
-    const origGo = Nav.go.bind(Nav);
-    Nav.go = async (view) => {
-      origGo(view);
-      if (view === 'cocktails' && !Cocktails.lastMeta) Cocktails.load();
-      if (view === 'favorites') Favorites.load();
-      if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
-    };
+  async loadVersion() {
+    try {
+      const d = await get('/api/server/version');
+      el('server-version').textContent = `API Version: ${d.data?.version || 'Unknown'}`;
+    } catch (e) {
+      el('server-version').textContent = 'API Version: Error';
+    }
   }
 };
 
