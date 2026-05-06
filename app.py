@@ -326,7 +326,7 @@ def shopping_list():
     uid = get_user_id()
     if not uid:
         return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
-    return proxy("GET", f"/users/{uid}/shopping-list", bar_ctx=False)
+    return proxy("GET", f"/users/{uid}/shopping-list")
 
 
 @app.route("/api/shopping-list/batch", methods=["POST"])
@@ -334,7 +334,7 @@ def shopping_list_batch():
     uid = get_user_id()
     if not uid:
         return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
-    return proxy("POST", f"/users/{uid}/shopping-list/batch-store", bar_ctx=False, json=request.get_json(force=True))
+    return proxy("POST", f"/users/{uid}/shopping-list/batch-store", json=request.get_json(force=True))
 
 
 @app.route("/api/shopping-list/batch-delete", methods=["POST"])
@@ -342,7 +342,7 @@ def shopping_list_batch_delete():
     uid = get_user_id()
     if not uid:
         return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
-    return proxy("POST", f"/users/{uid}/shopping-list/batch-delete", bar_ctx=False, json=request.get_json(force=True))
+    return proxy("POST", f"/users/{uid}/shopping-list/batch-delete", json=request.get_json(force=True))
 
 
 # ── Tokens ────────────────────────────────────────────────────────────────────
