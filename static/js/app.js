@@ -596,19 +596,19 @@ const Ingredients = {
   _card(i) {
     const onShelf = this._shelfState.get(i.id);
     const inCart  = this._cartState.get(i.id);
-    return `<div class="card row-layout" onclick="App.ingredients.showEdit(${i.id})">
+    return `<div class="card row-layout" onclick="if(!event.target.closest('.ing-actions')) App.ingredients.showEdit(${i.id})">
       <div class="card-thumb-slot" id="ithumb-${i.id}"></div>
       <div class="card-content">
         <div class="card-name">${escHtml(i.name)}</div>
         ${i.strength ? `<div class="card-sub">${i.strength}% ABV</div>` : ''}
         <div class="ing-actions">
           <button class="ing-action-btn ${onShelf ? 'shelf-active' : ''}" id="ishelf-${i.id}"
-            onclick="event.stopPropagation(); App.ingredients.toggleShelf(${i.id})"
+            onclick="App.ingredients.toggleShelf(${i.id})"
             title="${onShelf ? 'Remove from bar shelf' : 'Add to bar shelf'}">
             ${onShelf ? '✓ shelf' : '+ shelf'}
           </button>
           <button class="ing-action-btn ${inCart ? 'cart-active' : ''}" id="icart-${i.id}"
-            onclick="event.stopPropagation(); App.ingredients.toggleCart(${i.id})"
+            onclick="App.ingredients.toggleCart(${i.id})"
             title="${inCart ? 'Remove from shopping list' : 'Add to shopping list'}">
             ${inCart ? '✓ list' : '+ list'}
           </button>

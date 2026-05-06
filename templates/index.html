@@ -4,13 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Sugar Rim</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=2">
 </head>
 <body>
   <header id="app-header">
     <span class="app-title">🍹 Sugar Rim</span>
     <span id="header-subtitle" class="header-subtitle"></span>
+    <button id="logout-btn" class="btn btn-ghost btn-sm hidden" style="margin-left: auto; padding: 4px 8px; font-size: 0.75rem" onclick="App.auth.logout()">Logout</button>
   </header>
+
+  <!-- ── LOGIN VIEW ───────────────────────────────────────── -->
+  <section id="view-login" class="view" style="justify-content: center; align-items: center; padding: 20px; z-index: 200; background: var(--bg-deep);">
+    <div class="settings-form" style="background: var(--bg-glass); border: 1px solid var(--border); border-radius: 24px; padding: 32px; width: 100%; max-width: 400px; backdrop-filter: var(--blur)">
+      <h1 class="app-title" style="font-size: 2rem; margin-bottom: 24px; text-align: center">Sugar Rim</h1>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="login-email" class="text-input" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="login-pass" class="text-input" placeholder="••••••••" onkeydown="if(event.key==='Enter') App.auth.login()">
+      </div>
+      <button class="btn btn-primary btn-wide" style="margin-top: 12px" onclick="App.auth.login()">Login</button>
+      <div id="login-msg" class="cfg-status" style="margin-top: 12px; text-align: center"></div>
+      <hr>
+      <button class="btn btn-ghost btn-wide" onclick="App.nav.go('settings')">Server Settings</button>
+    </div>
+  </section>
 
   <main id="app-main">
 
@@ -80,6 +103,14 @@
           <div class="manage-icon">📖</div>
           <div>All Cocktails</div>
         </div>
+        <div class="manage-card" onclick="App.nav.go('tokens')">
+          <div class="manage-icon">🔑</div>
+          <div>API Tokens</div>
+        </div>
+        <div class="manage-card" onclick="App.nav.go('users')">
+          <div class="manage-icon">👥</div>
+          <div>Users</div>
+        </div>
       </div>
     </section>
 
@@ -93,6 +124,36 @@
       <div id="ingredient-list" class="card-grid"></div>
       <div id="ingredient-empty" class="empty-state hidden"><p>No ingredients found.</p></div>
       <div class="pagination-bar" id="ingredient-pagination"></div>
+    </section>
+
+    <!-- ── TOKENS LIST VIEW ────────────────────────────────── -->
+    <section id="view-tokens" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
+        <span class="toolbar-title">API Tokens</span>
+        <button class="btn btn-primary" onclick="App.tokens.showCreate()">+ New</button>
+      </div>
+      <div id="token-list" class="card-grid"></div>
+      <div id="token-empty" class="empty-state hidden"><p>No tokens found.</p></div>
+      <div class="detail-body">
+        <div class="detail-section">
+          <h3>Token Abilities</h3>
+          <p class="detail-instructions" style="font-size: 0.85rem">
+            Tokens with <strong>*</strong> have full access. Other abilities include <code>cocktails.read</code>, <code>ingredients.write</code>, etc.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── USERS LIST VIEW ──────────────────────────────────── -->
+    <section id="view-users" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
+        <span class="toolbar-title">Users</span>
+        <button class="btn btn-primary" onclick="App.users.showCreate()">+ New</button>
+      </div>
+      <div id="user-list" class="card-grid"></div>
+      <div id="user-empty" class="empty-state hidden"><p>No users found.</p></div>
     </section>
 
     <!-- ── SETTINGS VIEW ────────────────────────────────────── -->
@@ -123,17 +184,19 @@
           <li>Go to Profile → Personal Access Tokens</li>
           <li>Create a new token and paste it above</li>
         </ol>
+        <hr>
+        <div class="header-subtitle" id="server-version">API Version: Loading…</div>
       </div>
     </section>
 
   </main>
 
   <nav id="app-nav">
-    <button class="nav-btn active" data-view="shelf" onclick="App.nav.go('shelf')">
-      <span class="nav-icon">🥃</span><span class="nav-label">Shelf</span>
-    </button>
-    <button class="nav-btn" data-view="cocktails" onclick="App.nav.go('cocktails')">
+    <button class="nav-btn active" data-view="cocktails" onclick="App.nav.go('cocktails')">
       <span class="nav-icon">🍸</span><span class="nav-label">Cocktails</span>
+    </button>
+    <button class="nav-btn" data-view="shelf" onclick="App.nav.go('shelf')">
+      <span class="nav-icon">🥃</span><span class="nav-label">Shelf</span>
     </button>
     <button class="nav-btn" data-view="favorites" onclick="App.nav.go('favorites')">
       <span class="nav-icon">⭐</span><span class="nav-label">Favorites</span>
@@ -161,6 +224,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=2"></script>
 </body>
 </html>

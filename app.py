@@ -1,15 +1,26 @@
 import os
 import secrets
+from datetime import timedelta
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
 from dotenv import load_dotenv, set_key
 
 load_dotenv()
 
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY") or secrets.token_hex(32)
-
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+
+# Persist secret key in .env so sessions survive server restarts
+_secret = os.getenv("SECRET_KEY")
+if not _secret:
+    _secret = secrets.token_hex(32)
+    if not os.path.exists(ENV_PATH):
+        open(ENV_PATH, "w").close()
+    set_key(ENV_PATH, "SECRET_KEY", _secret)
+    os.environ["SECRET_KEY"] = _secret
+
+app = Flask(__name__)
+app.secret_key = _secret
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 
 def ba_headers():
@@ -108,6 +119,7 @@ def login():
         resp = http.post(url, json=body, headers={"Accept": "application/json"}, timeout=15)
         data = resp.json()
         if resp.ok:
+            session.permanent = True
             session["ba_token"] = data["data"]["token"]
             session.pop("ba_user_id", None)  # cleared so it's re-fetched fresh
             return jsonify({"ok": True})
