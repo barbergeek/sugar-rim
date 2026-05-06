@@ -332,8 +332,8 @@ const Cocktails = {
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav">★</span>' : '';
     const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
-    const imgUrl = c.images?.[0]?.url;
-    const thumb = imgUrl ? `<img src="${escHtml(imgUrl)}" class="card-thumb" loading="lazy">` : '';
+    const imgId = c.images?.[0]?.id;
+    const thumb = imgId ? `<img src="/api/images/${imgId}/thumb" class="card-thumb" loading="lazy">` : '';
     return `<div class="card row-layout" onclick="App.cocktails.open(${c.id})">
       ${thumb}
       <div class="card-content">
@@ -383,7 +383,7 @@ const Cocktails = {
 
     const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
 
-    const imgHtml = c.images?.[0] ? `<img class="detail-image-side" src="${escHtml(c.images[0].url)}" alt="${escHtml(c.name)}">` : '';
+    const imgHtml = c.images?.[0] ? `<img class="detail-image-side" src="/api/images/${c.images[0].id}/thumb" alt="${escHtml(c.name)}">` : '';
     el('detail-body').innerHTML = `
       <div class="detail-hero">
         ${imgHtml}

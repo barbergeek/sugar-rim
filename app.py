@@ -1,6 +1,6 @@
 import os
 import secrets
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
 from dotenv import load_dotenv, set_key
 
@@ -14,7 +14,7 @@ ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
 def ba_headers():
     """Headers with bar ID — for bar-scoped endpoints."""
-    token  = os.getenv("BA_API_TOKEN", "")
+    token  = session.get("ba_token")
     bar_id = os.getenv("BA_BAR_ID", "")
     h = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
@@ -26,7 +26,7 @@ def ba_headers():
 
 def auth_headers():
     """Auth-only headers — no bar ID. For endpoints addressed by URL parameter."""
-    token = os.getenv("BA_API_TOKEN", "")
+    token = session.get("ba_token")
     h = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
         h["Authorization"] = f"Bearer {token}"
@@ -35,6 +35,8 @@ def auth_headers():
 
 def ba_url(path):
     base = os.getenv("BA_API_URL", "").rstrip("/")
+    if base and not base.endswith("/api"):
+        base += "/api"
     return f"{base}/{path.lstrip('/')}"
 
 
@@ -73,9 +75,9 @@ def index():
 @app.route("/config", methods=["GET"])
 def get_config():
     return jsonify({
-        "api_url":   os.getenv("BA_API_URL", ""),
-        "token_set": bool(os.getenv("BA_API_TOKEN", "")),
-        "bar_id":    os.getenv("BA_BAR_ID", ""),
+        "api_url":      os.getenv("BA_API_URL", ""),
+        "bar_id":       os.getenv("BA_BAR_ID", ""),
+        "is_logged_in": "ba_token" in session
     })
 
 
@@ -96,7 +98,45 @@ def set_config():
     return jsonify({"ok": True})
 
 
-# ── Bars ──────────────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    body = request.get_json(force=True)
+    url = ba_url("/auth/login")
+    try:
+        resp = http.post(url, json=body, headers={"Accept": "application/json"}, timeout=15)
+        data = resp.json()
+        if resp.ok:
+            session["ba_token"] = data["data"]["token"]
+            return jsonify({"ok": True})
+        return jsonify(data), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    session.pop("ba_token", None)
+    return jsonify({"ok": True})
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+@app.route("/api/users", methods=["GET", "POST"])
+def users():
+    if request.method == "POST":
+        return proxy("POST", "/users", bar_ctx=False, json=request.get_json(force=True))
+    return proxy("GET", "/users", bar_ctx=False)
+
+
+@app.route("/api/users/<uid>", methods=["GET", "PUT", "DELETE"])
+def user(uid):
+    if request.method == "PUT":
+        return proxy("PUT", f"/users/{uid}", bar_ctx=False, json=request.get_json(force=True))
+    if request.method == "DELETE":
+        return proxy("DELETE", f"/users/{uid}", bar_ctx=False)
+    return proxy("GET", f"/users/{uid}", bar_ctx=False)
 
 @app.route("/api/bars")
 def bars():
@@ -179,6 +219,49 @@ def ingredient_cocktails(iid):
     return proxy("GET", f"/ingredients/{iid}/cocktails")
 
 
+# ── Utensils ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/utensils")
+def utensils():
+    return proxy("GET", "/utensils")
+
+
+@app.route("/api/utensils/<uid>")
+def utensil(uid):
+    return proxy("GET", f"/utensils/{uid}")
+
+
+# ── Collections ───────────────────────────────────────────────────────────────
+
+@app.route("/api/collections")
+def collections():
+    return proxy("GET", "/collections")
+
+
+@app.route("/api/collections/<cid>")
+def collection(cid):
+    return proxy("GET", f"/collections/{cid}")
+
+
+# ── Notes ─────────────────────────────────────────────────────────────────────
+
+@app.route("/api/notes")
+def notes():
+    return proxy("GET", "/notes")
+
+
+# ── Images ────────────────────────────────────────────────────────────────────
+
+@app.route("/api/images/<iid>/thumb")
+def image_thumb(iid):
+    url = ba_url(f"/images/{iid}/thumb")
+    try:
+        resp = http.get(url, headers=auth_headers(), timeout=10)
+        return resp.content, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "image/jpeg")}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
 # ── Bar shelf ─────────────────────────────────────────────────────────────────
 # Uses /bars/{id}/... endpoints — bar ID is in the URL, no Bar-Assistant-Bar-Id
 # header required, so bar_ctx=False. Requires ability:* on the token.
@@ -207,6 +290,20 @@ def shelf_batch_delete():
     return proxy("POST", f"/bars/{bid}/ingredients/batch-delete", bar_ctx=False, json=request.get_json(force=True))
 
 
+# ── Tokens ────────────────────────────────────────────────────────────────────
+
+@app.route("/api/tokens", methods=["GET", "POST"])
+def tokens():
+    if request.method == "POST":
+        return proxy("POST", "/tokens", bar_ctx=False, json=request.get_json(force=True))
+    return proxy("GET", "/tokens", bar_ctx=False)
+
+
+@app.route("/api/tokens/<tid>", methods=["DELETE"])
+def delete_token(tid):
+    return proxy("DELETE", f"/tokens/{tid}", bar_ctx=False)
+
+
 # ── Favorites ─────────────────────────────────────────────────────────────────
 # Uses filter[favorites]=1 on the cocktails endpoint — only needs cocktails.read.
 
@@ -218,8 +315,10 @@ def favorites():
 # ── Profile ───────────────────────────────────────────────────────────────────
 # Requires ability:* on the token. Used for display only; failures are non-fatal.
 
-@app.route("/api/profile")
+@app.route("/api/profile", methods=["GET", "PUT"])
 def profile():
+    if request.method == "PUT":
+        return proxy("PUT", "/profile", bar_ctx=False, json=request.get_json(force=True))
     return proxy("GET", "/profile", bar_ctx=False)
 
 
@@ -237,7 +336,14 @@ def tags():
 
 @app.route("/api/methods")
 def methods():
-    return proxy("GET", "/methods")
+    return proxy("GET", "/cocktail-methods")
+
+
+# ── Server ────────────────────────────────────────────────────────────────────
+
+@app.route("/api/server/version")
+def server_version():
+    return proxy("GET", "/server/version", bar_ctx=False)
 
 
 if __name__ == "__main__":
