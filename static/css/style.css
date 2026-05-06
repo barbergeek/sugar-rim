@@ -299,6 +299,36 @@ textarea.text-input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ing-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ing-action-btn {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  letter-spacing: 0.02em;
+  font-family: var(--font);
+}
+.ing-action-btn:hover { background: var(--bg-glass-heavy); color: var(--text); }
+.ing-action-btn.shelf-active {
+  background: rgba(110, 231, 123, 0.12);
+  border-color: rgba(110, 231, 123, 0.3);
+  color: #6ee77b;
+}
+.ing-action-btn.cart-active {
+  background: rgba(249, 212, 35, 0.12);
+  border-color: rgba(249, 212, 35, 0.3);
+  color: var(--accent2);
+}
 .card-rating {
   display: flex;
   align-items: center;

@@ -109,6 +109,7 @@ def login():
         data = resp.json()
         if resp.ok:
             session["ba_token"] = data["data"]["token"]
+            session.pop("ba_user_id", None)  # cleared so it's re-fetched fresh
             return jsonify({"ok": True})
         return jsonify(data), resp.status_code
     except Exception as e:
@@ -118,7 +119,23 @@ def login():
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
     session.pop("ba_token", None)
+    session.pop("ba_user_id", None)
     return jsonify({"ok": True})
+
+
+def get_user_id():
+    if "ba_user_id" in session:
+        return session["ba_user_id"]
+    try:
+        resp = http.get(ba_url("/profile"), headers=auth_headers(), timeout=10)
+        if resp.ok:
+            uid = resp.json().get("data", {}).get("id")
+            if uid:
+                session["ba_user_id"] = uid
+                return uid
+    except Exception:
+        pass
+    return None
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -288,6 +305,32 @@ def shelf_batch_delete():
     if err:
         return err
     return proxy("POST", f"/bars/{bid}/ingredients/batch-delete", bar_ctx=False, json=request.get_json(force=True))
+
+
+# ── Shopping list ─────────────────────────────────────────────────────────────
+
+@app.route("/api/shopping-list")
+def shopping_list():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
+    return proxy("GET", f"/users/{uid}/shopping-list", bar_ctx=False)
+
+
+@app.route("/api/shopping-list/batch", methods=["POST"])
+def shopping_list_batch():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
+    return proxy("POST", f"/users/{uid}/shopping-list/batch-store", bar_ctx=False, json=request.get_json(force=True))
+
+
+@app.route("/api/shopping-list/batch-delete", methods=["POST"])
+def shopping_list_batch_delete():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
+    return proxy("POST", f"/users/{uid}/shopping-list/batch-delete", bar_ctx=False, json=request.get_json(force=True))
 
 
 # ── Tokens ────────────────────────────────────────────────────────────────────

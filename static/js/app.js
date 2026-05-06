@@ -561,6 +561,9 @@ const Ingredients = {
   page: 1,
   lastMeta: null,
   query: '',
+  _cache: new Map(),
+  _shelfState: new Map(),
+  _cartState: new Map(),
 
   async load(page = 1) {
     this.page = page;
@@ -575,24 +578,108 @@ const Ingredients = {
       this.lastMeta = d.meta;
       if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); this._renderPagination(); return; }
       empty.classList.add('hidden');
-      grid.innerHTML = items.map(i => {
-        const onShelf = State.shelfIds.has(i.id);
-        const thumb = i.images?.[0] ? `<img src="/api/images/${i.images[0].id}/thumb" class="card-thumb">` : '';
-        return `<div class="card row-layout" onclick="App.ingredients.showEdit(${i.id})">
-          ${thumb}
-          <div class="card-content">
-            <div class="card-name">${escHtml(i.name)}</div>
-            <div class="card-sub">${escHtml(i.category?.name || '')}</div>
-            ${onShelf ? '<div class="card-tags"><span class="tag on-shelf">on shelf</span></div>' : ''}
-          </div>
-        </div>`;
-      }).join('');
+      items.forEach(i => {
+        this._shelfState.set(i.id, !!i.in_bar_shelf);
+        this._cartState.set(i.id, !!i.in_shopping_list);
+        if (i.in_bar_shelf) State.shelfIds.add(i.id);
+      });
+      grid.innerHTML = items.map(i => this._card(i)).join('');
       this._renderPagination();
+      this._enrichCards(items);
     } catch (e) {
       grid.innerHTML = '';
       empty.classList.remove('hidden');
       empty.querySelector('p').textContent = e.message;
     }
+  },
+
+  _card(i) {
+    const onShelf = this._shelfState.get(i.id);
+    const inCart  = this._cartState.get(i.id);
+    return `<div class="card row-layout" onclick="App.ingredients.showEdit(${i.id})">
+      <div class="card-thumb-slot" id="ithumb-${i.id}"></div>
+      <div class="card-content">
+        <div class="card-name">${escHtml(i.name)}</div>
+        ${i.strength ? `<div class="card-sub">${i.strength}% ABV</div>` : ''}
+        <div class="ing-actions" onclick="event.stopPropagation()">
+          <button class="ing-action-btn ${onShelf ? 'shelf-active' : ''}" id="ishelf-${i.id}"
+            onclick="App.ingredients.toggleShelf(${i.id})"
+            title="${onShelf ? 'Remove from bar shelf' : 'Add to bar shelf'}">
+            ${onShelf ? '✓ shelf' : '+ shelf'}
+          </button>
+          <button class="ing-action-btn ${inCart ? 'cart-active' : ''}" id="icart-${i.id}"
+            onclick="App.ingredients.toggleCart(${i.id})"
+            title="${inCart ? 'Remove from shopping list' : 'Add to shopping list'}">
+            ${inCart ? '✓ list' : '+ list'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+  },
+
+  async _enrichCards(items) {
+    await Promise.all(items.map(async i => {
+      try {
+        const cached = this._cache.get(i.id);
+        const data = cached ?? (await get(`/api/ingredients/${i.id}`)).data;
+        if (!cached) this._cache.set(i.id, data);
+        const slot = el(`ithumb-${i.id}`);
+        if (!slot) return;
+        if (data.images?.[0]) {
+          const img = document.createElement('img');
+          img.src = `/api/images/${data.images[0].id}/thumb`;
+          img.className = 'card-thumb';
+          img.loading = 'lazy';
+          slot.replaceWith(img);
+        } else {
+          slot.className = 'card-thumb-empty';
+        }
+      } catch (e) { /* silent */ }
+    }));
+  },
+
+  async toggleShelf(id) {
+    const onShelf = this._shelfState.get(id);
+    try {
+      if (onShelf) {
+        await post('/api/shelf/batch-delete', { ingredients: [id] });
+        State.shelfIds.delete(id);
+        this._shelfState.set(id, false);
+      } else {
+        await post('/api/shelf/batch', { ingredients: [id] });
+        State.shelfIds.add(id);
+        this._shelfState.set(id, true);
+      }
+      const btn = el(`ishelf-${id}`);
+      if (btn) {
+        const now = !onShelf;
+        btn.textContent = now ? '✓ shelf' : '+ shelf';
+        btn.className   = 'ing-action-btn' + (now ? ' shelf-active' : '');
+        btn.title       = now ? 'Remove from bar shelf' : 'Add to bar shelf';
+      }
+      Toast.show(onShelf ? 'Removed from shelf' : 'Added to shelf');
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async toggleCart(id) {
+    const inCart = this._cartState.get(id);
+    try {
+      if (inCart) {
+        await post('/api/shopping-list/batch-delete', { ingredients: [{ id }] });
+        this._cartState.set(id, false);
+      } else {
+        await post('/api/shopping-list/batch', { ingredients: [{ id, quantity: 1 }] });
+        this._cartState.set(id, true);
+      }
+      const btn = el(`icart-${id}`);
+      if (btn) {
+        const now = !inCart;
+        btn.textContent = now ? '✓ list' : '+ list';
+        btn.className   = 'ing-action-btn' + (now ? ' cart-active' : '');
+        btn.title       = now ? 'Remove from shopping list' : 'Add to shopping list';
+      }
+      Toast.show(inCart ? 'Removed from shopping list' : 'Added to shopping list');
+    } catch (e) { Toast.err(e.message); }
   },
 
   _renderPagination() {
@@ -610,9 +697,12 @@ const Ingredients = {
   },
 
   async showEdit(id) {
+    const cached = this._cache.get(id);
+    if (cached) { this._showForm(cached); return; }
     Modal.open('Loading…', '<div class="loading-row"><div class="spinner"></div></div>', '');
     try {
       const d = await get(`/api/ingredients/${id}`);
+      this._cache.set(id, d.data);
       this._showForm(d.data);
     } catch (e) { Modal.close(); Toast.err(e.message); }
   },
@@ -646,6 +736,7 @@ const Ingredients = {
     try {
       if (id) {
         await put(`/api/ingredients/${id}`, body);
+        this._cache.delete(id);
         Toast.show('Ingredient updated');
       } else {
         await post('/api/ingredients', body);
@@ -661,6 +752,7 @@ const Ingredients = {
     if (!confirm('Delete this ingredient?')) return;
     try {
       await del(`/api/ingredients/${id}`);
+      this._cache.delete(id);
       Toast.show('Deleted');
       Modal.close();
       this.load(this.page);
