@@ -601,14 +601,14 @@ const Ingredients = {
       <div class="card-content">
         <div class="card-name">${escHtml(i.name)}</div>
         ${i.strength ? `<div class="card-sub">${i.strength}% ABV</div>` : ''}
-        <div class="ing-actions" onclick="event.stopPropagation()">
+        <div class="ing-actions">
           <button class="ing-action-btn ${onShelf ? 'shelf-active' : ''}" id="ishelf-${i.id}"
-            onclick="App.ingredients.toggleShelf(${i.id})"
+            onclick="event.stopPropagation(); App.ingredients.toggleShelf(${i.id})"
             title="${onShelf ? 'Remove from bar shelf' : 'Add to bar shelf'}">
             ${onShelf ? '✓ shelf' : '+ shelf'}
           </button>
           <button class="ing-action-btn ${inCart ? 'cart-active' : ''}" id="icart-${i.id}"
-            onclick="App.ingredients.toggleCart(${i.id})"
+            onclick="event.stopPropagation(); App.ingredients.toggleCart(${i.id})"
             title="${inCart ? 'Remove from shopping list' : 'Add to shopping list'}">
             ${inCart ? '✓ list' : '+ list'}
           </button>
