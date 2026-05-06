@@ -330,7 +330,6 @@ textarea.text-input {
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 24px;
 }
 .detail-image-side {
   width: 140px;
