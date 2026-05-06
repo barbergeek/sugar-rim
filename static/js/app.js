@@ -305,6 +305,7 @@ const Cocktails = {
   query: '',
   currentId: null,
   currentData: null,
+  _cache: new Map(),
 
   async load(page = 1) {
     this.page = page;
@@ -322,6 +323,7 @@ const Cocktails = {
       empty.classList.add('hidden');
       grid.innerHTML = items.map(c => this._card(c)).join('');
       this._renderPagination();
+      this._enrichCards(items);
     } catch (e) {
       grid.innerHTML = '';
       empty.classList.remove('hidden');
@@ -331,17 +333,52 @@ const Cocktails = {
 
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav">★</span>' : '';
-    const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
-    const imgId = c.images?.[0]?.id;
-    const thumb = imgId ? `<img src="/api/images/${imgId}/thumb" class="card-thumb" loading="lazy">` : '';
+    const ingNames = (c.ingredients || [])
+      .filter(i => !i.optional)
+      .slice(0, 4)
+      .map(i => escHtml(i.ingredient?.name || ''))
+      .filter(Boolean)
+      .join(' · ');
     return `<div class="card row-layout" onclick="App.cocktails.open(${c.id})">
-      ${thumb}
+      <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
       <div class="card-content">
         <div class="card-name" style="display:flex;align-items:center;">${escHtml(c.name)}${fav}</div>
-        ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
-        ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+        ${ingNames ? `<div class="card-ings">${ingNames}</div>` : ''}
+        <div class="card-rating" id="crating-${c.id}"></div>
       </div>
     </div>`;
+  },
+
+  async _enrichCards(items) {
+    await Promise.all(items.map(async c => {
+      try {
+        const cached = this._cache.get(c.id);
+        const data = cached ?? (await get(`/api/cocktails/${c.id}`)).data;
+        if (!cached) this._cache.set(c.id, data);
+
+        const thumbSlot = el(`cthumb-${c.id}`);
+        if (thumbSlot) {
+          if (data.images?.[0]) {
+            const img = document.createElement('img');
+            img.src = `/api/images/${data.images[0].id}/thumb`;
+            img.className = 'card-thumb';
+            img.loading = 'lazy';
+            thumbSlot.replaceWith(img);
+          } else {
+            thumbSlot.className = 'card-thumb-empty';
+          }
+        }
+
+        const ratingSlot = el(`crating-${c.id}`);
+        if (ratingSlot && data.rating?.average > 0) {
+          const avg = data.rating.average;
+          const full = Math.round(avg);
+          ratingSlot.innerHTML =
+            `<span class="rating-stars">${'★'.repeat(full)}${'☆'.repeat(5 - full)}</span>` +
+            `<span class="rating-num">${avg.toFixed(1)}</span>`;
+        }
+      } catch (e) { /* silent — card just stays without image/rating */ }
+    }));
   },
 
   _renderPagination() {
@@ -358,10 +395,17 @@ const Cocktails = {
     this.currentId = id;
     Nav.go('detail');
     el('detail-title').textContent = '…';
+    const cached = this._cache.get(id);
+    if (cached) {
+      this.currentData = cached;
+      this._renderDetail(cached);
+      return;
+    }
     el('detail-body').innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     try {
       const d = await get(`/api/cocktails/${id}`);
       this.currentData = d.data;
+      this._cache.set(id, d.data);
       this._renderDetail(d.data);
     } catch (e) {
       el('detail-body').innerHTML = `<p style="color:#f87171">${escHtml(e.message)}</p>`;
