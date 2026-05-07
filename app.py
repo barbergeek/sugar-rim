@@ -375,7 +375,7 @@ def favorites():
     uid = get_user_id()
     if not uid:
         return jsonify({"error": "Could not determine user ID — are you logged in?"}), 400
-    return proxy("GET", f"/users/{uid}/cocktails/favorites", bar_ctx=False, params={"per_page": "500"})
+    return proxy("GET", f"/users/{uid}/cocktails/favorites", params={"per_page": "500"})
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
