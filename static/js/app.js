@@ -392,9 +392,9 @@ const Cocktails = {
     const bar = el('cocktail-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
     bar.innerHTML = `
-      <button class="btn btn-ghost" ${m.current_page <= 1 ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>
+      ${m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>` : ''}
       <span>${m.current_page} / ${m.last_page}</span>
-      <button class="btn btn-ghost" ${m.current_page >= m.last_page ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>`;
+      ${m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>` : ''}`;
   },
 
   async _maybeLoadMore() {
@@ -787,9 +787,9 @@ const Ingredients = {
     const bar = el('ingredient-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
     bar.innerHTML = `
-      <button class="btn btn-ghost" ${m.current_page <= 1 ? 'disabled' : ''} onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>
+      ${m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>` : ''}
       <span>${m.current_page} / ${m.last_page}</span>
-      <button class="btn btn-ghost" ${m.current_page >= m.last_page ? 'disabled' : ''} onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>`;
+      ${m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>` : ''}`;
   },
 
   showCreate() {
