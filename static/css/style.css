@@ -150,6 +150,7 @@ html, body {
 .nav-btn.active::after { opacity: 1; transform: scale(1); }
 
 .nav-icon { font-size: 1.4rem; line-height: 1; transition: transform 0.3s ease; }
+.nav-icon.material-symbols-rounded { font-size: 1.6rem; }
 .nav-label { font-size: 0.75rem; font-weight: 500; }
 
 /* ── Buttons ──────────────────────────────────────────────── */
@@ -491,6 +492,7 @@ textarea.text-input {
   background: var(--bg-glass-heavy);
 }
 .manage-icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
+.manage-icon.material-symbols-rounded { font-size: 2.8rem; }
 
 /* ── Settings ─────────────────────────────────────────────── */
 .settings-form {
