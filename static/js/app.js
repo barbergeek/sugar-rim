@@ -312,7 +312,7 @@ const Cocktails = {
     const grid  = el('cocktail-list');
     const empty = el('cocktail-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const params = { page, per_page: 24 };
+    const params = { page, per_page: 30 };
     if (this.query) params['filter[name]'] = this.query;
     if (this.shelfOnly) params['filter[on_shelf]'] = '1';
     try {
@@ -332,18 +332,11 @@ const Cocktails = {
   },
 
   _card(c) {
-    const fav = c.is_favorited ? '<span class="card-fav">★</span>' : '';
-    const ingNames = (c.ingredients || [])
-      .filter(i => !i.optional)
-      .slice(0, 4)
-      .map(i => escHtml(i.ingredient?.name || ''))
-      .filter(Boolean)
-      .join(' · ');
-    return `<div class="card row-layout" onclick="App.cocktails.open(${c.id})">
+    const fav = c.is_favorited ? ' <span class="card-fav">★</span>' : '';
+    return `<div class="card cocktail-card" onclick="App.cocktails.open(${c.id})">
       <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
-      <div class="card-content">
-        <div class="card-name" style="display:flex;align-items:center;">${escHtml(c.name)}${fav}</div>
-        ${ingNames ? `<div class="card-ings">${ingNames}</div>` : ''}
+      <div class="cocktail-card-body">
+        <div class="card-name">${escHtml(c.name)}${fav}</div>
         <div class="card-rating" id="crating-${c.id}"></div>
       </div>
     </div>`;
