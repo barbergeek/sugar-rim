@@ -311,7 +311,7 @@ const Cocktails = {
 
   _calcLayout() {
     const grid = el('cocktail-list');
-    const GAP = 8, PAD = 8, MIN_W = 260, MIN_H = 100;
+    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
     // Use window dimensions minus fixed CSS heights so measurement works before layout
     const w = window.innerWidth;
     const h = window.innerHeight - 60 - 72 - 56; // header + nav + toolbar
