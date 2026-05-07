@@ -332,16 +332,19 @@ const Cocktails = {
   },
 
   _card(c) {
-    const fav = c.is_favorited ? ' <span class="card-fav">★</span>' : '';
+    const fav = c.is_favorited ? '<span class="card-fav-badge">★</span>' : '';
     const ingNames = (c.ingredients || [])
       .filter(i => !i.optional)
       .map(i => escHtml(i.ingredient?.name || ''))
       .filter(Boolean)
       .join(' · ');
-    return `<div class="card cocktail-card" onclick="App.cocktails.open(${c.id})">
-      <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
+    return `<div class="card cocktail-card" data-id="${c.id}" onclick="App.cocktails.open(${c.id})">
+      <div class="cocktail-thumb-wrap">
+        <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
+        ${fav}
+      </div>
       <div class="cocktail-card-body">
-        <div class="card-name">${escHtml(c.name)}${fav}</div>
+        <div class="card-name">${escHtml(c.name)}</div>
         ${ingNames ? `<div class="card-ings">${ingNames}</div>` : ''}
         <div class="card-rating" id="crating-${c.id}"></div>
       </div>
@@ -454,6 +457,19 @@ const Cocktails = {
       const nowFav = btn.textContent === '☆';
       btn.textContent = nowFav ? '★' : '☆';
       if (this.currentData) this.currentData.is_favorited = nowFav;
+      if (this._cache.has(this.currentId)) this._cache.get(this.currentId).is_favorited = nowFav;
+      const wrap = qs(`.cocktail-card[data-id="${this.currentId}"] .cocktail-thumb-wrap`);
+      if (wrap) {
+        const badge = wrap.querySelector('.card-fav-badge');
+        if (nowFav && !badge) {
+          const b = document.createElement('span');
+          b.className = 'card-fav-badge';
+          b.textContent = '★';
+          wrap.appendChild(b);
+        } else if (!nowFav && badge) {
+          badge.remove();
+        }
+      }
       Toast.show(nowFav ? 'Added to favorites' : 'Removed from favorites');
     } catch (e) { Toast.err(e.message); }
   },
