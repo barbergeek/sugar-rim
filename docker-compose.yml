@@ -1,0 +1,19 @@
+services:
+  sugar-rim:
+    build: .
+    container_name: sugar-rim
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - sugar-rim-config:/config
+    environment:
+      # Optional: pre-seed these so you don't need the Settings tab at all.
+      # Any value set here is overridden by what you save in the UI.
+      - BA_API_URL=${BA_API_URL:-}
+      - BA_API_TOKEN=${BA_API_TOKEN:-}
+      - BA_BAR_ID=${BA_BAR_ID:-}
+      - SECRET_KEY=${SECRET_KEY:-}
+
+volumes:
+  sugar-rim-config:
