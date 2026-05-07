@@ -349,11 +349,17 @@ const Cocktails = {
 
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav-badge">★</span>' : '';
-    const ingFull = (c.ingredients || [])
-      .filter(i => !i.optional)
-      .map(i => escHtml(i.ingredient?.name || ''))
-      .filter(Boolean)
-      .join(' · ');
+    // Handle both full CocktailResource (ingredients[]) and CocktailBasic (short_ingredients[])
+    let ingFull;
+    if (c.ingredients?.length) {
+      ingFull = c.ingredients
+        .filter(i => !i.optional)
+        .map(i => escHtml(i.ingredient?.name || ''))
+        .filter(Boolean)
+        .join(' · ');
+    } else {
+      ingFull = (c.short_ingredients || []).map(escHtml).join(' · ');
+    }
     const ingNames = ingFull.length > 100 ? ingFull.slice(0, 100).replace(/ ·[^·]*$/, '') + ' …' : ingFull;
     return `<div class="card cocktail-card" data-id="${c.id}" onclick="App.cocktails.open(${c.id})">
       <div class="cocktail-thumb-wrap">
@@ -681,6 +687,8 @@ const Favorites = {
       const items = d.data || [];
       if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
       empty.classList.add('hidden');
+      // CocktailBasic schema doesn't include is_favorited; set it so the star badge shows
+      items.forEach(c => { c.is_favorited = true; });
       grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
       Cocktails._enrichCards(items);
     } catch (e) {

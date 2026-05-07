@@ -781,15 +781,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 
 /* ── Responsive ───────────────────────────────────────────── */
 
-/* Tablet: 2-column cocktail grid */
+/* Tablet: 2-column cocktail/favorites grid */
 @media (min-width: 481px) and (max-width: 899px) {
-  #view-cocktails .card-grid { grid-template-columns: repeat(2, 1fr); }
+  #view-cocktails .card-grid,
+  #view-favorites .card-grid { grid-template-columns: repeat(2, 1fr); }
   .cocktail-thumb-wrap { width: 100px; }
 }
 
-/* Phone: 1-column cocktail grid */
+/* Phone: 1-column cocktail/favorites grid */
 @media (max-width: 480px) {
-  #view-cocktails .card-grid { grid-template-columns: 1fr; }
+  #view-cocktails .card-grid,
+  #view-favorites .card-grid { grid-template-columns: 1fr; }
   .cocktail-thumb-wrap { width: 80px; }
   .cocktail-card .card-name { font-size: 1rem; }
   .card-grid { padding: 8px; gap: 8px; }
