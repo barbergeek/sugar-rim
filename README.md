@@ -16,14 +16,33 @@ Alternate web interface for [Bar Assistant](https://github.com/bar-assistant/bar
 ### Quick start
 
 ```bash
-git clone https://github.com/barbergeek/sugar-rim.git
-cd sugar-rim
+docker run -d --name sugar-rim -p 5000:5000 -v sugar-rim-config:/config scotthoge/sugar-rim:latest
+```
+
+Or with Docker Compose — create a `docker-compose.yml`:
+
+```yaml
+services:
+  sugar-rim:
+    image: scotthoge/sugar-rim:latest
+    container_name: sugar-rim
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - sugar-rim-config:/config
+
+volumes:
+  sugar-rim-config:
+```
+
+```bash
 docker compose up -d
 ```
 
 Open `http://<host>:5000` in a browser, then go to **Settings** to enter your Bar Assistant URL and API token.
 
-Settings are written to a named Docker volume (`sugar-rim-config`) and survive container rebuilds.
+Settings are written to a named Docker volume (`sugar-rim-config`) and survive container restarts and updates.
 
 ### Pre-seed configuration (optional)
 
@@ -46,7 +65,7 @@ If Bar Assistant is already running via Docker Compose, add Sugar Rim to the sam
 # In your existing bar-assistant docker-compose.yml, add:
 services:
   sugar-rim:
-    image: ghcr.io/barbergeek/sugar-rim:latest   # or build: /path/to/sugar-rim
+    image: scotthoge/sugar-rim:latest
     container_name: sugar-rim
     restart: unless-stopped
     ports:
@@ -65,8 +84,7 @@ Then set `BA_API_URL=http://bar-assistant:8000/api` in Settings (using the conta
 ### Updating
 
 ```bash
-git pull
-docker compose build
+docker compose pull
 docker compose up -d
 ```
 
