@@ -34,6 +34,32 @@ function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Layout helpers ─────────────────────────────────────────────────────────
+
+const DESKTOP_PX    = 900;               // mobile/desktop breakpoint
+const CHROME_H      = 60 + 72 + 56;     // header + nav + toolbar (px)
+const CARD_MIN_W    = 300;
+const CARD_MIN_H    = 160;
+const CARD_GAP      = 8;
+const CARD_PAD      = 8;
+
+function isMobile() { return window.innerWidth < DESKTOP_PX; }
+
+function calcLayout(gridId) {
+  const grid = el(gridId);
+  const cols = Math.max(1, Math.floor((window.innerWidth  - CARD_PAD * 2 + CARD_GAP) / (CARD_MIN_W + CARD_GAP)));
+  const rows = Math.max(1, Math.floor((window.innerHeight - CHROME_H - CARD_PAD * 2 + CARD_GAP) / (CARD_MIN_H + CARD_GAP)));
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+  return cols * rows;
+}
+
+function isOnShelf(ingId, ingredient) {
+  return State.shelfIds.has(ingId)
+      || !!ingredient?.in_bar_shelf
+      || !!Ingredients._shelfState.get(ingId);
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 
 const Toast = {
@@ -307,27 +333,12 @@ const Cocktails = {
   currentData: null,
   _cache: new Map(),
   _loadingMore: false,
-  _isMobile() { return window.innerWidth < 900; },
-
-  _calcLayout() {
-    const grid = el('cocktail-list');
-    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
-    // Use window dimensions minus fixed CSS heights so measurement works before layout
-    const w = window.innerWidth;
-    const h = window.innerHeight - 60 - 72 - 56; // header + nav + toolbar
-    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
-    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
-    return cols * rows;
-  },
-
   async load(page = 1) {
     this.page = page;
     const grid  = el('cocktail-list');
     const empty = el('cocktail-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const perPage = this._isMobile() ? 30 : this._calcLayout();
+    const perPage = isMobile() ? 30 : calcLayout('cocktail-list');
     const params = { page, per_page: perPage };
     if (this.query) params['filter[name]'] = this.query;
     if (this.shelfOnly) params['filter[on_shelf]'] = '1';
@@ -349,7 +360,6 @@ const Cocktails = {
 
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav-badge">★</span>' : '';
-    // Handle both full CocktailResource (ingredients[]) and CocktailBasic (short_ingredients[])
     let ingFull;
     if (c.ingredients?.length) {
       ingFull = c.ingredients
@@ -407,7 +417,7 @@ const Cocktails = {
   },
 
   _renderPagination() {
-    if (this._isMobile()) return;
+    if (isMobile()) return;
     const m = this.lastMeta;
     const bar = el('cocktail-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
@@ -472,9 +482,7 @@ const Cocktails = {
 
     const ings = (c.ingredients || []).map(i => {
       const ingId = i.ingredient_id ?? i.ingredient?.id;
-      const onShelf = State.shelfIds.has(ingId)
-                   || !!i.ingredient?.in_bar_shelf
-                   || !!Ingredients._shelfState.get(ingId);
+      const onShelf = isOnShelf(ingId, i.ingredient);
       const dot = `<span class="ing-dot ${onShelf ? 'ing-dot-on' : 'ing-dot-off'}" title="${onShelf ? 'On shelf' : 'Not on shelf'}"></span>`;
       return `<div class="ingredient-row">
         ${dot}
@@ -665,30 +673,14 @@ const Cocktails = {
 // ── Favorites ──────────────────────────────────────────────────────────────
 
 const Favorites = {
-  _calcLayout() {
-    const grid = el('favorites-list');
-    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
-    const w = window.innerWidth;
-    const h = window.innerHeight - 60 - 72 - 56;
-    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
-    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
-    return cols * rows;
-  },
-
   async load() {
     const grid  = el('favorites-list');
     const empty = el('favorites-empty');
-    if (window.innerWidth >= 900) this._calcLayout();
+    if (!isMobile()) calcLayout('favorites-list');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     try {
       const d = await get('/api/favorites');
-      const items = d.data || [];
-      if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
-      empty.classList.add('hidden');
-      // CocktailBasic schema doesn't include is_favorited; set it so the star badge shows
-      items.forEach(c => { c.is_favorited = true; });
+      const items = (d.data || []).map(c => ({ ...c, is_favorited: true }));
       grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
       Cocktails._enrichCards(items);
     } catch (e) {
@@ -708,25 +700,13 @@ const Ingredients = {
   _cache: new Map(),
   _shelfState: new Map(),
   _cartState: new Map(),
-  _isMobile() { return window.innerWidth < 900; },
-  _calcLayout() {
-    const grid = el('ingredient-list');
-    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
-    const w = window.innerWidth;
-    const h = window.innerHeight - 60 - 72 - 56;
-    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
-    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
-    return cols * rows;
-  },
 
   async load(page = 1) {
     this.page = page;
     const grid  = el('ingredient-list');
     const empty = el('ingredient-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const params = { page, per_page: this._isMobile() ? 30 : this._calcLayout() };
+    const params = { page, per_page: isMobile() ? 30 : calcLayout('ingredient-list') };
     if (this.query) params['filter[name]'] = this.query;
     try {
       const d = await get('/api/ingredients', params);
@@ -1212,18 +1192,16 @@ const App = {
         Ingredients.load(1);
       }, 350));
 
-      // Recalculate grid on resize (desktop only)
       window.addEventListener('resize', debounce(() => {
-        if (window.innerWidth >= 900) {
-          Cocktails.load(Cocktails.page);
-          Ingredients.load(Ingredients.page);
-          Favorites.load();
-        }
+        if (isMobile()) return;
+        const view = Nav.current;
+        if (view === 'cocktails')    Cocktails.load(Cocktails.page);
+        else if (view === 'ingredients') Ingredients.load(Ingredients.page);
+        else if (view === 'favorites')   Favorites.load();
       }, 400));
 
-      // Infinite scroll for mobile cocktail list
       el('cocktail-list').addEventListener('scroll', () => {
-        if (!Cocktails._isMobile()) return;
+        if (!isMobile()) return;
         const g = el('cocktail-list');
         if (g.scrollHeight - g.scrollTop - g.clientHeight < 300) Cocktails._maybeLoadMore();
       });
