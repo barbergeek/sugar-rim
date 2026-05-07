@@ -435,20 +435,28 @@ const Cocktails = {
     this.currentId = id;
     Nav.go('detail');
     el('detail-title').textContent = '…';
+
+    // Show cached data immediately while we refresh in background
     const cached = this._cache.get(id);
     if (cached) {
       this.currentData = cached;
       this._renderDetail(cached);
-      return;
+    } else {
+      el('detail-body').innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     }
-    el('detail-body').innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+
+    // Always re-fetch cocktail + shelf in parallel for accurate availability
     try {
-      const d = await get(`/api/cocktails/${id}`);
-      this.currentData = d.data;
-      this._cache.set(id, d.data);
-      this._renderDetail(d.data);
+      const [, cocktailResp] = await Promise.all([
+        State.loadShelfIds(),
+        get(`/api/cocktails/${id}`)
+      ]);
+      const data = cocktailResp.data;
+      this.currentData = data;
+      this._cache.set(id, data);
+      if (this.currentId === id) this._renderDetail(data);
     } catch (e) {
-      el('detail-body').innerHTML = `<p style="color:#f87171">${escHtml(e.message)}</p>`;
+      if (!cached) el('detail-body').innerHTML = `<p style="color:#f87171">${escHtml(e.message)}</p>`;
     }
   },
 
@@ -458,13 +466,14 @@ const Cocktails = {
 
     const ings = (c.ingredients || []).map(i => {
       const ingId = i.ingredient_id ?? i.ingredient?.id;
-      // Check bar shelf (loaded at startup) AND in_bar_shelf flag on the ingredient
-      // from the cocktail detail response (bar-context aware, reflects current stock)
-      const onShelf = State.shelfIds.has(ingId) || !!i.ingredient?.in_bar_shelf;
+      const onShelf = State.shelfIds.has(ingId)
+                   || !!i.ingredient?.in_bar_shelf
+                   || !!Ingredients._shelfState.get(ingId);
+      const dot = `<span class="ing-dot ${onShelf ? 'ing-dot-on' : 'ing-dot-off'}" title="${onShelf ? 'On shelf' : 'Not on shelf'}"></span>`;
       return `<div class="ingredient-row">
+        ${dot}
         <span class="ing-amount">${escHtml(i.amount ? `${i.amount} ${i.units || ''}`.trim() : '')}</span>
         <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}</span>
-        ${!onShelf ? '<span class="ing-missing">not on shelf</span>' : ''}
       </div>`;
     }).join('');
 
