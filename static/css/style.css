@@ -739,9 +739,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 .cocktail-card .rating-num   { font-size: 0.85rem; }
 
 /* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #view-cocktails .card-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: none;
+    overflow-y: auto;
+    align-content: start;
+  }
+  #cocktail-pagination { display: none; }
+  .cocktail-thumb-wrap { width: 90px; }
+}
+
 @media (max-width: 480px) {
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); padding: 12px; gap: 12px; }
-  #view-cocktails .card-grid { grid-template-columns: repeat(3, 1fr); }
+  #view-cocktails .card-grid { grid-template-columns: 1fr; }
+  .cocktail-thumb-wrap { width: 80px; }
   .manage-grid { grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
   .detail-image-side { width: 100px; height: 100px; }
   .btn { padding: 8px 14px; }

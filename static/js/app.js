@@ -306,6 +306,8 @@ const Cocktails = {
   currentId: null,
   currentData: null,
   _cache: new Map(),
+  _loadingMore: false,
+  _isMobile() { return window.innerWidth <= 768; },
 
   async load(page = 1) {
     this.page = page;
@@ -385,6 +387,7 @@ const Cocktails = {
   },
 
   _renderPagination() {
+    if (this._isMobile()) return;
     const m = this.lastMeta;
     const bar = el('cocktail-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
@@ -392,6 +395,26 @@ const Cocktails = {
       <button class="btn btn-ghost" ${m.current_page <= 1 ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>
       <span>${m.current_page} / ${m.last_page}</span>
       <button class="btn btn-ghost" ${m.current_page >= m.last_page ? 'disabled' : ''} onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>`;
+  },
+
+  async _maybeLoadMore() {
+    const m = this.lastMeta;
+    if (!m || m.current_page >= m.last_page || this._loadingMore) return;
+    this._loadingMore = true;
+    try {
+      const page = m.current_page + 1;
+      const params = { page, per_page: 30 };
+      if (this.query) params['filter[name]'] = this.query;
+      if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+      const d = await get('/api/cocktails', params);
+      const items = d.data || [];
+      this.lastMeta = d.meta;
+      if (items.length) {
+        el('cocktail-list').insertAdjacentHTML('beforeend', items.map(c => this._card(c)).join(''));
+        this._enrichCards(items);
+      }
+    } catch (e) { /* silent */ }
+    finally { this._loadingMore = false; }
   },
 
   async open(id) {
@@ -1132,6 +1155,13 @@ const App = {
         Ingredients.query = e.target.value;
         Ingredients.load(1);
       }, 350));
+
+      // Infinite scroll for mobile cocktail list
+      el('cocktail-list').addEventListener('scroll', () => {
+        if (!Cocktails._isMobile()) return;
+        const g = el('cocktail-list');
+        if (g.scrollHeight - g.scrollTop - g.clientHeight < 300) Cocktails._maybeLoadMore();
+      });
 
       // Load initial view
       await Cocktails.load();
