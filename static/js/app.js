@@ -309,12 +309,25 @@ const Cocktails = {
   _loadingMore: false,
   _isMobile() { return window.innerWidth < 900; },
 
+  _calcLayout() {
+    const grid = el('cocktail-list');
+    const w = grid.clientWidth;
+    const h = grid.clientHeight;
+    const GAP = 8, PAD = 8, MIN_W = 260, MIN_H = 100;
+    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
+    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+    return cols * rows;
+  },
+
   async load(page = 1) {
     this.page = page;
     const grid  = el('cocktail-list');
     const empty = el('cocktail-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const params = { page, per_page: 30 };
+    const perPage = this._isMobile() ? 30 : this._calcLayout();
+    const params = { page, per_page: perPage };
     if (this.query) params['filter[name]'] = this.query;
     if (this.shelfOnly) params['filter[on_shelf]'] = '1';
     try {
@@ -1155,6 +1168,11 @@ const App = {
         Ingredients.query = e.target.value;
         Ingredients.load(1);
       }, 350));
+
+      // Recalculate grid on resize (desktop only)
+      window.addEventListener('resize', debounce(() => {
+        if (!Cocktails._isMobile()) Cocktails.load(Cocktails.page);
+      }, 400));
 
       // Infinite scroll for mobile cocktail list
       el('cocktail-list').addEventListener('scroll', () => {
