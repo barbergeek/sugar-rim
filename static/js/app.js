@@ -457,7 +457,10 @@ const Cocktails = {
     el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
 
     const ings = (c.ingredients || []).map(i => {
-      const onShelf = State.shelfIds.has(i.ingredient_id ?? i.ingredient?.id);
+      const ingId = i.ingredient_id ?? i.ingredient?.id;
+      // Check bar shelf (loaded at startup) AND in_bar_shelf flag on the ingredient
+      // from the cocktail detail response (bar-context aware, reflects current stock)
+      const onShelf = State.shelfIds.has(ingId) || !!i.ingredient?.in_bar_shelf;
       return `<div class="ingredient-row">
         <span class="ing-amount">${escHtml(i.amount ? `${i.amount} ${i.units || ''}`.trim() : '')}</span>
         <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}</span>
