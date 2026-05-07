@@ -638,6 +638,20 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   grid-column: 1 / -1;
 }
 
+/* ── Favorites grid ───────────────────────────────────────── */
+#view-favorites .card-grid {
+  gap: 8px;
+  padding: 8px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 900px) {
+  #view-favorites .card-grid {
+    align-content: stretch;
+    overflow: hidden;
+  }
+  #view-favorites .cocktail-card { min-height: 0; }
+}
+
 /* ── Ingredient grid ──────────────────────────────────────── */
 #view-ingredients .card-grid {
   gap: 8px;

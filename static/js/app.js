@@ -647,20 +647,30 @@ const Cocktails = {
 // ── Favorites ──────────────────────────────────────────────────────────────
 
 const Favorites = {
+  _calcLayout() {
+    const grid = el('favorites-list');
+    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
+    const w = window.innerWidth;
+    const h = window.innerHeight - 60 - 72 - 56;
+    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
+    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+    return cols * rows;
+  },
+
   async load() {
     const grid  = el('favorites-list');
     const empty = el('favorites-empty');
+    if (window.innerWidth >= 900) this._calcLayout();
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     try {
       const d = await get('/api/favorites');
-      const items = d.data || [];
+      const items = (d.data || []).filter(c => c.is_favorited !== false);
       if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
       empty.classList.add('hidden');
-      grid.innerHTML = items.map(c => `
-        <div class="card" onclick="App.cocktails.open(${c.id})">
-          <div class="card-name">${escHtml(c.name)}<span class="card-fav">★</span></div>
-          ${c.glass ? `<div class="card-sub">${escHtml(c.glass.name || c.glass)}</div>` : ''}
-        </div>`).join('');
+      grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
+      Cocktails._enrichCards(items);
     } catch (e) {
       grid.innerHTML = '';
       empty.classList.remove('hidden');
@@ -1184,8 +1194,11 @@ const App = {
 
       // Recalculate grid on resize (desktop only)
       window.addEventListener('resize', debounce(() => {
-        if (!Cocktails._isMobile()) Cocktails.load(Cocktails.page);
-        if (!Ingredients._isMobile()) Ingredients.load(Ingredients.page);
+        if (window.innerWidth >= 900) {
+          Cocktails.load(Cocktails.page);
+          Ingredients.load(Ingredients.page);
+          Favorites.load();
+        }
       }, 400));
 
       // Infinite scroll for mobile cocktail list
