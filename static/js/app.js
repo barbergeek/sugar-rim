@@ -311,9 +311,10 @@ const Cocktails = {
 
   _calcLayout() {
     const grid = el('cocktail-list');
-    const w = grid.clientWidth;
-    const h = grid.clientHeight;
     const GAP = 8, PAD = 8, MIN_W = 260, MIN_H = 100;
+    // Use window dimensions minus fixed CSS heights so measurement works before layout
+    const w = window.innerWidth;
+    const h = window.innerHeight - 60 - 72 - 56; // header + nav + toolbar
     const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
     const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
