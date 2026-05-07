@@ -678,13 +678,25 @@ const Ingredients = {
   _cache: new Map(),
   _shelfState: new Map(),
   _cartState: new Map(),
+  _isMobile() { return window.innerWidth < 900; },
+  _calcLayout() {
+    const grid = el('ingredient-list');
+    const GAP = 8, PAD = 8, MIN_W = 300, MIN_H = 160;
+    const w = window.innerWidth;
+    const h = window.innerHeight - 60 - 72 - 56;
+    const cols = Math.max(1, Math.floor((w - PAD * 2 + GAP) / (MIN_W + GAP)));
+    const rows = Math.max(1, Math.floor((h - PAD * 2 + GAP) / (MIN_H + GAP)));
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+    return cols * rows;
+  },
 
   async load(page = 1) {
     this.page = page;
     const grid  = el('ingredient-list');
     const empty = el('ingredient-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const params = { page, per_page: 30 };
+    const params = { page, per_page: this._isMobile() ? 30 : this._calcLayout() };
     if (this.query) params['filter[name]'] = this.query;
     try {
       const d = await get('/api/ingredients', params);
@@ -1173,6 +1185,7 @@ const App = {
       // Recalculate grid on resize (desktop only)
       window.addEventListener('resize', debounce(() => {
         if (!Cocktails._isMobile()) Cocktails.load(Cocktails.page);
+        if (!Ingredients._isMobile()) Ingredients.load(Ingredients.page);
       }, 400));
 
       // Infinite scroll for mobile cocktail list
