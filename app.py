@@ -210,6 +210,16 @@ def toggle_favorite(cid):
     return proxy("POST", f"/cocktails/{cid}/toggle-favorite")
 
 
+@app.route("/api/cocktails/<cid>/ratings", methods=["POST"])
+def rate_cocktail(cid):
+    return proxy("POST", f"/cocktails/{cid}/ratings", json=request.get_json(force=True))
+
+
+@app.route("/api/cocktails/<cid>/ratings", methods=["DELETE"])
+def delete_rating(cid):
+    return proxy("DELETE", f"/cocktails/{cid}/ratings")
+
+
 @app.route("/api/cocktails/<cid>/similar")
 def similar_cocktails(cid):
     return proxy("GET", f"/cocktails/{cid}/similar")

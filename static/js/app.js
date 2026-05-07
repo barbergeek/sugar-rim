@@ -333,11 +333,12 @@ const Cocktails = {
 
   _card(c) {
     const fav = c.is_favorited ? '<span class="card-fav-badge">★</span>' : '';
-    const ingNames = (c.ingredients || [])
+    const ingFull = (c.ingredients || [])
       .filter(i => !i.optional)
       .map(i => escHtml(i.ingredient?.name || ''))
       .filter(Boolean)
       .join(' · ');
+    const ingNames = ingFull.length > 100 ? ingFull.slice(0, 100).replace(/ ·[^·]*$/, '') + ' …' : ingFull;
     return `<div class="card cocktail-card" data-id="${c.id}" onclick="App.cocktails.open(${c.id})">
       <div class="cocktail-thumb-wrap">
         <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
@@ -429,8 +430,19 @@ const Cocktails = {
 
     const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t.name || t)}</span>`).join('');
 
+    const userRating  = c.rating?.user_rating ?? 0;
+    const avgRating   = c.rating?.average ?? 0;
+    const displayStars = userRating || Math.round(avgRating);
+    const starsHtml   = [1,2,3,4,5].map(n =>
+      `<span class="detail-rating-star ${n <= displayStars ? 'active' : ''}" onclick="App.cocktails.rate(${c.id},${n})">${n <= displayStars ? '★' : '☆'}</span>`
+    ).join('');
+
     const imgHtml = c.images?.[0] ? `<img class="detail-image-side" src="/api/images/${c.images[0].id}/thumb" alt="${escHtml(c.name)}">` : '';
     el('detail-body').innerHTML = `
+      <div class="detail-rating-row">
+        ${starsHtml}
+        ${avgRating > 0 ? `<span class="detail-rating-avg">avg ${avgRating.toFixed(1)}</span>` : ''}
+      </div>
       <div class="detail-hero">
         ${imgHtml}
         <div class="detail-section" style="flex:1;min-width:0;margin-bottom:0">
@@ -472,6 +484,56 @@ const Cocktails = {
       }
       Toast.show(nowFav ? 'Added to favorites' : 'Removed from favorites');
     } catch (e) { Toast.err(e.message); }
+  },
+
+  async rate(id, stars) {
+    if ((this.currentData?.rating?.user_rating ?? 0) === stars) {
+      return this.clearRate(id);
+    }
+    try {
+      await post(`/api/cocktails/${id}/ratings`, { rating: stars });
+      await this._refreshRating(id, stars);
+      Toast.show(`Rated ${stars} ★`);
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async clearRate(id) {
+    try {
+      await del(`/api/cocktails/${id}/ratings`);
+      await this._refreshRating(id, 0);
+      Toast.show('Rating cleared');
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async _refreshRating(id, userRating) {
+    const fresh = await get(`/api/cocktails/${id}`);
+    const rating = fresh.data?.rating || {};
+    rating.user_rating = userRating;
+    if (this.currentData) this.currentData.rating = rating;
+    if (this._cache.has(id)) this._cache.get(id).rating = rating;
+
+    const avgRating   = rating.average ?? 0;
+    const displayStars = userRating || Math.round(avgRating);
+    document.querySelectorAll('#detail-body .detail-rating-star').forEach((s, i) => {
+      const filled = i + 1 <= displayStars;
+      s.textContent = filled ? '★' : '☆';
+      s.classList.toggle('active', filled);
+    });
+    const avgEl = qs('#detail-body .detail-rating-avg');
+    if (avgEl) {
+      avgEl.textContent = avgRating > 0 ? `avg ${avgRating.toFixed(1)}` : '';
+    } else if (avgRating > 0) {
+      qs('#detail-body .detail-rating-row')?.insertAdjacentHTML(
+        'beforeend', `<span class="detail-rating-avg">avg ${avgRating.toFixed(1)}</span>`
+      );
+    }
+    const ratingSlot = el(`crating-${id}`);
+    if (ratingSlot) {
+      const cardStars = Math.round(avgRating);
+      ratingSlot.innerHTML = cardStars > 0
+        ? `<span class="rating-stars">${'★'.repeat(cardStars)}${'☆'.repeat(5 - cardStars)}</span><span class="rating-num">${avgRating.toFixed(1)}</span>`
+        : '';
+    }
   },
 
   editCurrent() {
