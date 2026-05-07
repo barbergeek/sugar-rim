@@ -307,7 +307,7 @@ const Cocktails = {
   currentData: null,
   _cache: new Map(),
   _loadingMore: false,
-  _isMobile() { return window.innerWidth <= 768; },
+  _isMobile() { return window.innerWidth < 900; },
 
   async load(page = 1) {
     this.page = page;

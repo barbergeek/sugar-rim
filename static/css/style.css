@@ -637,14 +637,22 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   grid-column: 1 / -1;
 }
 
-/* ── Cocktail grid (6×5, no scroll) ──────────────────────── */
+/* ── Cocktail grid ────────────────────────────────────────── */
+/* Base (mobile-first): scrollable, single column */
 #view-cocktails .card-grid {
-  grid-template-columns: repeat(6, 1fr);
-  grid-template-rows: repeat(5, 1fr);
-  align-content: stretch;
-  overflow: hidden;
   gap: 8px;
   padding: 8px;
+  grid-template-columns: 1fr;
+}
+
+/* Desktop only: fixed 6×5, no scroll */
+@media (min-width: 900px) {
+  #view-cocktails .card-grid {
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(5, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+  }
 }
 
 .cocktail-card {
@@ -739,22 +747,25 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 .cocktail-card .rating-num   { font-size: 0.85rem; }
 
 /* ── Responsive ───────────────────────────────────────────── */
-@media (max-width: 768px) {
-  #view-cocktails .card-grid {
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: none;
-    overflow-y: auto;
-    align-content: start;
-  }
-  #cocktail-pagination { display: none; }
-  .cocktail-thumb-wrap { width: 90px; }
+
+/* Tablet: 2-column cocktail grid */
+@media (min-width: 481px) and (max-width: 899px) {
+  #view-cocktails .card-grid { grid-template-columns: repeat(2, 1fr); }
+  .cocktail-thumb-wrap { width: 100px; }
 }
 
+/* Phone: 1-column cocktail grid */
 @media (max-width: 480px) {
-  .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); padding: 12px; gap: 12px; }
   #view-cocktails .card-grid { grid-template-columns: 1fr; }
   .cocktail-thumb-wrap { width: 80px; }
+  .cocktail-card .card-name { font-size: 1rem; }
+  .card-grid { padding: 8px; gap: 8px; }
   .manage-grid { grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; }
   .detail-image-side { width: 100px; height: 100px; }
   .btn { padding: 8px 14px; }
+}
+
+/* Hide pagination on non-desktop */
+@media (max-width: 899px) {
+  #cocktail-pagination { display: none; }
 }
