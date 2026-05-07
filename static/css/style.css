@@ -611,15 +611,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   grid-column: 1 / -1;
 }
 
-/* ── Cocktail grid (6 columns) ────────────────────────────── */
+/* ── Cocktail grid (6×5, no scroll) ──────────────────────── */
 #view-cocktails .card-grid {
   grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  align-content: stretch;
+  overflow: hidden;
   gap: 8px;
   padding: 8px;
 }
 
 .cocktail-card {
-  flex-direction: column;
+  flex-direction: row;
   align-items: stretch;
   padding: 0;
   gap: 0;
@@ -628,34 +631,37 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 }
 
 .cocktail-card .card-thumb-slot {
-  width: 100%;
-  height: 80px;
-  border-radius: var(--radius) var(--radius) 0 0;
+  width: 120px;
   flex-shrink: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
   animation: thumb-pulse 1.5s ease-in-out infinite;
 }
 
 .cocktail-card .card-thumb {
-  width: 100%;
-  height: 80px;
-  object-fit: cover;
-  border-radius: var(--radius) var(--radius) 0 0;
-  display: block;
+  width: 120px;
   flex-shrink: 0;
+  object-fit: cover;
+  border-radius: var(--radius) 0 0 var(--radius);
+  display: block;
+  align-self: stretch;
 }
 
 .cocktail-card .card-thumb-empty {
-  width: 100%;
-  height: 80px;
+  width: 120px;
   flex-shrink: 0;
 }
 
 .cocktail-card-body {
-  padding: 5px 8px 7px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 10px;
 }
 
 .cocktail-card .card-name {
-  font-size: 0.78rem;
+  font-size: 1.1rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -665,9 +671,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   line-height: 1.3;
 }
 
-.cocktail-card .card-fav { font-size: 0.78rem; }
+.cocktail-card .card-ings {
+  font-size: 0.9rem;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.4;
+}
 
-.cocktail-card .card-rating { min-height: 0; }
+.cocktail-card .card-fav { font-size: 0.9rem; }
+
+.cocktail-card .card-rating { min-height: 0; font-size: 0.85rem; }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 480px) {

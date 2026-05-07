@@ -333,10 +333,16 @@ const Cocktails = {
 
   _card(c) {
     const fav = c.is_favorited ? ' <span class="card-fav">★</span>' : '';
+    const ingNames = (c.ingredients || [])
+      .filter(i => !i.optional)
+      .map(i => escHtml(i.ingredient?.name || ''))
+      .filter(Boolean)
+      .join(' · ');
     return `<div class="card cocktail-card" onclick="App.cocktails.open(${c.id})">
       <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
       <div class="cocktail-card-body">
         <div class="card-name">${escHtml(c.name)}${fav}</div>
+        ${ingNames ? `<div class="card-ings">${ingNames}</div>` : ''}
         <div class="card-rating" id="crating-${c.id}"></div>
       </div>
     </div>`;
