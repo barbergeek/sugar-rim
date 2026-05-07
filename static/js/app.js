@@ -671,30 +671,14 @@ const Favorites = {
     return cols * rows;
   },
 
-  async _fetchAll() {
-    // Paginate through all cocktails collecting favorites.
-    // The server-side filter[favorites] is unreliable across BA versions,
-    // so we use is_favorited from the list response as ground truth.
-    const favs = [];
-    let page = 1;
-    while (true) {
-      const d = await get('/api/cocktails', { page, per_page: 100 });
-      const items = d.data || [];
-      items.forEach(c => { if (c.is_favorited) favs.push(c); });
-      const meta = d.meta || {};
-      if (!meta.last_page || meta.current_page >= meta.last_page) break;
-      page++;
-    }
-    return favs;
-  },
-
   async load() {
     const grid  = el('favorites-list');
     const empty = el('favorites-empty');
     if (window.innerWidth >= 900) this._calcLayout();
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     try {
-      const items = await this._fetchAll();
+      const d = await get('/api/favorites');
+      const items = d.data || [];
       if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
       empty.classList.add('hidden');
       grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
