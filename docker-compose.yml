@@ -1,6 +1,6 @@
 services:
   sugar-rim:
-    build: .
+    image: scotthoge/sugar-rim:latest
     container_name: sugar-rim
     restart: unless-stopped
     ports:
