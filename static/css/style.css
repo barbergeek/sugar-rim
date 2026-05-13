@@ -998,12 +998,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   #ingredient-pagination { display: none; }
 }
 
-/* Header cocktail controls (shelf toggle + new button) ───── */
-.header-cocktail-controls {
-  display: none;
+/* Header view controls — sits right of title, left of logout ── */
+.header-view-controls {
+  display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
+
+/* Both shelf buttons hidden by default (desktop uses toolbar) */
+#header-shelf-toggle,
+#header-fav-shelf-toggle { display: none; }
 
 .toolbar-cocktail-controls {
   display: contents; /* transparent wrapper — children act as direct flex items */
@@ -1013,7 +1018,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 @media (max-width: 899px) {
   .header-subtitle { display: none; }
 
-  #app-header.cocktails-active .header-cocktail-controls { display: flex; }
+  #app-header.cocktails-active #header-shelf-toggle { display: inline-flex; }
+  #app-header.favorites-active #header-fav-shelf-toggle { display: inline-flex; }
+
+  #fav-shelf-toggle { display: none; }
 
   .cocktail-toolbar .toolbar-cocktail-controls { display: none; }
 
@@ -1026,9 +1034,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
     flex: 1 1 0;
     max-width: none;
     min-width: 0;
+    order: 1;
+  }
+  #cocktail-sort {
+    order: 2;
   }
   .ing-filter-wrap {
     flex: 1 1 100%;
     min-width: 0;
+    order: 3;
   }
 }

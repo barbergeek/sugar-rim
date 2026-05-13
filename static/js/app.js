@@ -800,6 +800,7 @@ const Favorites = {
   toggleShelf() {
     this.shelfOnly = !this.shelfOnly;
     el('fav-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    el('header-fav-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
     this._render();
   },
 
@@ -1478,10 +1479,15 @@ const App = {
       el('app-header').classList.add('cocktails-active');
 
       // Lazy-load other views on tab activation
+      const syncHeaderClasses = (view) => {
+        el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
+        el('app-header').classList.toggle('favorites-active', view === 'favorites');
+      };
+
       const origGo = Nav.go.bind(Nav);
       Nav.go = async (view) => {
         origGo(view);
-        el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
+        syncHeaderClasses(view);
         if (view === 'settings') Settings.load();
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
@@ -1489,6 +1495,12 @@ const App = {
         if (view === 'shopping-list') ShoppingList.load();
         if (view === 'tokens') Tokens.load();
         if (view === 'users') Users.load();
+      };
+
+      const origBack = Nav.back.bind(Nav);
+      Nav.back = () => {
+        origBack();
+        syncHeaderClasses(Nav.current);
       };
     } catch (e) {
       if (e.message !== 'Please login') console.error('Init error:', e);
