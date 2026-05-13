@@ -42,7 +42,7 @@ function escHtml(s) {
 // ── Layout helpers ─────────────────────────────────────────────────────────
 
 const DESKTOP_PX    = 900;               // mobile/desktop breakpoint
-const CHROME_H      = 60 + 72 + 56;     // header + nav + toolbar (px)
+const CHROME_H      = 44 + 72 + 48;     // header + nav + toolbar (px)
 const CARD_MIN_W    = 300;
 const CARD_MIN_H    = 160;
 const CARD_GAP      = 8;

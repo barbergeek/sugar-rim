@@ -17,8 +17,8 @@
   --card-bg:   rgba(255, 255, 255, 0.05);
   --radius:    16px;
   --nav-h:     72px;
-  --header-h:  60px;
-  --toolbar-h: 56px;
+  --header-h:  44px;
+  --toolbar-h: 48px;
   --font:      'Outfit', system-ui, -apple-system, sans-serif;
   --shadow:    0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --blur:      blur(12px);
@@ -53,13 +53,13 @@ html, body {
   z-index: 100;
 }
 
-.app-title { 
-  font-size: 1.25rem; 
-  font-weight: 700; 
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 700;
   background: linear-gradient(to right, var(--accent), var(--accent2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  white-space: nowrap; 
+  white-space: nowrap;
 }
 
 .header-subtitle { 
@@ -603,23 +603,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 .toggle-label:hover { background: var(--bg-glass); }
 .toggle-label input { accent-color: var(--accent); width: 16px; height: 16px; }
 
-/* ── Cocktail toolbar (merged name + ingredient search) ───── */
-#view-cocktails .view-toolbar {
+/* ── Cocktail toolbar: merged name + ingredient search ─────── */
+.cocktail-toolbar {
   flex: 0 0 auto;
   min-height: var(--toolbar-h);
-  flex-wrap: wrap;
-  padding: 8px 16px;
-  gap: 8px;
 }
 
 .cocktail-name-search {
-  flex: 0 1 180px;
-  min-width: 100px;
+  flex: 1 1 0;
+  min-width: 120px;
+  max-width: 280px;
 }
 
 /* ── Ingredient filter (token input) ──────────────────────── */
 .ing-filter-wrap {
-  flex: 1;
+  flex: 3 1 0;
   min-width: 180px;
   position: relative;
 }
