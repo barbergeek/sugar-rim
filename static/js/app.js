@@ -36,7 +36,12 @@ function debounce(fn, ms) {
 }
 
 function escHtml(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Decode any HTML entities the API may have pre-encoded (e.g. &#039; → ')
+  // before re-escaping for safe insertion into HTML.
+  const _d = document.createElement('textarea');
+  _d.innerHTML = String(s ?? '');
+  const decoded = _d.value;
+  return decoded.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Layout helpers ─────────────────────────────────────────────────────────
@@ -390,6 +395,7 @@ const Cocktails = {
   _acHighlight: -1,
   currentId: null,
   currentData: null,
+  _servings: 1,
   _cache: new Map(),
   _loadingMore: false,
 
@@ -559,6 +565,7 @@ const Cocktails = {
 
   async open(id) {
     this.currentId = id;
+    this._servings = 1;
     Nav.go('detail');
     el('detail-title').textContent = '…';
 
@@ -592,16 +599,31 @@ const Cocktails = {
     if (this.currentData) this._renderDetail(this.currentData);
   },
 
+  setServings(n) {
+    if (n < 1) return;
+    this._servings = n;
+    if (this.currentData) this._renderDetail(this.currentData);
+  },
+
   _renderDetail(c) {
     el('detail-title').textContent = c.name;
     el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
     el('unit-toggle-btn').textContent = UnitPref.get();
 
+    const s = this._servings;
+    const stepper = `<div class="servings-stepper">
+      <button class="servings-btn" onclick="App.cocktails.setServings(${s - 1})" ${s <= 1 ? 'disabled' : ''}>−</button>
+      <span class="servings-count">${s}×</span>
+      <button class="servings-btn" onclick="App.cocktails.setServings(${s + 1})">+</button>
+    </div>`;
+
     const ings = (c.ingredients || []).map(i => {
       const ingId = i.ingredient_id ?? i.ingredient?.id;
       const onShelf = isOnShelf(ingId, i.ingredient);
       const dot = `<span class="ing-dot ${onShelf ? 'ing-dot-on' : 'ing-dot-off'}" title="${onShelf ? 'On shelf' : 'Not on shelf'}"></span>`;
-      const { amount: amt, unit: unt } = UnitPref.convert(i.amount, i.units);
+      const scaled = i.amount && !isNaN(parseFloat(i.amount))
+        ? parseFloat(i.amount) * s : i.amount;
+      const { amount: amt, unit: unt } = UnitPref.convert(scaled, i.units);
       const amtStr = i.amount ? `${amt} ${unt}`.trim() : '';
       return `<div class="ingredient-row">
         ${dot}
@@ -619,27 +641,38 @@ const Cocktails = {
       `<span class="detail-rating-star ${n <= displayStars ? 'active' : ''}" onclick="App.cocktails.rate(${c.id},${n})">${n <= displayStars ? '★' : '☆'}</span>`
     ).join('');
 
-    const imgHtml = c.images?.[0] ? `<img class="detail-image-side" src="/api/images/${c.images[0].id}/thumb" alt="${escHtml(c.name)}">` : '';
-    el('detail-body').innerHTML = `
-      <div class="detail-rating-row">
-        ${starsHtml}
-        ${avgRating > 0 ? `<span class="detail-rating-avg">avg ${avgRating.toFixed(1)}</span>` : ''}
-      </div>
-      <div class="detail-hero">
-        ${imgHtml}
-        <div class="detail-section" style="flex:1;min-width:0;margin-bottom:0">
-          <div class="detail-meta">
-            ${c.glass   ? `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>` : ''}
-            ${c.method  ? `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>` : ''}
-            ${c.abv     ? `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>` : ''}
-          </div>
-          ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+    const hasImage = !!c.images?.[0];
+
+    const metaSection = `
+      <div class="detail-section" style="margin-bottom:0">
+        <h3>Description</h3>
+        <div class="detail-meta">
+          ${c.glass  ? `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>` : ''}
+          ${c.method ? `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>` : ''}
+          ${c.abv    ? `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>` : ''}
+          <span><strong>Rating:</strong> <span class="meta-stars">${starsHtml}${avgRating > 0 ? `<span class="detail-rating-avg">avg ${avgRating.toFixed(1)}</span>` : ''}</span></span>
         </div>
-      </div>
-      <div class="detail-section"><h3>Ingredients</h3>${ings || '<p style="color:var(--text-dim)">None listed</p>'}</div>
+        ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+        ${c.description ? `<p class="detail-instructions" style="margin-top:12px">${escHtml(c.description)}</p>` : ''}
+      </div>`;
+
+    const ingsSection = `
+      <div class="detail-section">
+        <div class="detail-section-header"><h3>Ingredients</h3>${stepper}</div>
+        ${ings || '<p style="color:var(--text-dim)">None listed</p>'}
+      </div>`;
+
+    const topContent = hasImage
+      ? `<div class="detail-main">
+           <img class="detail-image-main" src="/api/images/${c.images[0].id}/thumb" alt="${escHtml(c.name)}">
+           <div class="detail-main-right">${metaSection}${ingsSection}</div>
+         </div>`
+      : `${metaSection}${ingsSection}`;
+
+    el('detail-body').innerHTML = `
+      ${topContent}
       ${c.instructions ? `<div class="detail-section"><h3>Instructions</h3><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
       ${c.garnish ? `<div class="detail-section"><h3>Garnish</h3><p class="detail-instructions">${escHtml(c.garnish)}</p></div>` : ''}
-      ${c.description ? `<div class="detail-section"><h3>Notes</h3><p class="detail-instructions">${escHtml(c.description)}</p></div>` : ''}
     `;
   },
 
