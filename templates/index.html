@@ -7,16 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=28">
+  <link rel="stylesheet" href="/static/css/style.css?v=29">
 </head>
 <body>
   <header id="app-header">
     <span class="app-title">Sugar Rim</span>
     <span id="header-subtitle" class="header-subtitle"></span>
     <div class="header-cocktail-controls">
-      <label class="toggle-label" style="padding: 2px 6px; font-size: 0.8rem">
-        <input type="checkbox" id="header-shelf-toggle"> Shelf
-      </label>
+      <button class="shelf-toggle-btn" id="header-shelf-toggle" onclick="Cocktails.toggleShelf()">Shelf</button>
       <button class="btn btn-primary btn-sm" onclick="App.cocktails.showCreate()" style="padding: 4px 10px; font-size: 0.8rem">+ New</button>
     </div>
     <button id="logout-btn" class="btn btn-ghost btn-sm hidden" style="margin-left: auto; padding: 4px 8px; font-size: 0.75rem" onclick="App.auth.logout()">Logout</button>
@@ -68,9 +66,7 @@
           <ul id="ing-autocomplete" class="autocomplete-list hidden"></ul>
         </div>
         <div class="toolbar-cocktail-controls">
-          <label class="toggle-label">
-            <input type="checkbox" id="shelf-only-toggle"> Shelf only
-          </label>
+          <button class="shelf-toggle-btn" id="shelf-only-toggle" onclick="Cocktails.toggleShelf()">Shelf only</button>
           <button class="btn btn-primary" onclick="App.cocktails.showCreate()">+ New</button>
         </div>
       </div>
@@ -258,6 +254,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=34"></script>
+  <script src="/static/js/app.js?v=35"></script>
 </body>
 </html>

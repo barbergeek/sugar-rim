@@ -341,6 +341,13 @@ const Cocktails = {
   _cache: new Map(),
   _loadingMore: false,
 
+  toggleShelf() {
+    this.shelfOnly = !this.shelfOnly;
+    el('shelf-only-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    el('header-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    this.load(1);
+  },
+
   addIngredient(ing) {
     if (this.ingredientFilter.some(f => f.id === ing.id)) return;
     this.ingredientFilter.push(ing);
@@ -1223,14 +1230,6 @@ const App = {
         Cocktails.query = e.target.value;
         Cocktails.load(1);
       }, 350));
-      const syncShelf = (checked) => {
-        Cocktails.shelfOnly = checked;
-        el('shelf-only-toggle').checked = checked;
-        el('header-shelf-toggle').checked = checked;
-        Cocktails.load(1);
-      };
-      el('shelf-only-toggle').addEventListener('change', e => syncShelf(e.target.checked));
-      el('header-shelf-toggle').addEventListener('change', e => syncShelf(e.target.checked));
       el('ingredient-search').addEventListener('input', debounce(e => {
         Ingredients.query = e.target.value;
         Ingredients.load(1);
