@@ -160,6 +160,7 @@ html, body {
   padding: 10px 18px;
   font-size: 0.9rem;
   font-weight: 600;
+  line-height: 1;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
