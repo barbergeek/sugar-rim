@@ -1223,10 +1223,14 @@ const App = {
         Cocktails.query = e.target.value;
         Cocktails.load(1);
       }, 350));
-      el('shelf-only-toggle').addEventListener('change', e => {
-        Cocktails.shelfOnly = e.target.checked;
+      const syncShelf = (checked) => {
+        Cocktails.shelfOnly = checked;
+        el('shelf-only-toggle').checked = checked;
+        el('header-shelf-toggle').checked = checked;
         Cocktails.load(1);
-      });
+      };
+      el('shelf-only-toggle').addEventListener('change', e => syncShelf(e.target.checked));
+      el('header-shelf-toggle').addEventListener('change', e => syncShelf(e.target.checked));
       el('ingredient-search').addEventListener('input', debounce(e => {
         Ingredients.query = e.target.value;
         Ingredients.load(1);
@@ -1323,11 +1327,13 @@ const App = {
       // Load initial view
       await Cocktails.load();
       this.nav.go('cocktails');
+      el('app-header').classList.add('cocktails-active');
 
       // Lazy-load other views on tab activation
       const origGo = Nav.go.bind(Nav);
       Nav.go = async (view) => {
         origGo(view);
+        el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
         if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();

@@ -953,8 +953,25 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   #ingredient-pagination { display: none; }
 }
 
-/* Mobile cocktail toolbar: wrap ingredient filter to its own row */
+/* Header cocktail controls (shelf toggle + new button) ───── */
+.header-cocktail-controls {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-cocktail-controls {
+  display: contents; /* transparent wrapper — children act as direct flex items */
+}
+
+/* Mobile cocktail toolbar ────────────────────────────────── */
 @media (max-width: 899px) {
+  .header-subtitle { display: none; }
+
+  #app-header.cocktails-active .header-cocktail-controls { display: flex; }
+
+  .cocktail-toolbar .toolbar-cocktail-controls { display: none; }
+
   .cocktail-toolbar {
     flex-wrap: wrap;
     padding: 6px 12px;
