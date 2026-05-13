@@ -1462,6 +1462,82 @@ const ShoppingList = {
   }
 };
 
+// ── Bar Statistics ─────────────────────────────────────────────────────────
+
+const Stats = {
+  _NUMS: [
+    { key: 'total_cocktails',           label: 'Cocktails',       icon: 'local_bar' },
+    { key: 'total_ingredients',         label: 'Ingredients',     icon: 'eco' },
+    { key: 'total_shelf_ingredients',   label: 'My shelf',        icon: 'inventory_2' },
+    { key: 'total_bar_shelf_ingredients',label:'Bar shelf',       icon: 'liquor' },
+    { key: 'total_favorited_cocktails', label: 'Favorites',       icon: 'star' },
+    { key: 'total_shelf_cocktails',     label: 'I can make',      icon: 'check_circle' },
+    { key: 'total_bar_shelf_cocktails', label: 'Bar can make',    icon: 'sports_bar' },
+    { key: 'total_collections',         label: 'Collections',     icon: 'collections_bookmark' },
+    { key: 'total_bar_members',         label: 'Members',         icon: 'group' },
+  ],
+
+  _LISTS: [
+    { key: 'most_popular_ingredients', title: 'Most Popular Ingredients', icon: 'emoji_events',
+      row: i => ({ name: i.name, badge: `${i.cocktails_count} cocktails` }) },
+    { key: 'top_rated_cocktails',      title: 'Top Rated Cocktails',      icon: 'star',
+      row: i => ({ name: i.name, badge: '★'.repeat(Math.round(i.avg_rating)) }) },
+    { key: 'your_top_ingredients',     title: 'Your Top Ingredients',     icon: 'inventory_2',
+      row: i => ({ name: i.name, badge: `${i.cocktails_count} cocktails` }) },
+    { key: 'favorite_tags',            title: 'Favorite Tags',            icon: 'label',
+      row: i => ({ name: i.name, badge: `${i.cocktails_count} cocktails` }) },
+  ],
+
+  async load() {
+    const body = el('stats-body');
+    body.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const cfg = await get('/config');
+      if (!cfg.bar_id) {
+        body.innerHTML = '<p class="empty-state">No bar selected. Go to Settings to set an active bar.</p>';
+        return;
+      }
+      const d = await get(`/api/bars/${cfg.bar_id}/stats`);
+      const s = d.data || {};
+
+      const numsHtml = this._NUMS
+        .filter(n => n.key in s)
+        .map(n => `
+          <div class="stat-num-card">
+            <span class="stat-num-icon material-symbols-rounded">${n.icon}</span>
+            <div class="stat-num-value">${s[n.key] ?? '—'}</div>
+            <div class="stat-num-label">${n.label}</div>
+          </div>`).join('');
+
+      const listsHtml = this._LISTS
+        .filter(l => s[l.key]?.length)
+        .map(l => {
+          const rows = s[l.key].map((item, idx) => {
+            const { name, badge } = l.row(item);
+            return `<div class="stat-list-row">
+              <span class="stat-list-rank">${idx + 1}</span>
+              <span class="stat-list-name">${escHtml(name)}</span>
+              <span class="stat-list-badge">${escHtml(badge)}</span>
+            </div>`;
+          }).join('');
+          return `<div class="stat-list-card">
+            <div class="stat-list-header">
+              <span class="material-symbols-rounded">${l.icon}</span>
+              ${l.title}
+            </div>
+            ${rows}
+          </div>`;
+        }).join('');
+
+      body.innerHTML = `
+        <div class="stat-nums">${numsHtml}</div>
+        <div class="stat-lists">${listsHtml}</div>`;
+    } catch (e) {
+      body.innerHTML = `<p style="color:#f87171;padding:24px">${escHtml(e.message)}</p>`;
+    }
+  },
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
 
 
@@ -1477,6 +1553,7 @@ const App = {
   tokens:       Tokens,
   users:        Users,
   settings:     Settings,
+  stats:        Stats,
 
   async init() {
     try {
