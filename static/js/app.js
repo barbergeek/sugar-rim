@@ -392,6 +392,8 @@ const Cocktails = {
   sortDir: 'asc',
   query: '',
   ingredientFilter: [],
+  tagFilter: [],
+  _allTags: [],
   _acHighlight: -1,
   currentId: null,
   currentData: null,
@@ -439,12 +441,74 @@ const Cocktails = {
     this.addIngredient(ing);
   },
 
+  async toggleTagModal() {
+    if (!this._allTags.length) {
+      try {
+        const d = await get('/api/tags');
+        const sorted = (d.data || []).sort((a, b) => a.name.localeCompare(b.name));
+        const seen = new Set();
+        this._allTags = sorted.filter(t => {
+          const key = t.name.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } catch (e) {
+        Toast.show('Could not load tags: ' + e.message);
+        return;
+      }
+    }
+    const chips = this._allTags.map(t => {
+      const active = this.tagFilter.some(f => f.id === t.id);
+      return `<button class="tag-chip-toggle${active ? ' active' : ''}" onclick="Cocktails._toggleTag(${t.id})">${escHtml(t.name)}</button>`;
+    }).join('');
+    App.modal.open('Filter by Style / Tag',
+      `<div class="tag-chip-grid">${chips}</div>`,
+      `<button class="btn btn-ghost btn-wide" onclick="Cocktails._clearTags(); App.modal.close()">Clear all</button>
+       <button class="btn btn-primary btn-wide" onclick="App.modal.close()">Done</button>`
+    );
+  },
+
+  _toggleTag(id) {
+    const idx = this.tagFilter.findIndex(f => f.id === id);
+    if (idx >= 0) {
+      this.tagFilter.splice(idx, 1);
+    } else {
+      const tag = this._allTags.find(t => t.id === id);
+      if (tag) this.tagFilter.push(tag);
+    }
+    // update chip state in-modal without closing
+    document.querySelectorAll('.tag-chip-toggle').forEach(btn => {
+      const btnId = parseInt(btn.getAttribute('onclick').match(/\d+/)[0]);
+      btn.classList.toggle('active', this.tagFilter.some(f => f.id === btnId));
+    });
+    this._syncTagBtn();
+    this.load(1);
+  },
+
+  _clearTags() {
+    this.tagFilter = [];
+    this._syncTagBtn();
+    this.load(1);
+  },
+
+  _syncTagBtn() {
+    const btn = el('tag-filter-btn');
+    if (!btn) return;
+    const n = this.tagFilter.length;
+    btn.textContent = n ? `Tags (${n})` : 'Tags';
+    btn.classList.toggle('shelf-active', n > 0);
+  },
+
   _buildParams(page, perPage) {
     const params = { page, per_page: perPage };
     if (this.query) params['filter[name]'] = this.query;
     if (this.shelfOnly) params['filter[on_shelf]'] = true;
     if (this.ingredientFilter.length) {
       params['filter[ingredient_name][]'] = this.ingredientFilter.map(i => i.name);
+    }
+    if (this.tagFilter.length) {
+      params['filter[tag_id][]'] = this.tagFilter.map(t => t.id);
     }
     if (this.sortBy === 'rating') {
       params['sort'] = this.sortDir === 'desc' ? '-average_rating,name' : 'average_rating,name';

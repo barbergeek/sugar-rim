@@ -718,9 +718,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 }
 
 /* ── Ingredient filter (token input) ──────────────────────── */
-.ing-filter-wrap {
+.cocktail-row2 {
+  display: flex;
   flex: 3 1 0;
   min-width: 180px;
+  gap: 6px;
+  align-items: stretch;
+}
+.cocktail-row2 #tag-filter-btn {
+  align-self: stretch;
+  height: auto;
+}
+
+.ing-filter-wrap {
+  flex: 1 1 0;
+  min-width: 0;
   position: relative;
 }
 
@@ -1101,9 +1113,45 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   #cocktail-sort {
     order: 2;
   }
-  .ing-filter-wrap {
-    flex: 1 1 100%;
-    min-width: 0;
+  .cocktail-row2 {
     order: 3;
+    flex: 1 1 100%;
+    display: flex;
+    gap: 6px;
+    min-width: 0;
   }
+  .cocktail-row2 .ing-filter-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+/* ── Tag filter modal ─────────────────────────────────────── */
+.tag-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.tag-chip-toggle {
+  background: var(--bg-glass-heavy);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  line-height: 1;
+}
+.tag-chip-toggle:hover {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+.tag-chip-toggle.active {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
 }
