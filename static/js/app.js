@@ -390,8 +390,11 @@ const Cocktails = {
     if (this.ingredientFilter.length) {
       params['filter[ingredient_name][]'] = this.ingredientFilter.map(i => i.name);
     }
-    const sortField = this.sortBy === 'rating' ? 'average_rating' : 'name';
-    params['sort'] = this.sortDir === 'desc' ? `-${sortField}` : sortField;
+    if (this.sortBy === 'rating') {
+      params['sort'] = this.sortDir === 'desc' ? '-average_rating,name' : 'average_rating,name';
+    } else {
+      params['sort'] = this.sortDir === 'desc' ? '-name' : 'name';
+    }
     return params;
   },
 
@@ -801,7 +804,9 @@ const Favorites = {
       cards.sort((a, b) => {
         const rA = Cocktails._cache.get(parseInt(a.dataset.id))?.rating?.average ?? 0;
         const rB = Cocktails._cache.get(parseInt(b.dataset.id))?.rating?.average ?? 0;
-        return this.sortDir === 'desc' ? rB - rA : rA - rB;
+        const rCmp = this.sortDir === 'desc' ? rB - rA : rA - rB;
+        if (rCmp !== 0) return rCmp;
+        return (a.querySelector('.card-name')?.textContent ?? '').localeCompare(b.querySelector('.card-name')?.textContent ?? '');
       });
       grid.innerHTML = '';
       cards.forEach(c => grid.appendChild(c));
@@ -835,7 +840,9 @@ const Ingredients = {
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     const params = { page, per_page: isMobile() ? 30 : calcLayout('ingredient-list') };
     if (this.query) params['filter[name]'] = this.query;
-    params['sort'] = this.sortDir === 'desc' ? `-${this.sortBy}` : this.sortBy;
+    params['sort'] = this.sortBy === 'name'
+      ? (this.sortDir === 'desc' ? '-name' : 'name')
+      : (this.sortDir === 'desc' ? `-${this.sortBy},name` : `${this.sortBy},name`);
     try {
       const d = await get('/api/ingredients', params);
       const items = d.data || [];
