@@ -1,4 +1,5 @@
 import os
+import math
 import secrets
 from datetime import timedelta
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
@@ -183,26 +184,39 @@ def bar_stats(bar_id):
 def cocktails():
     params = request.args.to_dict(flat=False)
 
-    # filter[on_shelf]=true checks personal shelf; filter[bar_shelf]=true checks bar stock.
-    # To union both we make two requests and merge by unique cocktail id.
+    # Union personal shelf (filter[on_shelf]) and bar stock (filter[bar_shelf]).
+    # Fetch all results from both at once, merge, then self-paginate so meta is correct.
     if params.get("filter[on_shelf]") == ["true"]:
-        base = {k: v for k, v in params.items() if k != "filter[on_shelf]"}
+        per_page = int((params.get("per_page") or ["30"])[0])
+        page     = int((params.get("page")     or ["1"])[0])
+        base = {k: v for k, v in params.items()
+                if k not in ("filter[on_shelf]", "page", "per_page")}
         hdrs = ba_headers()
         url  = ba_url("/cocktails")
         try:
-            r1 = http.get(url, headers=hdrs, params={**base, "filter[on_shelf]": "true"}, timeout=15)
-            r2 = http.get(url, headers=hdrs, params={**base, "filter[bar_shelf]": "true"}, timeout=15)
-            d1 = r1.json() if r1.ok else {"data": []}
-            d2 = r2.json() if r2.ok else {"data": []}
-            seen, merged = set(), []
+            fetch = {**base, "per_page": 500, "page": 1}
+            r1 = http.get(url, headers=hdrs, params={**fetch, "filter[on_shelf]": "true"}, timeout=15)
+            r2 = http.get(url, headers=hdrs, params={**fetch, "filter[bar_shelf]": "true"}, timeout=15)
+            d1 = r1.json() if r1.ok else {"data": [], "meta": {}}
+            d2 = r2.json() if r2.ok else {"data": [], "meta": {}}
+            seen, all_items = set(), []
             for item in (d1.get("data") or []) + (d2.get("data") or []):
                 if item["id"] not in seen:
                     seen.add(item["id"])
-                    merged.append(item)
-            result = d1 if r1.ok else d2
-            result["data"] = merged
-            if "meta" in result:
-                result["meta"]["total"] = len(merged)
+                    all_items.append(item)
+            total     = len(all_items)
+            last_page = max(1, math.ceil(total / per_page))
+            start     = (page - 1) * per_page
+            result    = d1 if r1.ok else (d2 if r2.ok else {"data": [], "meta": {}})
+            result["data"] = all_items[start:start + per_page]
+            result.setdefault("meta", {}).update({
+                "total":        total,
+                "per_page":     per_page,
+                "current_page": page,
+                "last_page":    last_page,
+                "from":         start + 1 if all_items else 0,
+                "to":           start + len(result["data"]),
+            })
             return jsonify(result), 200
         except http.exceptions.ConnectionError:
             return jsonify({"error": "Cannot reach Bar Assistant API."}), 502

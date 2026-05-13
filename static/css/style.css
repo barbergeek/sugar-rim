@@ -892,6 +892,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 
 .cocktail-card .card-thumb-empty {
   flex: 1;
+  width: auto;
+  height: auto;
+  align-self: stretch;
+  border-radius: var(--radius) 0 0 var(--radius);
 }
 
 .card-fav-badge {

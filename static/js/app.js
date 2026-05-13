@@ -470,10 +470,9 @@ const Cocktails = {
     const m = this.lastMeta;
     const bar = el('cocktail-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
-    bar.innerHTML = `
-      ${m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>` : ''}
-      <span>${m.current_page} / ${m.last_page}</span>
-      ${m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>` : ''}`;
+    const prev = m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>` : '<button class="btn btn-ghost" style="visibility:hidden">‹ Prev</button>';
+    const next = m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>` : '<button class="btn btn-ghost" style="visibility:hidden">Next ›</button>';
+    bar.innerHTML = `${prev}<span>${m.current_page} / ${m.last_page}</span>${next}`;
   },
 
   async _maybeLoadMore() {
@@ -869,10 +868,9 @@ const Ingredients = {
     const m = this.lastMeta;
     const bar = el('ingredient-pagination');
     if (!m || m.last_page <= 1) { bar.innerHTML = ''; return; }
-    bar.innerHTML = `
-      ${m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>` : ''}
-      <span>${m.current_page} / ${m.last_page}</span>
-      ${m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>` : ''}`;
+    const prev = m.current_page > 1 ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>` : '<button class="btn btn-ghost" style="visibility:hidden">‹ Prev</button>';
+    const next = m.current_page < m.last_page ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>` : '<button class="btn btn-ghost" style="visibility:hidden">Next ›</button>';
+    bar.innerHTML = `${prev}<span>${m.current_page} / ${m.last_page}</span>${next}`;
   },
 
   showCreate() {
