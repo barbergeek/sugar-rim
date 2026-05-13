@@ -419,12 +419,14 @@ const Cocktails = {
     if (this.ingredientFilter.some(f => f.id === ing.id)) return;
     this.ingredientFilter.push(ing);
     this._renderChips();
+    this._syncClearBtn();
     this.load(1);
   },
 
   removeIngredient(id) {
     this.ingredientFilter = this.ingredientFilter.filter(f => f.id !== id);
     this._renderChips();
+    this._syncClearBtn();
     this.load(1);
   },
 
@@ -432,6 +434,21 @@ const Cocktails = {
     el('ing-chips').innerHTML = this.ingredientFilter.map(ing =>
       `<span class="ing-chip">${escHtml(ing.name)}<button class="ing-chip-remove" onclick="Cocktails.removeIngredient(${ing.id})" title="Remove">×</button></span>`
     ).join('');
+  },
+
+  _syncClearBtn() {
+    const hasFilters = this.ingredientFilter.length > 0 || this.tagFilter.length > 0;
+    el('filter-clear-btn').classList.toggle('hidden', !hasFilters);
+  },
+
+  clearAllFilters() {
+    this.ingredientFilter = [];
+    this.tagFilter = [];
+    this._renderChips();
+    this._renderTagChips();
+    this._syncClearBtn();
+    this._syncTagBtn();
+    this.load(1);
   },
 
   _selectIngredient(ing) {
@@ -482,12 +499,21 @@ const Cocktails = {
       const btnId = parseInt(btn.getAttribute('onclick').match(/\d+/)[0]);
       btn.classList.toggle('active', this.tagFilter.some(f => f.id === btnId));
     });
+    this._renderTagChips();
     this._syncTagBtn();
     this.load(1);
   },
 
+  _renderTagChips() {
+    el('tag-chips').innerHTML = this.tagFilter.map(t =>
+      `<span class="tag-chip">${escHtml(t.name)}<button class="ing-chip-remove" onclick="Cocktails._toggleTag(${t.id})" title="Remove">×</button></span>`
+    ).join('');
+    this._syncClearBtn();
+  },
+
   _clearTags() {
     this.tagFilter = [];
+    this._renderTagChips();
     this._syncTagBtn();
     this.load(1);
   },
@@ -1485,11 +1511,11 @@ const App = {
 
       el('ing-token-box').addEventListener('click', () => ingFilterInput.focus());
 
-      ingFilterInput.addEventListener('input', debounce(async () => {
-        const q = ingFilterInput.value.trim();
-        if (q.length < 1) { ingAutoList.classList.add('hidden'); return; }
+      const showIngAc = async (q) => {
         try {
-          const d = await get('/api/ingredients', { 'filter[name]': q, per_page: 20 });
+          const params = { per_page: 20, 'sort': 'name' };
+          if (q) params['filter[name]'] = q;
+          const d = await get('/api/ingredients', params);
           const items = (d.data || []).filter(i =>
             !Cocktails.ingredientFilter.some(f => f.id === i.id)
           );
@@ -1527,6 +1553,13 @@ const App = {
             } catch (e) { /* silent */ }
           });
         } catch (e) { /* silent */ }
+      };
+
+      ingFilterInput.addEventListener('focus', () => showIngAc(ingFilterInput.value.trim()));
+
+      ingFilterInput.addEventListener('input', debounce(() => {
+        const q = ingFilterInput.value.trim();
+        showIngAc(q);
       }, 250));
 
       ingFilterInput.addEventListener('keydown', e => {

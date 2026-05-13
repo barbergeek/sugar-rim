@@ -204,6 +204,14 @@ def cocktails():
                 if item["id"] not in seen:
                     seen.add(item["id"])
                     all_items.append(item)
+
+            # filter[bar_shelf] ignores filter[ingredient_name][], so post-filter the union.
+            ing_filter = [n.lower() for n in base.get("filter[ingredient_name][]", [])]
+            if ing_filter:
+                def _has_ingredients(item):
+                    shorts = [s.lower() for s in (item.get("short_ingredients") or [])]
+                    return all(any(req in s for s in shorts) for req in ing_filter)
+                all_items = [item for item in all_items if _has_ingredients(item)]
             total     = len(all_items)
             last_page = max(1, math.ceil(total / per_page))
             start     = (page - 1) * per_page

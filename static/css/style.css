@@ -780,6 +780,20 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   white-space: nowrap;
 }
 
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(249, 212, 35, 0.12);
+  border: 1px solid rgba(249, 212, 35, 0.35);
+  color: var(--accent2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .ing-chip-remove {
   background: none;
   border: none;
@@ -791,6 +805,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   opacity: 0.65;
 }
 .ing-chip-remove:hover { opacity: 1; }
+
+.filter-clear-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+.filter-clear-btn:hover { color: var(--text); }
 
 /* ── Autocomplete dropdown ────────────────────────────────── */
 .autocomplete-list {
