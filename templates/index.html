@@ -84,6 +84,7 @@
         <button class="btn btn-ghost" onclick="App.nav.back()">← Back</button>
         <span id="detail-title" class="toolbar-title"></span>
         <button class="btn btn-ghost" id="detail-fav-btn" onclick="App.cocktails.toggleFav()">☆</button>
+        <button class="shelf-toggle-btn" id="unit-toggle-btn" onclick="App.cocktails.toggleUnit()">oz</button>
         <button class="btn btn-ghost" onclick="App.cocktails.editCurrent()">Edit</button>
       </div>
       <div id="detail-body" class="detail-body"></div>
@@ -222,6 +223,13 @@
         <button class="btn btn-primary btn-wide" onclick="App.settings.saveBar()">Set Active Bar</button>
         <div id="cfg-message" class="cfg-status"></div>
         <hr>
+        <h2>Display Units</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="shelf-toggle-btn" id="settings-unit-oz" onclick="App.settings.setUnit('oz')">oz</button>
+          <button class="shelf-toggle-btn" id="settings-unit-ml" onclick="App.settings.setUnit('ml')">ml</button>
+          <span class="cfg-status" id="settings-unit-msg"></span>
+        </div>
+        <hr>
         <h2>How to get a token</h2>
         <ol class="help-list">
           <li>Open your Bar Assistant web interface</li>
@@ -268,6 +276,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=40"></script>
+  <script src="/static/js/app.js?v=41"></script>
 </body>
 </html>

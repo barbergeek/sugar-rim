@@ -65,6 +65,49 @@ function isOnShelf(ingId, ingredient) {
       || !!Ingredients._shelfState.get(ingId);
 }
 
+// ── Unit preference ────────────────────────────────────────────────────────
+
+const UnitPref = {
+  get() { return localStorage.getItem('sugar-rim-units') || 'oz'; },
+  set(u) { localStorage.setItem('sugar-rim-units', u); },
+
+  toggle() {
+    const next = this.get() === 'oz' ? 'ml' : 'oz';
+    this.set(next);
+    return next;
+  },
+
+  // Convert a single amount+unit pair to the preferred unit.
+  // Returns { amount: string, unit: string }.
+  convert(amount, unit) {
+    if (!amount && amount !== 0) return { amount: amount ?? '', unit: unit || '' };
+    const num = parseFloat(amount);
+    if (isNaN(num)) return { amount: String(amount), unit: unit || '' };
+    const u = (unit || '').toLowerCase().trim();
+    const pref = this.get();
+
+    if (pref === 'oz') {
+      if (u === 'ml') return { amount: this._fmtOz(num / 30), unit: 'oz' };
+      if (u === 'cl') return { amount: this._fmtOz((num * 10) / 30), unit: 'oz' };
+    } else {
+      if (u === 'oz') return { amount: String(Math.round(num * 30)), unit: 'ml' };
+      if (u === 'cl') return { amount: String(Math.round(num * 10)), unit: 'ml' };
+    }
+    return { amount: String(amount), unit: unit || '' };
+  },
+
+  // Round to nearest ¼ oz and render with unicode fraction characters.
+  _fmtOz(n) {
+    const q = Math.round(n * 4);
+    const whole = Math.floor(q / 4);
+    const rem = q % 4;
+    const fracs = ['', '¼', '½', '¾'];
+    const frac = fracs[rem];
+    if (whole === 0) return frac || '0';
+    return frac ? `${whole} ${frac}` : String(whole);
+  }
+};
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 
 const Toast = {
@@ -134,6 +177,20 @@ const Settings = {
         this.loadVersion();
       }
     } catch (e) { /* silent */ }
+    this._syncUnitButtons();
+  },
+
+  setUnit(u) {
+    UnitPref.set(u);
+    this._syncUnitButtons();
+    el('unit-toggle-btn').textContent = u;
+    if (App.cocktails.currentData) App.cocktails._renderDetail(App.cocktails.currentData);
+  },
+
+  _syncUnitButtons() {
+    const u = UnitPref.get();
+    el('settings-unit-oz').classList.toggle('shelf-active', u === 'oz');
+    el('settings-unit-ml').classList.toggle('shelf-active', u === 'ml');
   },
 
   async loadVersion() {
@@ -536,17 +593,26 @@ const Cocktails = {
     }
   },
 
+  toggleUnit() {
+    UnitPref.toggle();
+    el('unit-toggle-btn').textContent = UnitPref.get();
+    if (this.currentData) this._renderDetail(this.currentData);
+  },
+
   _renderDetail(c) {
     el('detail-title').textContent = c.name;
     el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
+    el('unit-toggle-btn').textContent = UnitPref.get();
 
     const ings = (c.ingredients || []).map(i => {
       const ingId = i.ingredient_id ?? i.ingredient?.id;
       const onShelf = isOnShelf(ingId, i.ingredient);
       const dot = `<span class="ing-dot ${onShelf ? 'ing-dot-on' : 'ing-dot-off'}" title="${onShelf ? 'On shelf' : 'Not on shelf'}"></span>`;
+      const { amount: amt, unit: unt } = UnitPref.convert(i.amount, i.units);
+      const amtStr = i.amount ? `${amt} ${unt}`.trim() : '';
       return `<div class="ingredient-row">
         ${dot}
-        <span class="ing-amount">${escHtml(i.amount ? `${i.amount} ${i.units || ''}`.trim() : '')}</span>
+        <span class="ing-amount">${escHtml(amtStr)}</span>
         <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}</span>
       </div>`;
     }).join('');
@@ -1410,6 +1476,9 @@ const App = {
         if (g.scrollHeight - g.scrollTop - g.clientHeight < 300) Cocktails._maybeLoadMore();
       });
 
+      // Initialise unit toggle label from saved preference
+      el('unit-toggle-btn').textContent = UnitPref.get();
+
       // Load initial view
       await Cocktails.load();
       this.nav.go('cocktails');
@@ -1420,6 +1489,7 @@ const App = {
       Nav.go = async (view) => {
         origGo(view);
         el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
+        if (view === 'settings') Settings._syncUnitButtons();
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
         if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
