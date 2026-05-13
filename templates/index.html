@@ -208,20 +208,17 @@
         <label>Bar Assistant API URL
           <input type="url" id="cfg-url" placeholder="http://localhost:8000/api" class="text-input">
         </label>
-        <label>API Token
-          <input type="password" id="cfg-token" placeholder="Paste token here (leave blank to keep current)" class="text-input">
-        </label>
-        <div id="cfg-token-status" class="cfg-status"></div>
-        <button class="btn btn-primary btn-wide" onclick="App.settings.saveCredentials()">Save URL &amp; Token</button>
+        <button class="btn btn-primary btn-wide" onclick="App.settings.saveUrl()">Save URL</button>
+        <div id="cfg-message" class="cfg-status"></div>
         <hr>
         <h2>Active Bar</h2>
         <label>Select bar
           <select id="cfg-bar" class="text-input">
-            <option value="">— save URL &amp; token first —</option>
+            <option value="">— log in first —</option>
           </select>
         </label>
         <button class="btn btn-primary btn-wide" onclick="App.settings.saveBar()">Set Active Bar</button>
-        <div id="cfg-message" class="cfg-status"></div>
+        <div id="cfg-bar-message" class="cfg-status"></div>
         <hr>
         <h2>Display Units</h2>
         <div style="display:flex;gap:8px;align-items:center">
@@ -229,13 +226,6 @@
           <button class="shelf-toggle-btn" id="settings-unit-ml" onclick="App.settings.setUnit('ml')">ml</button>
           <span class="cfg-status" id="settings-unit-msg"></span>
         </div>
-        <hr>
-        <h2>How to get a token</h2>
-        <ol class="help-list">
-          <li>Open your Bar Assistant web interface</li>
-          <li>Go to Profile → Personal Access Tokens</li>
-          <li>Create a new token and paste it above</li>
-        </ol>
         <hr>
         <div class="header-subtitle" id="server-version">API Version: Loading…</div>
       </div>
@@ -276,6 +266,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=42"></script>
+  <script src="/static/js/app.js?v=43"></script>
 </body>
 </html>

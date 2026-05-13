@@ -170,9 +170,7 @@ const Settings = {
     try {
       const cfg = await get('/config');
       el('cfg-url').value = cfg.api_url || '';
-      el('cfg-token-status').textContent = cfg.token_set ? '✓ Token is set' : 'No token saved yet';
-      el('cfg-token-status').className = 'cfg-status ' + (cfg.token_set ? 'ok' : 'err');
-      if (cfg.token_set) {
+      if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
         this.loadVersion();
       }
@@ -202,20 +200,15 @@ const Settings = {
     }
   },
 
-  async saveCredentials() {
-    const url   = el('cfg-url').value.trim();
-    const token = el('cfg-token').value.trim();
-    const msg   = el('cfg-message');
+  async saveUrl() {
+    const url = el('cfg-url').value.trim();
+    const msg = el('cfg-message');
+    if (!url) { msg.textContent = '✗ URL is required'; msg.className = 'cfg-status err'; return; }
     try {
-      await post('/config', { api_url: url, ...(token ? { api_token: token } : {}) });
+      await post('/config', { api_url: url });
       msg.textContent = '✓ Saved';
       msg.className = 'cfg-status ok';
-      el('cfg-token').value = '';
-      el('cfg-token-status').textContent = '✓ Token is set';
-      el('cfg-token-status').className = 'cfg-status ok';
-      await State.loadProfile();
-      const cfg = await get('/config');
-      await this._loadBars(cfg.bar_id);
+      this.loadVersion();
     } catch (e) {
       msg.textContent = '✗ ' + e.message;
       msg.className = 'cfg-status err';
@@ -244,7 +237,7 @@ const Settings = {
 
   async saveBar() {
     const bar_id = el('cfg-bar').value;
-    const msg = el('cfg-message');
+    const msg = el('cfg-bar-message');
     if (!bar_id) { Toast.err('Select a bar first'); return; }
     try {
       await post('/config', { bar_id });
@@ -1489,7 +1482,7 @@ const App = {
       Nav.go = async (view) => {
         origGo(view);
         el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
-        if (view === 'settings') Settings._syncUnitButtons();
+        if (view === 'settings') Settings.load();
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
         if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
