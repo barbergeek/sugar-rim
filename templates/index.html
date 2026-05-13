@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=21">
+  <link rel="stylesheet" href="/static/css/style.css?v=24">
 </head>
 <body>
   <header id="app-header">
@@ -52,8 +52,15 @@
 
     <!-- ── COCKTAILS VIEW ───────────────────────────────────── -->
     <section id="view-cocktails" class="view">
-      <div class="view-toolbar">
-        <input type="search" id="cocktail-search" placeholder="Search cocktails…" class="search-input">
+      <div class="view-toolbar cocktail-toolbar">
+        <input type="search" id="cocktail-search" placeholder="Search…" class="search-input cocktail-name-search">
+        <div class="ing-filter-wrap" id="ing-filter-wrap">
+          <div class="ing-token-box" id="ing-token-box">
+            <span id="ing-chips"></span>
+            <input type="text" id="ing-filter-input" placeholder="Filter by ingredient…" autocomplete="off">
+          </div>
+          <ul id="ing-autocomplete" class="autocomplete-list hidden"></ul>
+        </div>
         <label class="toggle-label">
           <input type="checkbox" id="shelf-only-toggle"> Shelf only
         </label>
@@ -246,6 +253,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=27"></script>
+  <script src="/static/js/app.js?v=30"></script>
 </body>
 </html>

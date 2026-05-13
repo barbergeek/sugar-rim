@@ -16,8 +16,13 @@ async function api(method, path, body) {
 }
 
 function get(path, params) {
-  const url = params ? `${path}?${new URLSearchParams(params)}` : path;
-  return api('GET', url);
+  if (!params) return api('GET', path);
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (Array.isArray(v)) v.forEach(item => qs.append(k, item));
+    else qs.append(k, v);
+  }
+  return api('GET', `${path}?${qs}`);
 }
 function post(path, body) { return api('POST', path, body); }
 function put(path, body)  { return api('PUT',  path, body); }
@@ -329,19 +334,56 @@ const Cocktails = {
   lastMeta: null,
   shelfOnly: false,
   query: '',
+  ingredientFilter: [],
+  _acHighlight: -1,
   currentId: null,
   currentData: null,
   _cache: new Map(),
   _loadingMore: false,
+
+  addIngredient(ing) {
+    if (this.ingredientFilter.some(f => f.id === ing.id)) return;
+    this.ingredientFilter.push(ing);
+    this._renderChips();
+    this.load(1);
+  },
+
+  removeIngredient(id) {
+    this.ingredientFilter = this.ingredientFilter.filter(f => f.id !== id);
+    this._renderChips();
+    this.load(1);
+  },
+
+  _renderChips() {
+    el('ing-chips').innerHTML = this.ingredientFilter.map(ing =>
+      `<span class="ing-chip">${escHtml(ing.name)}<button class="ing-chip-remove" onclick="Cocktails.removeIngredient(${ing.id})" title="Remove">×</button></span>`
+    ).join('');
+  },
+
+  _selectIngredient(ing) {
+    el('ing-filter-input').value = '';
+    el('ing-autocomplete').classList.add('hidden');
+    this._acHighlight = -1;
+    this.addIngredient(ing);
+  },
+
+  _buildParams(page, perPage) {
+    const params = { page, per_page: perPage };
+    if (this.query) params['filter[name]'] = this.query;
+    if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+    if (this.ingredientFilter.length) {
+      params['filter[ingredient_name][]'] = this.ingredientFilter.map(i => i.name);
+    }
+    return params;
+  },
+
   async load(page = 1) {
     this.page = page;
     const grid  = el('cocktail-list');
     const empty = el('cocktail-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     const perPage = isMobile() ? 30 : calcLayout('cocktail-list');
-    const params = { page, per_page: perPage };
-    if (this.query) params['filter[name]'] = this.query;
-    if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+    const params = this._buildParams(page, perPage);
     try {
       const d = await get('/api/cocktails', params);
       const items = d.data || [];
@@ -433,9 +475,7 @@ const Cocktails = {
     this._loadingMore = true;
     try {
       const page = m.current_page + 1;
-      const params = { page, per_page: 30 };
-      if (this.query) params['filter[name]'] = this.query;
-      if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+      const params = this._buildParams(page, 30);
       const d = await get('/api/cocktails', params);
       const items = d.data || [];
       this.lastMeta = d.meta;
@@ -1191,6 +1231,80 @@ const App = {
         Ingredients.query = e.target.value;
         Ingredients.load(1);
       }, 350));
+
+      // Wire ingredient filter autocomplete
+      const ingFilterInput = el('ing-filter-input');
+      const ingAutoList    = el('ing-autocomplete');
+
+      el('ing-token-box').addEventListener('click', () => ingFilterInput.focus());
+
+      ingFilterInput.addEventListener('input', debounce(async () => {
+        const q = ingFilterInput.value.trim();
+        if (q.length < 1) { ingAutoList.classList.add('hidden'); return; }
+        try {
+          const d = await get('/api/ingredients', { 'filter[name]': q, per_page: 20 });
+          const items = (d.data || []).filter(i =>
+            !Cocktails.ingredientFilter.some(f => f.id === i.id)
+          );
+          Cocktails._acHighlight = -1;
+          ingAutoList.innerHTML = '';
+          if (!items.length) { ingAutoList.classList.add('hidden'); return; }
+          items.forEach(ing => {
+            const li = document.createElement('li');
+            li.className = 'autocomplete-item';
+            li.innerHTML = `<div class="ac-ing-img" id="ac-img-${ing.id}"><span class="ac-ing-placeholder">🍶</span></div><span>${escHtml(ing.name)}</span>`;
+            li.addEventListener('mousedown', e => {
+              e.preventDefault();
+              Cocktails._selectIngredient({ id: ing.id, name: ing.name });
+            });
+            ingAutoList.appendChild(li);
+          });
+          ingAutoList.classList.remove('hidden');
+
+          // Enrich each row with an image, using the ingredient detail cache when warm
+          items.forEach(async ing => {
+            try {
+              const cached = Ingredients._cache.get(ing.id);
+              const data = cached ?? (await get(`/api/ingredients/${ing.id}`)).data;
+              if (!cached) Ingredients._cache.set(ing.id, data);
+              if (data.images?.[0]) {
+                const slot = el(`ac-img-${ing.id}`);
+                if (slot) {
+                  const img = document.createElement('img');
+                  img.src = `/api/images/${data.images[0].id}/thumb`;
+                  img.alt = '';
+                  slot.innerHTML = '';
+                  slot.appendChild(img);
+                }
+              }
+            } catch (e) { /* silent */ }
+          });
+        } catch (e) { /* silent */ }
+      }, 250));
+
+      ingFilterInput.addEventListener('keydown', e => {
+        const items = ingAutoList.querySelectorAll('.autocomplete-item');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          Cocktails._acHighlight = Math.min(Cocktails._acHighlight + 1, items.length - 1);
+          items.forEach((it, i) => it.classList.toggle('ac-active', i === Cocktails._acHighlight));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          Cocktails._acHighlight = Math.max(Cocktails._acHighlight - 1, -1);
+          items.forEach((it, i) => it.classList.toggle('ac-active', i === Cocktails._acHighlight));
+        } else if (e.key === 'Enter' && Cocktails._acHighlight >= 0) {
+          e.preventDefault();
+          items[Cocktails._acHighlight]?.dispatchEvent(new MouseEvent('mousedown'));
+        } else if (e.key === 'Escape') {
+          ingAutoList.classList.add('hidden');
+          ingFilterInput.blur();
+        }
+      });
+
+      ingFilterInput.addEventListener('blur', () => {
+        setTimeout(() => ingAutoList.classList.add('hidden'), 150);
+      });
 
       window.addEventListener('resize', debounce(() => {
         if (isMobile()) return;

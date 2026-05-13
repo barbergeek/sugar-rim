@@ -290,7 +290,19 @@ textarea.text-input {
   background: var(--bg-glass);
   animation: thumb-pulse 1.5s ease-in-out infinite;
 }
-.card-thumb-empty { width: 60px; height: 60px; flex-shrink: 0; }
+.card-thumb-empty {
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  background: var(--bg-glass-heavy);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  opacity: 0.4;
+}
+.card-thumb-empty::after { content: '🍶'; }
 @keyframes thumb-pulse {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 0.7; }
@@ -590,6 +602,143 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 }
 .toggle-label:hover { background: var(--bg-glass); }
 .toggle-label input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* ── Cocktail toolbar (merged name + ingredient search) ───── */
+#view-cocktails .view-toolbar {
+  flex: 0 0 auto;
+  min-height: var(--toolbar-h);
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  gap: 8px;
+}
+
+.cocktail-name-search {
+  flex: 0 1 180px;
+  min-width: 100px;
+}
+
+/* ── Ingredient filter (token input) ──────────────────────── */
+.ing-filter-wrap {
+  flex: 1;
+  min-width: 180px;
+  position: relative;
+}
+
+.ing-token-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-glass-heavy);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-height: 38px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+
+.ing-token-box:focus-within { border-color: var(--accent); }
+
+.ing-token-box input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.875rem;
+  flex: 1;
+  min-width: 100px;
+  padding: 0;
+}
+
+.ing-token-box input::placeholder { color: var(--text-dim); }
+
+.ing-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 46, 99, 0.15);
+  border: 1px solid rgba(255, 46, 99, 0.35);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ing-chip-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.65;
+}
+.ing-chip-remove:hover { opacity: 1; }
+
+/* ── Autocomplete dropdown ────────────────────────────────── */
+.autocomplete-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #12132a;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 300;
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+  list-style: none;
+}
+
+.autocomplete-list.hidden { display: none; }
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text);
+  transition: background 0.15s;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.ac-active {
+  background: rgba(255, 46, 99, 0.12);
+  color: var(--accent);
+}
+
+.ac-ing-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg-glass-heavy);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ac-ing-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ac-ing-placeholder {
+  font-size: 1.1rem;
+  opacity: 0.35;
+}
 
 /* ── Pagination ───────────────────────────────────────────── */
 .pagination-bar {
