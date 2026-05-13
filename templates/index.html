@@ -57,6 +57,11 @@
     <section id="view-cocktails" class="view">
       <div class="view-toolbar cocktail-toolbar">
         <input type="search" id="cocktail-search" placeholder="Search cocktails…" class="search-input cocktail-name-search">
+        <select class="sort-select" id="cocktail-sort" onchange="Cocktails.setSort(this.value)">
+          <option value="name-asc">A-Z</option>
+          <option value="name-desc">Z-A</option>
+          <option value="rating-desc">Rating ★</option>
+        </select>
         <div class="ing-filter-wrap" id="ing-filter-wrap">
           <div class="ing-token-box" id="ing-token-box">
             <span id="ing-chips"></span>
@@ -67,11 +72,6 @@
         <div class="toolbar-cocktail-controls">
           <button class="shelf-toggle-btn" id="shelf-only-toggle" onclick="Cocktails.toggleShelf()">Shelf only</button>
         </div>
-        <select class="sort-select" id="cocktail-sort" onchange="Cocktails.setSort(this.value)">
-          <option value="name-asc">A-Z</option>
-          <option value="name-desc">Z-A</option>
-          <option value="rating-desc">Rating ★</option>
-        </select>
       </div>
       <div id="cocktail-list" class="card-grid"></div>
       <div id="cocktail-empty" class="empty-state hidden"><p>No cocktails found.</p></div>
@@ -276,6 +276,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=41"></script>
+  <script src="/static/js/app.js?v=42"></script>
 </body>
 </html>
