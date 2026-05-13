@@ -370,7 +370,7 @@ const Cocktails = {
   _buildParams(page, perPage) {
     const params = { page, per_page: perPage };
     if (this.query) params['filter[name]'] = this.query;
-    if (this.shelfOnly) params['filter[on_shelf]'] = '1';
+    if (this.shelfOnly) params['filter[on_shelf]'] = true;
     if (this.ingredientFilter.length) {
       params['filter[ingredient_name][]'] = this.ingredientFilter.map(i => i.name);
     }

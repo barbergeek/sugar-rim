@@ -182,6 +182,31 @@ def bar_stats(bar_id):
 @app.route("/api/cocktails")
 def cocktails():
     params = request.args.to_dict(flat=False)
+
+    # filter[on_shelf]=true checks personal shelf; filter[bar_shelf]=true checks bar stock.
+    # To union both we make two requests and merge by unique cocktail id.
+    if params.get("filter[on_shelf]") == ["true"]:
+        base = {k: v for k, v in params.items() if k != "filter[on_shelf]"}
+        hdrs = ba_headers()
+        url  = ba_url("/cocktails")
+        try:
+            r1 = http.get(url, headers=hdrs, params={**base, "filter[on_shelf]": "true"}, timeout=15)
+            r2 = http.get(url, headers=hdrs, params={**base, "filter[bar_shelf]": "true"}, timeout=15)
+            d1 = r1.json() if r1.ok else {"data": []}
+            d2 = r2.json() if r2.ok else {"data": []}
+            seen, merged = set(), []
+            for item in (d1.get("data") or []) + (d2.get("data") or []):
+                if item["id"] not in seen:
+                    seen.add(item["id"])
+                    merged.append(item)
+            result = d1 if r1.ok else d2
+            result["data"] = merged
+            if "meta" in result:
+                result["meta"]["total"] = len(merged)
+            return jsonify(result), 200
+        except http.exceptions.ConnectionError:
+            return jsonify({"error": "Cannot reach Bar Assistant API."}), 502
+
     return proxy("GET", "/cocktails", params=params)
 
 
