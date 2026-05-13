@@ -158,6 +158,12 @@
       <div class="view-toolbar">
         <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
         <input type="search" id="ingredient-search" placeholder="Search ingredients…" class="search-input">
+        <select class="sort-select" id="ingredient-sort" onchange="App.ingredients.setSort(this.value)">
+          <option value="name-asc">A-Z</option>
+          <option value="name-desc">Z-A</option>
+          <option value="strength-desc">ABV ↓</option>
+          <option value="strength-asc">ABV ↑</option>
+        </select>
         <button class="btn btn-primary" onclick="App.ingredients.showCreate()">+ New</button>
       </div>
       <div id="ingredient-list" class="card-grid"></div>
@@ -263,6 +269,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=37"></script>
+  <script src="/static/js/app.js?v=38"></script>
 </body>
 </html>

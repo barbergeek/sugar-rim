@@ -815,9 +815,18 @@ const Ingredients = {
   page: 1,
   lastMeta: null,
   query: '',
+  sortBy: 'name',
+  sortDir: 'asc',
   _cache: new Map(),
   _shelfState: new Map(),
   _cartState: new Map(),
+
+  setSort(value) {
+    const [field, dir] = value.split('-');
+    this.sortBy = field;
+    this.sortDir = dir;
+    this.load(1);
+  },
 
   async load(page = 1) {
     this.page = page;
@@ -826,6 +835,7 @@ const Ingredients = {
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     const params = { page, per_page: isMobile() ? 30 : calcLayout('ingredient-list') };
     if (this.query) params['filter[name]'] = this.query;
+    params['sort'] = this.sortDir === 'desc' ? `-${this.sortBy}` : this.sortBy;
     try {
       const d = await get('/api/ingredients', params);
       const items = d.data || [];
