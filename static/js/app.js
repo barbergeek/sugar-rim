@@ -719,22 +719,55 @@ const Cocktails = {
 // ── Favorites ──────────────────────────────────────────────────────────────
 
 const Favorites = {
+  shelfOnly: false,
+  _allItems: [],
+
+  toggleShelf() {
+    this.shelfOnly = !this.shelfOnly;
+    el('fav-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    this._render();
+  },
+
   async load() {
-    const grid  = el('favorites-list');
-    const empty = el('favorites-empty');
-    if (!isMobile()) calcLayout('favorites-list');
+    const grid = el('favorites-list');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    if (!isMobile()) calcLayout('favorites-list');
     try {
       const d = await get('/api/favorites');
-      const items = (d.data || []).map(c => ({ ...c, is_favorited: true }));
-      grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
-      Cocktails._enrichCards(items);
+      this._allItems = (d.data || []).map(c => ({ ...c, is_favorited: true }));
+      await this._render();
     } catch (e) {
       grid.innerHTML = '';
-      empty.classList.remove('hidden');
-      empty.querySelector('p').textContent = e.message;
+      el('favorites-empty').classList.remove('hidden');
+      el('favorites-empty').querySelector('p').textContent = e.message;
     }
-  }
+  },
+
+  async _render() {
+    const grid  = el('favorites-list');
+    const empty = el('favorites-empty');
+    let items = this._allItems;
+
+    if (this.shelfOnly && items.length) {
+      try {
+        const d = await get('/api/cocktails', { 'filter[on_shelf]': true, per_page: 500 });
+        const shelfIds = new Set((d.data || []).map(c => c.id));
+        items = items.filter(c => shelfIds.has(c.id));
+      } catch (e) { /* fall back to unfiltered on error */ }
+    }
+
+    if (!items.length) {
+      grid.innerHTML = '';
+      empty.querySelector('p').textContent = this.shelfOnly
+        ? 'No favorites on your shelf.'
+        : 'No favorites yet. Star a cocktail to save it here.';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
+    Cocktails._enrichCards(items);
+  },
 };
 
 // ── Ingredients ────────────────────────────────────────────────────────────
