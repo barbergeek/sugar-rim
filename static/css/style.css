@@ -952,3 +952,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   #cocktail-pagination { display: none; }
   #ingredient-pagination { display: none; }
 }
+
+/* Mobile cocktail toolbar: wrap ingredient filter to its own row */
+@media (max-width: 899px) {
+  .cocktail-toolbar {
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    gap: 6px;
+  }
+  .cocktail-name-search {
+    flex: 1 1 0;
+    max-width: none;
+    min-width: 0;
+  }
+  .ing-filter-wrap {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
