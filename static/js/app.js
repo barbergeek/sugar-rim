@@ -333,6 +333,8 @@ const Cocktails = {
   page: 1,
   lastMeta: null,
   shelfOnly: false,
+  sortBy: 'name',
+  sortDir: 'asc',
   query: '',
   ingredientFilter: [],
   _acHighlight: -1,
@@ -345,6 +347,13 @@ const Cocktails = {
     this.shelfOnly = !this.shelfOnly;
     el('shelf-only-toggle').classList.toggle('shelf-active', this.shelfOnly);
     el('header-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    this.load(1);
+  },
+
+  setSort(value) {
+    const [field, dir] = value.split('-');
+    this.sortBy = field;
+    this.sortDir = dir;
     this.load(1);
   },
 
@@ -381,6 +390,8 @@ const Cocktails = {
     if (this.ingredientFilter.length) {
       params['filter[ingredient_name][]'] = this.ingredientFilter.map(i => i.name);
     }
+    const sortField = this.sortBy === 'rating' ? 'average_rating' : 'name';
+    params['sort'] = this.sortDir === 'desc' ? `-${sortField}` : sortField;
     return params;
   },
 
@@ -720,11 +731,20 @@ const Cocktails = {
 
 const Favorites = {
   shelfOnly: false,
+  sortBy: 'name',
+  sortDir: 'asc',
   _allItems: [],
 
   toggleShelf() {
     this.shelfOnly = !this.shelfOnly;
     el('fav-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    this._render();
+  },
+
+  setSort(value) {
+    const [field, dir] = value.split('-');
+    this.sortBy = field;
+    this.sortDir = dir;
     this._render();
   },
 
@@ -746,7 +766,7 @@ const Favorites = {
   async _render() {
     const grid  = el('favorites-list');
     const empty = el('favorites-empty');
-    let items = this._allItems;
+    let items = [...this._allItems];
 
     if (this.shelfOnly && items.length) {
       try {
@@ -764,9 +784,28 @@ const Favorites = {
       empty.classList.remove('hidden');
       return;
     }
+
+    if (this.sortBy === 'name') {
+      items.sort((a, b) => this.sortDir === 'asc'
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name));
+    }
+
     empty.classList.add('hidden');
     grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
-    Cocktails._enrichCards(items);
+
+    await Cocktails._enrichCards(items);
+
+    if (this.sortBy === 'rating') {
+      const cards = [...grid.children];
+      cards.sort((a, b) => {
+        const rA = Cocktails._cache.get(parseInt(a.dataset.id))?.rating?.average ?? 0;
+        const rB = Cocktails._cache.get(parseInt(b.dataset.id))?.rating?.average ?? 0;
+        return this.sortDir === 'desc' ? rB - rA : rA - rB;
+      });
+      grid.innerHTML = '';
+      cards.forEach(c => grid.appendChild(c));
+    }
   },
 };
 

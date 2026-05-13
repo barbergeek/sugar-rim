@@ -611,6 +611,23 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   color: var(--accent);
 }
 
+/* ── Sort select ──────────────────────────────────────────── */
+.sort-select {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 5px 10px;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.sort-select:hover { background: var(--bg-glass-heavy); }
+.sort-select option { background: #12132a; color: var(--text); }
+
 /* ── Toggle ───────────────────────────────────────────────── */
 .toggle-label {
   display: flex;
