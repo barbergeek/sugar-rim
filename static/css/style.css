@@ -335,7 +335,7 @@ select.text-input option {
   align-items: stretch;
   gap: 0;
   padding: 0;
-  min-height: 90px;
+  min-height: 110px;
   overflow: hidden;
 }
 .card.row-layout .card-content {
@@ -349,17 +349,14 @@ select.text-input option {
 .ing-thumb-wrap {
   width: 90px;
   flex-shrink: 0;
-  margin: 10px;
-  margin-right: 6px;
+  align-self: stretch;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
   overflow: hidden;
+  background: var(--bg-glass);
 }
 .card.row-layout .card-thumb {
+  flex: 1;
   width: 100%;
-  height: 100%;
   object-fit: contain;
   display: block;
 }
