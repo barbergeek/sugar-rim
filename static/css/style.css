@@ -493,6 +493,7 @@ textarea.text-input {
 .ing-dot-off { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.5); }
 .ing-amount { color: var(--accent2); font-weight: 700; min-width: 70px; }
 .ing-name { flex: 1; }
+.ing-note { color: var(--text-dim); font-style: italic; font-size: 0.85em; margin-left: 6px; }
 .ing-missing { color: var(--accent); font-size: 0.75rem; font-weight: 600; }
 
 .detail-instructions { line-height: 1.7; font-size: 1rem; color: var(--text); font-weight: 300; }
@@ -563,6 +564,77 @@ textarea.text-input {
 }
 .manage-icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
 .manage-icon.material-symbols-rounded { font-size: 2.8rem; }
+
+/* ── Modal forms ──────────────────────────────────────────── */
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 0.82rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.form-row { display: flex; gap: 12px; }
+.form-row .form-group { flex: 1; }
+
+/* ── Cocktail form ingredient editor ─────────────────────── */
+.cf-ing-empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 8px 0 4px;
+}
+
+.cf-ing-row {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+.cf-ing-row:last-child { border-bottom: 1px solid var(--border); }
+
+.cf-ing-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cf-ing-name-text {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.cf-ing-remove {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+.cf-ing-remove:hover { color: var(--accent); }
+
+.cf-ing-row-fields {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cf-ing-amount { width: 64px; flex-shrink: 0; text-align: right; }
+.cf-ing-unit   { width: 52px; flex-shrink: 0; }
+.cf-ing-note   { flex: 1; min-width: 0; }
+
+.cf-ing-opt-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cf-ing-search-wrap {
+  position: relative;
+  margin-top: 10px;
+}
 
 /* ── Settings ─────────────────────────────────────────────── */
 .settings-form {

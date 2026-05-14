@@ -715,10 +715,11 @@ const Cocktails = {
         ? parseFloat(i.amount) * s : i.amount;
       const { amount: amt, unit: unt } = UnitPref.convert(scaled, i.units);
       const amtStr = i.amount ? `${amt} ${unt}`.trim() : '';
+      const note = i.note ? `<span class="ing-note">${escHtml(i.note)}</span>` : '';
       return `<div class="ingredient-row">
         ${dot}
         <span class="ing-amount">${escHtml(amtStr)}</span>
-        <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}</span>
+        <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}${note}</span>
       </div>`;
     }).join('');
 
@@ -841,6 +842,8 @@ const Cocktails = {
     }
   },
 
+  _formIngredients: [],
+
   editCurrent() {
     if (this.currentData) this.showEdit(this.currentData);
   },
@@ -854,6 +857,16 @@ const Cocktails = {
   },
 
   _showForm(c) {
+    this._formIngredients = (c?.ingredients || []).map((i, idx) => ({
+      ingredient_id: i.ingredient?.id,
+      name:     i.ingredient?.name || i.name || '',
+      amount:   i.amount != null ? String(i.amount) : '',
+      units:    i.units || '',
+      note:     i.note || '',
+      optional: !!i.optional,
+      sort:     i.sort ?? idx + 1,
+    }));
+
     const title = c ? `Edit: ${c.name}` : 'New Cocktail';
     Modal.open(title,
       `<div class="form-group"><label class="form-label">Name *</label>
@@ -869,26 +882,131 @@ const Cocktails = {
       <div class="form-group"><label class="form-label">Garnish</label>
         <input class="text-input" id="cf-garnish" value="${escHtml(c?.garnish || '')}" placeholder="Optional garnish"></div>
       <div class="form-group"><label class="form-label">Tags (comma-separated)</label>
-        <input class="text-input" id="cf-tags" value="${(c?.tags || []).map(t => t.name || t).join(', ')}"></div>`,
+        <input class="text-input" id="cf-tags" value="${(c?.tags || []).map(t => t.name || t).join(', ')}"></div>
+      <datalist id="cf-units-list">
+        <option value="oz"></option><option value="ml"></option><option value="cl"></option>
+        <option value="dashes"></option><option value="barspoon"></option>
+        <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
+      </datalist>
+      <div class="form-group">
+        <label class="form-label">Ingredients</label>
+        <div id="cf-ing-list"></div>
+        <div class="cf-ing-search-wrap">
+          <input type="text" id="cf-ing-search" class="text-input" placeholder="Search to add ingredient…" autocomplete="off">
+          <ul id="cf-ing-ac" class="autocomplete-list hidden"></ul>
+        </div>
+      </div>`,
       `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        <button class="btn btn-primary" onclick="App.cocktails._submitForm(${c?.id || 'null'})">${c ? 'Save' : 'Create'}</button>`
     );
+    this._renderFormIngredients();
+    this._wireFormIngSearch();
     el('cf-name').focus();
+  },
+
+  _renderFormIngredients() {
+    const list = el('cf-ing-list');
+    if (!list) return;
+    if (!this._formIngredients.length) {
+      list.innerHTML = '<p class="cf-ing-empty">No ingredients yet — search below to add.</p>';
+      return;
+    }
+    list.innerHTML = this._formIngredients.map((ing, idx) => `
+      <div class="cf-ing-row" data-idx="${idx}">
+        <div class="cf-ing-row-name">
+          <span class="cf-ing-name-text">${escHtml(ing.name)}</span>
+          <button class="cf-ing-remove" onclick="App.cocktails._removeFormIng(${idx})" title="Remove">×</button>
+        </div>
+        <div class="cf-ing-row-fields">
+          <input class="text-input cf-ing-amount" value="${escHtml(ing.amount)}" placeholder="Amt">
+          <input class="text-input cf-ing-unit"   value="${escHtml(ing.units)}"  placeholder="Unit" list="cf-units-list">
+          <input class="text-input cf-ing-note"   value="${escHtml(ing.note)}"   placeholder="Note">
+          <label class="cf-ing-opt-label"><input class="cf-ing-opt-check" type="checkbox" ${ing.optional ? 'checked' : ''}> Opt</label>
+        </div>
+      </div>`).join('');
+  },
+
+  _collectFormIngData() {
+    document.querySelectorAll('#cf-ing-list .cf-ing-row').forEach(row => {
+      const idx = parseInt(row.dataset.idx);
+      const ing = this._formIngredients[idx];
+      if (!ing) return;
+      ing.amount   = row.querySelector('.cf-ing-amount').value.trim();
+      ing.units    = row.querySelector('.cf-ing-unit').value.trim();
+      ing.note     = row.querySelector('.cf-ing-note').value.trim();
+      ing.optional = row.querySelector('.cf-ing-opt-check').checked;
+    });
+  },
+
+  _addFormIng(ing) {
+    this._collectFormIngData();
+    if (this._formIngredients.some(f => f.ingredient_id === ing.id)) return;
+    this._formIngredients.push({ ingredient_id: ing.id, name: ing.name, amount: '', units: 'oz', note: '', optional: false });
+    this._renderFormIngredients();
+    el('cf-ing-search').value = '';
+    el('cf-ing-ac').classList.add('hidden');
+    el('cf-ing-search').focus();
+  },
+
+  _removeFormIng(idx) {
+    this._collectFormIngData();
+    this._formIngredients.splice(idx, 1);
+    this._renderFormIngredients();
+  },
+
+  _wireFormIngSearch() {
+    const input = el('cf-ing-search');
+    const ac    = el('cf-ing-ac');
+    if (!input) return;
+
+    const showAc = async (q) => {
+      try {
+        const params = { per_page: 20, sort: 'name' };
+        if (q) params['filter[name]'] = q;
+        const d = await get('/api/ingredients', params);
+        const items = (d.data || []).filter(i => !this._formIngredients.some(f => f.ingredient_id === i.id));
+        ac.innerHTML = '';
+        if (!items.length) { ac.classList.add('hidden'); return; }
+        items.forEach(ing => {
+          const li = document.createElement('li');
+          li.className = 'autocomplete-item';
+          li.innerHTML = `<span>${escHtml(ing.name)}</span>`;
+          li.addEventListener('mousedown', e => { e.preventDefault(); this._addFormIng({ id: ing.id, name: ing.name }); });
+          ac.appendChild(li);
+        });
+        ac.classList.remove('hidden');
+      } catch (e) { /* silent */ }
+    };
+
+    input.addEventListener('focus', () => showAc(input.value.trim()));
+    input.addEventListener('input', debounce(() => showAc(input.value.trim()), 250));
+    input.addEventListener('blur',  () => setTimeout(() => ac.classList.add('hidden'), 150));
+    input.addEventListener('keydown', e => { if (e.key === 'Escape') { ac.classList.add('hidden'); input.blur(); } });
   },
 
   async _submitForm(id) {
     const name = el('cf-name').value.trim();
     if (!name) { Toast.err('Name is required'); return; }
+    this._collectFormIngData();
     const body = {
       name,
       instructions: el('cf-instructions').value.trim(),
       garnish:       el('cf-garnish').value.trim(),
       tags:          el('cf-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+      ingredients:   this._formIngredients.map((ing, idx) => ({
+        ingredient_id: ing.ingredient_id,
+        amount:   ing.amount !== '' ? (parseFloat(ing.amount) || ing.amount) : null,
+        units:    ing.units  || null,
+        note:     ing.note   || null,
+        optional: ing.optional,
+        sort:     idx + 1,
+      })),
     };
     try {
       if (id) {
         await put(`/api/cocktails/${id}`, body);
         Toast.show('Cocktail updated');
+        this._cache.delete(id);
         this.open(id);
       } else {
         const d = await post('/api/cocktails', body);
