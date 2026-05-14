@@ -366,6 +366,40 @@ def image_thumb(iid):
         return jsonify({"error": str(e)}), 502
 
 
+@app.route("/api/images", methods=["POST"])
+def upload_image():
+    """Forward multipart image upload to BA. Omit Content-Type so requests sets the boundary."""
+    hdrs = {k: v for k, v in ba_headers().items() if k != "Content-Type"}
+    files = {key: (f.filename or "image.jpg", f.read(), f.content_type or "image/jpeg")
+             for key, f in request.files.items()}
+    try:
+        resp = http.post(ba_url("/images"), headers=hdrs, files=files, data=request.form, timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/images/from-url", methods=["POST"])
+def image_from_url():
+    """Download an image from a URL and upload it to BA."""
+    body = request.get_json(force=True) or {}
+    src_url = body.get("url", "").strip()
+    if not src_url:
+        return jsonify({"error": "url required"}), 400
+    try:
+        r = http.get(src_url, timeout=15)
+        r.raise_for_status()
+        ct = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        fname = src_url.split("/")[-1].split("?")[0] or "image.jpg"
+        hdrs = {k: v for k, v in ba_headers().items() if k != "Content-Type"}
+        files = {"images[0][image]": (fname, r.content, ct)}
+        resp = http.post(ba_url("/images"), headers=hdrs, files=files,
+                         data={"images[0][sort]": "1"}, timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except http.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 502
+
+
 # ── Bar shelf ─────────────────────────────────────────────────────────────────
 # Uses /bars/{id}/... endpoints — bar ID is in the URL, no Bar-Assistant-Bar-Id
 # header required, so bar_ctx=False. Requires ability:* on the token.

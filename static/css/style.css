@@ -778,6 +778,67 @@ select.text-input option {
 .form-row .form-group {
   flex: 1;
 }
+.ing-form-img-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-glass);
+  border-radius: var(--radius);
+  min-height: 160px;
+  overflow: hidden;
+}
+.ing-form-img-preview {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  display: block;
+}
+.ing-form-img-empty {
+  width: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 3rem;
+  opacity: 0.3;
+}
+.ing-form-img-empty::after {
+  content: '🍶';
+}
+.ing-form-img-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ing-img-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.ing-img-file-label:hover {
+  background: var(--bg-glass-heavy);
+}
+.ing-img-file-label input[type='file'] {
+  display: none;
+}
+.ing-img-or {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.ing-img-url {
+  flex: 1;
+  min-width: 140px;
+}
 
 /* ── Cocktail form ingredient editor ─────────────────────── */
 .cf-ing-empty {

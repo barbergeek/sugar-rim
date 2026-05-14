@@ -1548,6 +1548,28 @@ const Ingredients = {
 
   _showForm(i) {
     const title = i ? `Edit: ${i.name}` : 'New Ingredient';
+    const currentImg = i?.images?.[0];
+    const imgSection = `
+      <div class="form-group">
+        <label class="form-label">Image</label>
+        ${
+          currentImg
+            ? `<div class="ing-form-img-wrap">
+                <img id="if-img-preview" src="${escHtml(currentImg.thumb_url || `/api/images/${currentImg.id}/thumb`)}"
+                     class="ing-form-img-preview" alt="${escHtml(i.name)}">
+               </div>`
+            : `<div class="ing-form-img-wrap"><div id="if-img-preview" class="ing-form-img-empty"></div></div>`
+        }
+        <div class="ing-form-img-inputs">
+          <label class="ing-img-file-label">
+            <input type="file" id="if-image-file" accept="image/*" onchange="App.ingredients._previewFile(this)">
+            Choose file
+          </label>
+          <span class="ing-img-or">or</span>
+          <input class="text-input ing-img-url" id="if-image-url" placeholder="Paste image URL…"
+                 oninput="App.ingredients._previewUrl(this.value)">
+        </div>
+      </div>`;
     Modal.open(
       title,
       `<div class="form-group"><label class="form-label">Name *</label>
@@ -1557,12 +1579,33 @@ const Ingredients = {
       <div class="form-group"><label class="form-label">Color (hex)</label>
         <input class="text-input" id="if-color" value="${escHtml(i?.color || '')}" placeholder="#ffffff"></div>
       <div class="form-group"><label class="form-label">Description</label>
-        <textarea class="text-input" id="if-desc">${escHtml(i?.description || '')}</textarea></div>`,
+        <textarea class="text-input" id="if-desc">${escHtml(i?.description || '')}</textarea></div>
+      ${imgSection}`,
       `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        ${i ? `<button class="btn btn-danger" onclick="App.ingredients._delete(${i.id})">Delete</button>` : ''}
        <button class="btn btn-primary" onclick="App.ingredients._submit(${i?.id || 'null'})">${i ? 'Save' : 'Create'}</button>`
     );
     el('if-name').focus();
+  },
+
+  _previewFile(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    el('if-image-url').value = '';
+    const preview = el('if-img-preview');
+    if (preview) {
+      preview.src = URL.createObjectURL(file);
+      preview.className = 'ing-form-img-preview';
+    }
+  },
+
+  _previewUrl(url) {
+    const fileInput = el('if-image-file');
+    if (fileInput) fileInput.value = '';
+    const preview = el('if-img-preview');
+    if (!preview || !url.trim()) return;
+    preview.src = url.trim();
+    preview.className = 'ing-form-img-preview';
   },
 
   async _submit(id) {
@@ -1571,11 +1614,41 @@ const Ingredients = {
       Toast.err('Name is required');
       return;
     }
+
+    let imageId = null;
+    const fileInput = el('if-image-file');
+    const urlInput = el('if-image-url');
+
+    if (fileInput?.files?.[0]) {
+      const fd = new FormData();
+      fd.append('images[0][image]', fileInput.files[0]);
+      fd.append('images[0][sort]', '1');
+      try {
+        const r = await fetch('/api/images', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || d.message || 'Image upload failed');
+        imageId = d.data?.[0]?.id;
+      } catch (e) {
+        Toast.err('Image upload failed: ' + e.message);
+        return;
+      }
+    } else if (urlInput?.value?.trim()) {
+      try {
+        const d = await post('/api/images/from-url', { url: urlInput.value.trim() });
+        imageId = d.data?.[0]?.id;
+      } catch (e) {
+        Toast.err('Image URL failed: ' + e.message);
+        return;
+      }
+    }
+
     const body = {
       name,
       description: el('if-desc').value.trim(),
       color: el('if-color').value.trim(),
     };
+    if (imageId) body.images = [imageId];
+
     try {
       if (id) {
         await put(`/api/ingredients/${id}`, body);
