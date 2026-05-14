@@ -24,6 +24,19 @@ app.secret_key = _secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 
+def _asset_url(path):
+    """Return a static URL with an mtime-based cache-buster."""
+    abs_path = os.path.join(app.static_folder, path)
+    try:
+        ts = int(os.path.getmtime(abs_path))
+    except OSError:
+        ts = 0
+    return f"/static/{path}?v={ts}"
+
+
+app.jinja_env.globals["asset_url"] = _asset_url
+
+
 def ba_headers():
     """Headers with bar ID — for bar-scoped endpoints."""
     token  = session.get("ba_token")
