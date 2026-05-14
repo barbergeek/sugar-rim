@@ -538,6 +538,8 @@ const Cocktails = {
     }
     if (this.sortBy === 'rating') {
       params['sort'] = this.sortDir === 'desc' ? '-average_rating,name' : 'average_rating,name';
+    } else if (this.sortBy === 'date') {
+      params['sort'] = this.sortDir === 'desc' ? '-created_at' : 'created_at';
     } else {
       params['sort'] = this.sortDir === 'desc' ? '-name' : 'name';
     }
