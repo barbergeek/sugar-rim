@@ -1,0 +1,24 @@
+{
+  "name": "sugar-rim",
+  "version": "1.0.0",
+  "description": "Alternate web interface for [Bar Assistant](https://github.com/bar-assistant/bar-assistant), optimized for touch screens and the Raspberry Pi.",
+  "main": "index.js",
+  "scripts": {
+    "format": "prettier --write static/js/ static/css/",
+    "format:check": "prettier --check static/js/ static/css/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/barbergeek/sugar-rim.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/barbergeek/sugar-rim/issues"
+  },
+  "homepage": "https://github.com/barbergeek/sugar-rim#readme",
+  "devDependencies": {
+    "prettier": "^3.8.3"
+  }
+}

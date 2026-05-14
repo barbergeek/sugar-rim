@@ -17,7 +17,7 @@ sugar-rim is an alternate web interface for [Bar Assistant](https://github.com/b
 
 ## Language & Tooling
 
-Python + Flask. Dependencies in `requirements.txt`.
+Python + Flask. Dependencies in `requirements.txt`. Node/npm for JS/CSS formatting (Prettier).
 
 ## Commands
 
@@ -30,9 +30,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python app.py          # runs on http://localhost:5000
 
-# Lint
+# Python lint
 ruff check .
 ruff format .
+
+# JS/CSS format
+npm run format        # write in place
+npm run format:check  # check only (CI)
 ```
 
 ## Configuration
