@@ -843,6 +843,8 @@ const Cocktails = {
   },
 
   _formIngredients: [],
+  _glasses: null,
+  _methods: null,
 
   editCurrent() {
     if (this.currentData) this.showEdit(this.currentData);
@@ -856,7 +858,17 @@ const Cocktails = {
     this._showForm(c);
   },
 
-  _showForm(c) {
+  async _showForm(c) {
+    Modal.open(c ? `Edit: ${c.name}` : 'New Cocktail',
+      '<div class="loading-row"><div class="spinner"></div></div>', '');
+
+    if (!this._glasses) {
+      try { const d = await get('/api/glasses'); this._glasses = d.data || []; } catch { this._glasses = []; }
+    }
+    if (!this._methods) {
+      try { const d = await get('/api/methods'); this._methods = d.data || []; } catch { this._methods = []; }
+    }
+
     this._formIngredients = (c?.ingredients || []).map((i, idx) => ({
       ingredient_id: i.ingredient?.id,
       name:     i.ingredient?.name || i.name || '',
@@ -873,9 +885,15 @@ const Cocktails = {
         <input class="text-input" id="cf-name" value="${escHtml(c?.name || '')}" placeholder="Cocktail name"></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Glass</label>
-          <input class="text-input" id="cf-glass" value="${escHtml(c?.glass?.name || '')}" placeholder="e.g. Rocks"></div>
+          <select class="text-input" id="cf-glass">
+            <option value="">— none —</option>
+            ${this._glasses.map(g => `<option value="${g.id}" ${c?.glass?.id === g.id ? 'selected' : ''}>${escHtml(g.name)}</option>`).join('')}
+          </select></div>
         <div class="form-group"><label class="form-label">Method</label>
-          <input class="text-input" id="cf-method" value="${escHtml(c?.method?.name || '')}" placeholder="e.g. Stirred"></div>
+          <select class="text-input" id="cf-method">
+            <option value="">— none —</option>
+            ${this._methods.map(m => `<option value="${m.id}" ${c?.method?.id === m.id ? 'selected' : ''}>${escHtml(m.name)}</option>`).join('')}
+          </select></div>
       </div>
       <div class="form-group"><label class="form-label">Instructions</label>
         <textarea class="text-input" id="cf-instructions">${escHtml(c?.instructions || '')}</textarea></div>
@@ -989,9 +1007,13 @@ const Cocktails = {
     const name = el('cf-name').value.trim();
     if (!name) { Toast.err('Name is required'); return; }
     this._collectFormIngData();
+    const glassVal  = el('cf-glass').value;
+    const methodVal = el('cf-method').value;
     const body = {
       name,
-      instructions: el('cf-instructions').value.trim(),
+      glass_id:      glassVal  ? parseInt(glassVal)  : null,
+      method_id:     methodVal ? parseInt(methodVal) : null,
+      instructions:  el('cf-instructions').value.trim(),
       garnish:       el('cf-garnish').value.trim(),
       tags:          el('cf-tags').value.split(',').map(t => t.trim()).filter(Boolean),
       ingredients:   this._formIngredients.map((ing, idx) => ({
@@ -1657,6 +1679,139 @@ const Stats = {
   },
 };
 
+// ── Glasses ────────────────────────────────────────────────────────────────
+
+const Glasses = {
+  _cache: null,
+
+  async load() {
+    const grid  = el('glass-list');
+    const empty = el('glass-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/glasses');
+      this._cache = d.data || [];
+      Cocktails._glasses = this._cache;
+      if (!this._cache.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = this._cache.map(g => `
+        <div class="card shelf-card">
+          <div class="card-name">${escHtml(g.name)}</div>
+          ${g.volume ? `<div class="card-sub">${g.volume} ${g.volume_units || 'ml'}</div>` : ''}
+          <div class="card-actions">
+            <button class="btn btn-ghost btn-sm" onclick="App.glasses._showForm(${g.id})">Edit</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="App.glasses.delete(${g.id})">Delete</button>
+          </div>
+        </div>`).join('');
+    } catch (e) { grid.innerHTML = ''; empty.classList.remove('hidden'); empty.querySelector('p').textContent = e.message; }
+  },
+
+  showCreate() { this._showForm(null); },
+
+  _showForm(id) {
+    const g = id != null ? this._cache?.find(x => x.id === id) : null;
+    Modal.open(g ? `Edit: ${g.name}` : 'New Glass',
+      `<div class="form-group"><label class="form-label">Name *</label>
+         <input class="text-input" id="gf-name" value="${escHtml(g?.name || '')}" placeholder="e.g. Rocks glass"></div>
+       <div class="form-group"><label class="form-label">Volume (ml, optional)</label>
+         <input class="text-input" id="gf-volume" type="number" value="${g?.volume ?? ''}" placeholder="e.g. 300"></div>`,
+      `${g ? `<button class="btn btn-ghost" style="color:var(--accent);margin-right:auto" onclick="App.glasses.delete(${g.id})">Delete</button>` : ''}
+       <button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" onclick="App.glasses._submit(${g?.id ?? 'null'})">${g ? 'Save' : 'Create'}</button>`
+    );
+    el('gf-name').focus();
+  },
+
+  async _submit(id) {
+    const name = el('gf-name').value.trim();
+    if (!name) { Toast.err('Name is required'); return; }
+    const vol = el('gf-volume').value;
+    const body = { name, volume: vol ? parseFloat(vol) : null };
+    try {
+      if (id) { await put(`/api/glasses/${id}`, body); Toast.show('Glass updated'); }
+      else     { await post('/api/glasses', body);     Toast.show('Glass created'); }
+      this._cache = null; Cocktails._glasses = null;
+      Modal.close(); this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async delete(id) {
+    const name = this._cache?.find(g => g.id === id)?.name || 'this glass';
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      await del(`/api/glasses/${id}`); Toast.show('Deleted');
+      this._cache = null; Cocktails._glasses = null;
+      Modal.close(); this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+};
+
+// ── Methods ────────────────────────────────────────────────────────────────
+
+const Methods = {
+  _cache: null,
+
+  async load() {
+    const grid  = el('method-list');
+    const empty = el('method-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    try {
+      const d = await get('/api/methods');
+      this._cache = d.data || [];
+      Cocktails._methods = this._cache;
+      if (!this._cache.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = this._cache.map(m => `
+        <div class="card shelf-card">
+          <div class="card-name">${escHtml(m.name)}</div>
+          <div class="card-sub">Dilution: ${m.dilution_percentage}%</div>
+          <div class="card-actions">
+            <button class="btn btn-ghost btn-sm" onclick="App.methods._showForm(${m.id})">Edit</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--accent)" onclick="App.methods.delete(${m.id})">Delete</button>
+          </div>
+        </div>`).join('');
+    } catch (e) { grid.innerHTML = ''; empty.classList.remove('hidden'); empty.querySelector('p').textContent = e.message; }
+  },
+
+  showCreate() { this._showForm(null); },
+
+  _showForm(id) {
+    const m = id != null ? this._cache?.find(x => x.id === id) : null;
+    Modal.open(m ? `Edit: ${m.name}` : 'New Method',
+      `<div class="form-group"><label class="form-label">Name *</label>
+         <input class="text-input" id="mf-name" value="${escHtml(m?.name || '')}" placeholder="e.g. Shaken"></div>
+       <div class="form-group"><label class="form-label">Dilution %</label>
+         <input class="text-input" id="mf-dilution" type="number" value="${m?.dilution_percentage ?? 0}" placeholder="0"></div>`,
+      `${m ? `<button class="btn btn-ghost" style="color:var(--accent);margin-right:auto" onclick="App.methods.delete(${m.id})">Delete</button>` : ''}
+       <button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" onclick="App.methods._submit(${m?.id ?? 'null'})">${m ? 'Save' : 'Create'}</button>`
+    );
+    el('mf-name').focus();
+  },
+
+  async _submit(id) {
+    const name = el('mf-name').value.trim();
+    if (!name) { Toast.err('Name is required'); return; }
+    const body = { name, dilution_percentage: parseInt(el('mf-dilution').value) || 0 };
+    try {
+      if (id) { await put(`/api/methods/${id}`, body); Toast.show('Method updated'); }
+      else     { await post('/api/methods', body);     Toast.show('Method created'); }
+      this._cache = null; Cocktails._methods = null;
+      Modal.close(); this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+
+  async delete(id) {
+    const name = this._cache?.find(m => m.id === id)?.name || 'this method';
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      await del(`/api/methods/${id}`); Toast.show('Deleted');
+      this._cache = null; Cocktails._methods = null;
+      Modal.close(); this.load();
+    } catch (e) { Toast.err(e.message); }
+  },
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
 
 
@@ -1671,6 +1826,8 @@ const App = {
   shoppingList: ShoppingList,
   tokens:       Tokens,
   users:        Users,
+  glasses:      Glasses,
+  methods:      Methods,
   settings:     Settings,
   stats:        Stats,
 

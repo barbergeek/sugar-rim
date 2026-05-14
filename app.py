@@ -437,9 +437,18 @@ def profile():
 
 # ── Reference data ────────────────────────────────────────────────────────────
 
-@app.route("/api/glasses")
+@app.route("/api/glasses", methods=["GET", "POST"])
 def glasses():
+    if request.method == "POST":
+        return proxy("POST", "/glasses", json=request.get_json(force=True))
     return proxy("GET", "/glasses")
+
+
+@app.route("/api/glasses/<int:gid>", methods=["PUT", "DELETE"])
+def glass_detail(gid):
+    if request.method == "PUT":
+        return proxy("PUT", f"/glasses/{gid}", json=request.get_json(force=True))
+    return proxy("DELETE", f"/glasses/{gid}")
 
 
 @app.route("/api/tags")
@@ -447,9 +456,18 @@ def tags():
     return proxy("GET", "/tags")
 
 
-@app.route("/api/methods")
+@app.route("/api/methods", methods=["GET", "POST"])
 def methods():
+    if request.method == "POST":
+        return proxy("POST", "/cocktail-methods", json=request.get_json(force=True))
     return proxy("GET", "/cocktail-methods")
+
+
+@app.route("/api/methods/<int:mid>", methods=["PUT", "DELETE"])
+def method_detail(mid):
+    if request.method == "PUT":
+        return proxy("PUT", f"/cocktail-methods/{mid}", json=request.get_json(force=True))
+    return proxy("DELETE", f"/cocktail-methods/{mid}")
 
 
 # ── Server ────────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=48">
+  <link rel="stylesheet" href="/static/css/style.css?v=51">
 </head>
 <body>
   <header id="app-header">
@@ -142,6 +142,14 @@
           <span class="manage-icon material-symbols-rounded">group</span>
           <div>Users</div>
         </div>
+        <div class="manage-card" onclick="App.nav.go('glasses'); App.glasses.load()">
+          <span class="manage-icon material-symbols-rounded">wine_bar</span>
+          <div>Glasses</div>
+        </div>
+        <div class="manage-card" onclick="App.nav.go('methods'); App.methods.load()">
+          <span class="manage-icon material-symbols-rounded">blender</span>
+          <div>Methods</div>
+        </div>
         <div class="manage-card" onclick="App.nav.go('stats'); App.stats.load()">
           <span class="manage-icon material-symbols-rounded">bar_chart</span>
           <div>Bar Statistics</div>
@@ -209,6 +217,28 @@
       </div>
       <div id="user-list" class="card-grid"></div>
       <div id="user-empty" class="empty-state hidden"><p>No users found.</p></div>
+    </section>
+
+    <!-- ── GLASSES VIEW ───────────────────────────────────────── -->
+    <section id="view-glasses" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
+        <span class="toolbar-title">Glasses</span>
+        <button class="btn btn-primary" onclick="App.glasses.showCreate()">+ New</button>
+      </div>
+      <div id="glass-list" class="card-grid"></div>
+      <div id="glass-empty" class="empty-state hidden"><p>No glasses found.</p></div>
+    </section>
+
+    <!-- ── METHODS VIEW ────────────────────────────────────────── -->
+    <section id="view-methods" class="view">
+      <div class="view-toolbar">
+        <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
+        <span class="toolbar-title">Cocktail Methods</span>
+        <button class="btn btn-primary" onclick="App.methods.showCreate()">+ New</button>
+      </div>
+      <div id="method-list" class="card-grid"></div>
+      <div id="method-empty" class="empty-state hidden"><p>No methods found.</p></div>
     </section>
 
     <!-- ── STATS VIEW ─────────────────────────────────────────── -->
@@ -285,6 +315,6 @@
   <!-- ── TOAST ──────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/js/app.js?v=61"></script>
+  <script src="/static/js/app.js?v=62"></script>
 </body>
 </html>
