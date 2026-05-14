@@ -387,16 +387,35 @@ def image_from_url():
     if not src_url:
         return jsonify({"error": "url required"}), 400
     try:
-        r = http.get(src_url, timeout=15)
+        r = http.get(src_url, timeout=15,
+                     headers={"User-Agent": "Mozilla/5.0 (compatible; sugar-rim/1.0)"})
         r.raise_for_status()
         ct = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-        fname = src_url.split("/")[-1].split("?")[0] or "image.jpg"
+        if not ct.startswith("image/"):
+            return jsonify({"error": f"URL did not return an image (got {ct})"}), 422
+        # Derive a filename with extension from the URL or content-type
+        fname = src_url.split("/")[-1].split("?")[0] or ""
+        if "." not in fname:
+            ext = ct.split("/")[-1].replace("jpeg", "jpg")
+            fname = f"image.{ext}"
         hdrs = {k: v for k, v in ba_headers().items() if k != "Content-Type"}
         files = {"images[0][image]": (fname, r.content, ct)}
         resp = http.post(ba_url("/images"), headers=hdrs, files=files,
                          data={"images[0][sort]": "1"}, timeout=30)
-        return jsonify(resp.json()), resp.status_code
+        ba_data = resp.json()
+        if not resp.ok:
+            return jsonify({"error": ba_data.get("message", "Image upload failed")}), resp.status_code
+        return jsonify(ba_data), resp.status_code
     except http.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/images/<int:iid>", methods=["DELETE"])
+def delete_image(iid):
+    try:
+        resp = http.delete(ba_url(f"/images/{iid}"), headers=ba_headers(), timeout=10)
+        return ("", 204) if resp.status_code in (200, 204) else (jsonify(resp.json()), resp.status_code)
+    except Exception as e:
         return jsonify({"error": str(e)}), 502
 
 

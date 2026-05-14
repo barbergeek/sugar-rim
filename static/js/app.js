@@ -1552,6 +1552,8 @@ const Ingredients = {
     const imgSection = `
       <div class="form-group">
         <label class="form-label">Image</label>
+        <input type="hidden" id="if-existing-img-ids"
+               value="${escHtml(JSON.stringify((i?.images || []).map((im) => im.id)))}">
         ${
           currentImg
             ? `<div class="ing-form-img-wrap">
@@ -1636,10 +1638,17 @@ const Ingredients = {
       try {
         const d = await post('/api/images/from-url', { url: urlInput.value.trim() });
         imageId = d.data?.[0]?.id;
+        if (!imageId) throw new Error('No image ID returned from BA');
       } catch (e) {
         Toast.err('Image URL failed: ' + e.message);
         return;
       }
+    }
+
+    // Delete old images so the new one replaces rather than appends.
+    if (imageId) {
+      const oldIds = JSON.parse(el('if-existing-img-ids')?.value || '[]');
+      await Promise.allSettled(oldIds.map((oid) => del(`/api/images/${oid}`)));
     }
 
     const body = {
