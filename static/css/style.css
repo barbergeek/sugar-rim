@@ -599,6 +599,16 @@ select.text-input option {
   margin-bottom: 6px;
 }
 
+.cf-ing-handle {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  cursor: grab;
+  flex-shrink: 0;
+  user-select: none;
+  touch-action: none;
+}
+.cf-ing-handle:active { cursor: grabbing; }
+
 .cf-ing-name-text {
   flex: 1;
   font-weight: 600;

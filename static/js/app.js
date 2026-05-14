@@ -930,11 +930,12 @@ const Cocktails = {
       list.innerHTML = '<p class="cf-ing-empty">No ingredients yet — search below to add.</p>';
       return;
     }
-    list.innerHTML = this._formIngredients.map((ing, idx) => `
-      <div class="cf-ing-row" data-idx="${idx}">
+    list.innerHTML = this._formIngredients.map(ing => `
+      <div class="cf-ing-row" data-ingid="${ing.ingredient_id}">
         <div class="cf-ing-row-name">
+          <span class="cf-ing-handle material-symbols-rounded">drag_indicator</span>
           <span class="cf-ing-name-text">${escHtml(ing.name)}</span>
-          <button class="cf-ing-remove" onclick="App.cocktails._removeFormIng(${idx})" title="Remove">×</button>
+          <button class="cf-ing-remove" onclick="App.cocktails._removeFormIng(${ing.ingredient_id})" title="Remove">×</button>
         </div>
         <div class="cf-ing-row-fields">
           <input class="text-input cf-ing-amount" value="${escHtml(ing.amount)}" placeholder="Amt">
@@ -943,12 +944,25 @@ const Cocktails = {
           <label class="cf-ing-opt-label"><input class="cf-ing-opt-check" type="checkbox" ${ing.optional ? 'checked' : ''}> Opt</label>
         </div>
       </div>`).join('');
+
+    if (typeof Sortable !== 'undefined') {
+      Sortable.create(list, {
+        handle: '.cf-ing-handle',
+        animation: 150,
+        onEnd: () => {
+          this._collectFormIngData();
+          const newOrder = [...list.querySelectorAll('.cf-ing-row')].map(row =>
+            this._formIngredients.find(f => f.ingredient_id === parseInt(row.dataset.ingid))
+          );
+          this._formIngredients = newOrder;
+        },
+      });
+    }
   },
 
   _collectFormIngData() {
     document.querySelectorAll('#cf-ing-list .cf-ing-row').forEach(row => {
-      const idx = parseInt(row.dataset.idx);
-      const ing = this._formIngredients[idx];
+      const ing = this._formIngredients.find(f => f.ingredient_id === parseInt(row.dataset.ingid));
       if (!ing) return;
       ing.amount   = row.querySelector('.cf-ing-amount').value.trim();
       ing.units    = row.querySelector('.cf-ing-unit').value.trim();
@@ -967,9 +981,9 @@ const Cocktails = {
     el('cf-ing-search').focus();
   },
 
-  _removeFormIng(idx) {
+  _removeFormIng(ingId) {
     this._collectFormIngData();
-    this._formIngredients.splice(idx, 1);
+    this._formIngredients = this._formIngredients.filter(f => f.ingredient_id !== ingId);
     this._renderFormIngredients();
   },
 
