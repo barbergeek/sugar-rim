@@ -896,7 +896,8 @@ const Cocktails = {
           <ul id="cf-ing-ac" class="autocomplete-list hidden"></ul>
         </div>
       </div>`,
-      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+      `${c ? `<button class="btn btn-ghost" style="color:var(--accent);margin-right:auto" onclick="App.modal.close();App.cocktails.deleteCurrent()">Delete</button>` : ''}
+       <button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        <button class="btn btn-primary" onclick="App.cocktails._submitForm(${c?.id || 'null'})">${c ? 'Save' : 'Create'}</button>`
     );
     this._renderFormIngredients();
