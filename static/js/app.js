@@ -1414,7 +1414,7 @@ const Ingredients = {
     const onShelf = this._shelfState.get(i.id);
     const inCart = this._cartState.get(i.id);
     return `<div class="card row-layout" onclick="if(!event.target.closest('.ing-actions')) App.ingredients.showEdit(${i.id})">
-      <div class="card-thumb-slot" id="ithumb-${i.id}"></div>
+      <div class="ing-thumb-wrap"><div class="card-thumb-slot" id="ithumb-${i.id}"></div></div>
       <div class="card-content">
         <div class="card-name">${escHtml(i.name)}</div>
         ${i.strength ? `<div class="card-sub">${i.strength}% ABV</div>` : ''}
