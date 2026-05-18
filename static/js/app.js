@@ -7,6 +7,7 @@ async function api(method, path, body) {
   if (body !== undefined) opts.body = JSON.stringify(body);
   const resp = await fetch(path, opts);
   if (resp.status === 401 && path !== '/config') {
+    App._loggedIn = false;
     App.nav.go('login');
     throw new Error('Please login');
   }
@@ -96,6 +97,39 @@ function isOnShelf(ingId, ingredient) {
   );
 }
 
+// ── UI Scale ───────────────────────────────────────────────────────────────
+
+const UIScale = {
+  KEY: 'sugar-rim-ui-scale',
+  MIN: 50,
+  MAX: 200,
+  STEP: 25,
+
+  get() {
+    return parseInt(localStorage.getItem(this.KEY) || '100', 10);
+  },
+
+  _apply(pct) {
+    const z = pct / 100;
+    const el = document.documentElement;
+    el.style.fontSize = 16 * z + 'px';
+    el.style.setProperty('--card-min-w', Math.round(180 * z) + 'px');
+    el.style.setProperty('--card-min-h', Math.round(90 * z) + 'px');
+    el.style.setProperty('--card-max-h', Math.round(130 * z) + 'px');
+  },
+
+  set(pct) {
+    pct = Math.max(this.MIN, Math.min(this.MAX, pct));
+    localStorage.setItem(this.KEY, String(pct));
+    this._apply(pct);
+    return pct;
+  },
+
+  apply() {
+    this._apply(this.get());
+  },
+};
+
 // ── Unit preference ────────────────────────────────────────────────────────
 
 const UnitPref = {
@@ -164,17 +198,26 @@ const Toast = {
 // ── Modal ──────────────────────────────────────────────────────────────────
 
 const Modal = {
-  open(title, bodyHtml, footerHtml) {
+  _required: false,
+
+  open(title, bodyHtml, footerHtml, opts = {}) {
+    this._required = !!opts.required;
     el('modal-title').textContent = title;
     el('modal-body').innerHTML = bodyHtml;
     el('modal-footer').innerHTML = footerHtml || '';
+    el('modal-close').style.display = this._required ? 'none' : '';
     el('modal-overlay').classList.remove('hidden');
   },
   close() {
+    if (this._required) return;
+    el('modal-overlay').classList.add('hidden');
+  },
+  forceClose() {
+    this._required = false;
     el('modal-overlay').classList.add('hidden');
   },
   closeOnBackdrop(e) {
-    if (e.target === el('modal-overlay')) this.close();
+    if (e.target === el('modal-overlay') && !this._required) this.close();
   },
   body() {
     return el('modal-body');
@@ -211,18 +254,66 @@ const Nav = {
 // ── Settings ───────────────────────────────────────────────────────────────
 
 const Settings = {
-  async load() {
+  openModal() {
+    Modal.open('Settings', this._html());
+    this._load();
+  },
+
+  _html() {
+    return `
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">API Connection</div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Bar Assistant URL
+            <input type="url" id="cfg-url" class="text-input" placeholder="http://192.168.1.x:8000">
+          </label>
+          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.saveUrl()">Save URL</button>
+          <div id="cfg-message" class="cfg-status" style="margin-top:6px"></div>
+        </div>
+        <hr>
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Active Bar</div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Select bar
+            <select id="cfg-bar" class="text-input"><option value="">— log in first —</option></select>
+          </label>
+          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.saveBar()">Set Active Bar</button>
+          <div id="cfg-bar-message" class="cfg-status" style="margin-top:6px"></div>
+        </div>
+        <hr>
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Display Units</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="shelf-toggle-btn" id="settings-unit-oz" onclick="App.settings.setUnit('oz')">oz</button>
+            <button class="shelf-toggle-btn" id="settings-unit-ml" onclick="App.settings.setUnit('ml')">ml</button>
+          </div>
+        </div>
+        <hr>
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">UI Scale <span style="font-size:0.75rem;color:var(--text-dim);font-weight:400;text-transform:none">(this device only)</span></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="shelf-toggle-btn" onclick="App.settings.adjustScale(-25)" style="font-size:1.1rem;line-height:1;padding:6px 14px">−</button>
+            <span id="settings-scale-label" style="min-width:48px;text-align:center;font-size:0.95rem;font-weight:600">100%</span>
+            <button class="shelf-toggle-btn" onclick="App.settings.adjustScale(25)" style="font-size:1.1rem;line-height:1;padding:6px 14px">+</button>
+          </div>
+        </div>
+        <hr>
+        <div id="server-version" class="header-subtitle">API Version: Loading…</div>
+      </div>`;
+  },
+
+  async _load() {
     try {
       const cfg = await get('/config');
       el('cfg-url').value = cfg.api_url || '';
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
-        this.loadVersion();
       }
     } catch (e) {
       /* silent */
     }
     this._syncUnitButtons();
+    this._syncScaleLabel();
+    this._loadVersion();
   },
 
   setUnit(u) {
@@ -234,16 +325,30 @@ const Settings = {
 
   _syncUnitButtons() {
     const u = UnitPref.get();
-    el('settings-unit-oz').classList.toggle('shelf-active', u === 'oz');
-    el('settings-unit-ml').classList.toggle('shelf-active', u === 'ml');
+    const oz = el('settings-unit-oz');
+    const ml = el('settings-unit-ml');
+    if (oz) oz.classList.toggle('shelf-active', u === 'oz');
+    if (ml) ml.classList.toggle('shelf-active', u === 'ml');
   },
 
-  async loadVersion() {
+  adjustScale(delta) {
+    const next = UIScale.set(UIScale.get() + delta);
+    this._syncScaleLabel(next);
+  },
+
+  _syncScaleLabel(pct) {
+    const lbl = el('settings-scale-label');
+    if (lbl) lbl.textContent = (pct ?? UIScale.get()) + '%';
+  },
+
+  async _loadVersion() {
+    const v = el('server-version');
+    if (!v) return;
     try {
       const d = await get('/api/server/version');
-      el('server-version').textContent = `API Version: ${d.data?.version || 'Unknown'}`;
+      v.textContent = `API Version: ${d.data?.version || 'Unknown'}`;
     } catch (e) {
-      el('server-version').textContent = 'API Version: Error';
+      v.textContent = 'API Version: Error';
     }
   },
 
@@ -259,7 +364,7 @@ const Settings = {
       await post('/config', { api_url: url });
       msg.textContent = '✓ Saved';
       msg.className = 'cfg-status ok';
-      this.loadVersion();
+      this._loadVersion();
     } catch (e) {
       msg.textContent = '✗ ' + e.message;
       msg.className = 'cfg-status err';
@@ -268,6 +373,7 @@ const Settings = {
 
   async _loadBars(currentBarId) {
     const sel = el('cfg-bar');
+    if (!sel) return;
     sel.innerHTML = '<option value="">Loading…</option>';
     try {
       const d = await get('/api/bars');
@@ -282,7 +388,6 @@ const Settings = {
             `<option value="${b.id}" ${String(b.id) === String(currentBarId) ? 'selected' : ''}>${escHtml(b.name)}</option>`
         )
         .join('');
-      // Auto-save if only one bar and none selected yet
       if (bars.length === 1 && !currentBarId) {
         await post('/config', { bar_id: bars[0].id });
         Toast.show(`Bar set to "${bars[0].name}"`);
@@ -308,6 +413,137 @@ const Settings = {
       msg.textContent = '✗ ' + e.message;
       msg.className = 'cfg-status err';
     }
+  },
+};
+
+// ── Setup wizard ────────────────────────────────────────────────────────────
+
+const SetupWizard = {
+  show() {
+    Modal.open('Connect to Bar Assistant', this._step1Html(), '', { required: true });
+  },
+
+  _step1Html() {
+    return `
+      <p style="color:var(--text-dim);margin-bottom:4px">Welcome to Sugar Rim! Enter your Bar Assistant API URL to get started.</p>
+      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">API URL
+        <input type="url" id="setup-url" class="text-input" placeholder="http://192.168.1.x:8000"
+               onkeydown="if(event.key==='Enter') SetupWizard.saveUrl()">
+      </label>
+      <div id="setup-msg" class="cfg-status" style="margin-top:10px"></div>
+      <button class="btn btn-primary btn-wide" style="margin-top:16px" onclick="SetupWizard.saveUrl()">
+        Save &amp; Continue →
+      </button>`;
+  },
+
+  async saveUrl() {
+    const url = (el('setup-url').value || '').trim();
+    const msg = el('setup-msg');
+    if (!url) {
+      msg.textContent = '✗ URL is required';
+      msg.className = 'cfg-status err';
+      return;
+    }
+    msg.textContent = 'Connecting…';
+    msg.className = 'cfg-status';
+    try {
+      await post('/config', { api_url: url });
+      await get('/api/server/version');
+      this._showStep2();
+    } catch (e) {
+      msg.textContent = '✗ Could not reach that URL — check it and try again.';
+      msg.className = 'cfg-status err';
+    }
+  },
+
+  _showStep2() {
+    el('modal-title').textContent = 'Sign In';
+    el('modal-body').innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="setup-email" class="text-input" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="setup-pass" class="text-input" placeholder="••••••••"
+               onkeydown="if(event.key==='Enter') SetupWizard.login()">
+      </div>
+      <div id="setup-msg" class="cfg-status" style="margin-top:10px"></div>
+      <button class="btn btn-primary btn-wide" style="margin-top:16px" onclick="SetupWizard.login()">
+        Sign In →
+      </button>
+      <button class="btn btn-ghost btn-wide" style="margin-top:8px" onclick="SetupWizard.show()">
+        ← Back
+      </button>`;
+    el('setup-email').focus();
+  },
+
+  async login() {
+    const email = (el('setup-email').value || '').trim();
+    const password = (el('setup-pass').value || '').trim();
+    const msg = el('setup-msg');
+    if (!email || !password) {
+      msg.textContent = 'Enter email and password';
+      msg.className = 'cfg-status err';
+      return;
+    }
+    msg.textContent = 'Signing in…';
+    msg.className = 'cfg-status';
+    try {
+      await post('/api/auth/login', { email, password });
+      await this._showStep3();
+    } catch (e) {
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
+    }
+  },
+
+  async _showStep3() {
+    el('modal-title').textContent = 'Select Your Bar';
+    el('modal-body').innerHTML = '<div style="color:var(--text-dim)">Loading bars…</div>';
+    try {
+      const d = await get('/api/bars');
+      const bars = d.data || [];
+      if (!bars.length) {
+        el('modal-body').innerHTML =
+          '<p style="color:var(--accent)">No bars found on this server.</p>';
+        return;
+      }
+      if (bars.length === 1) {
+        await post('/config', { bar_id: bars[0].id });
+        this._complete();
+        return;
+      }
+      const opts = bars.map((b) => `<option value="${b.id}">${escHtml(b.name)}</option>`).join('');
+      el('modal-body').innerHTML = `
+        <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Active bar
+          <select id="setup-bar" class="text-input">${opts}</select>
+        </label>
+        <div id="setup-msg" class="cfg-status" style="margin-top:10px"></div>
+        <button class="btn btn-primary btn-wide" style="margin-top:16px" onclick="SetupWizard.saveBar()">
+          Continue →
+        </button>`;
+    } catch (e) {
+      el('modal-body').innerHTML =
+        `<p style="color:var(--accent)">Could not load bars: ${escHtml(e.message)}</p>`;
+    }
+  },
+
+  async saveBar() {
+    const bar_id = el('setup-bar').value;
+    const msg = el('setup-msg');
+    try {
+      await post('/config', { bar_id });
+      this._complete();
+    } catch (e) {
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
+    }
+  },
+
+  _complete() {
+    Modal.forceClose();
+    App.init();
   },
 };
 
@@ -1804,6 +2040,7 @@ const Auth = {
   async logout() {
     try {
       await post('/api/auth/logout');
+      App._loggedIn = false;
       el('logout-btn').classList.add('hidden');
       App.nav.go('login');
     } catch (e) {
@@ -2312,21 +2549,41 @@ const App = {
   settings: Settings,
   stats: Stats,
 
-  async init() {
-    try {
-      const cfg = await get('/config');
-      if (!cfg.api_url) {
-        this.nav.go('settings');
-        return;
-      }
-      if (!cfg.is_logged_in) {
-        el('logout-btn').classList.add('hidden');
-        this.nav.go('login');
-        return;
-      }
+  _loggedIn: false,
+  _initialized: false,
 
-      el('logout-btn').classList.remove('hidden');
-      this.loadVersion();
+  async init() {
+    // Install the nav override and event listeners exactly once.
+    if (!this._initialized) {
+      this._initialized = true;
+
+      const syncHeader = (view) => {
+        el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
+        el('app-header').classList.toggle('favorites-active', view === 'favorites');
+      };
+
+      const origGo = Nav.go.bind(Nav);
+      Nav.go = async (view) => {
+        if (!App._loggedIn && view !== 'login') {
+          origGo('login');
+          syncHeader('login');
+          return;
+        }
+        origGo(view);
+        syncHeader(view);
+        if (view === 'shelf' && !Shelf.items.length) Shelf.load();
+        if (view === 'favorites') Favorites.load();
+        if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
+        if (view === 'shopping-list') ShoppingList.load();
+        if (view === 'tokens') Tokens.load();
+        if (view === 'users') Users.load();
+      };
+
+      const origBack = Nav.back.bind(Nav);
+      Nav.back = () => {
+        origBack();
+        syncHeader(Nav.current);
+      };
 
       // Wire search inputs
       el('shelf-search').addEventListener(
@@ -2406,15 +2663,10 @@ const App = {
       };
 
       ingFilterInput.addEventListener('focus', () => showIngAc(ingFilterInput.value.trim()));
-
       ingFilterInput.addEventListener(
         'input',
-        debounce(() => {
-          const q = ingFilterInput.value.trim();
-          showIngAc(q);
-        }, 250)
+        debounce(() => showIngAc(ingFilterInput.value.trim()), 250)
       );
-
       ingFilterInput.addEventListener('keydown', (e) => {
         const items = ingAutoList.querySelectorAll('.autocomplete-item');
         if (!items.length) return;
@@ -2434,7 +2686,6 @@ const App = {
           ingFilterInput.blur();
         }
       });
-
       ingFilterInput.addEventListener('blur', () => {
         setTimeout(() => ingAutoList.classList.add('hidden'), 150);
       });
@@ -2456,71 +2707,35 @@ const App = {
         if (g.scrollHeight - g.scrollTop - g.clientHeight < 300) Cocktails._maybeLoadMore();
       });
 
-      // Initialise unit toggle label from saved preference
       el('unit-toggle-btn').textContent = UnitPref.get();
+    }
 
-      // Load initial view
+    try {
+      const cfg = await get('/config');
+      if (!cfg.api_url) {
+        this._loggedIn = false;
+        SetupWizard.show();
+        return;
+      }
+      if (!cfg.is_logged_in) {
+        this._loggedIn = false;
+        el('logout-btn').classList.add('hidden');
+        Nav.go('login');
+        return;
+      }
+
+      this._loggedIn = true;
+      el('logout-btn').classList.remove('hidden');
+
       await Cocktails.load();
-      this.nav.go('cocktails');
-      el('app-header').classList.add('cocktails-active');
-
-      // Lazy-load other views on tab activation
-      const syncHeaderClasses = (view) => {
-        el('app-header').classList.toggle('cocktails-active', view === 'cocktails');
-        el('app-header').classList.toggle('favorites-active', view === 'favorites');
-      };
-
-      const origGo = Nav.go.bind(Nav);
-      Nav.go = async (view) => {
-        origGo(view);
-        syncHeaderClasses(view);
-        if (view === 'settings') Settings.load();
-        if (view === 'shelf' && !Shelf.items.length) Shelf.load();
-        if (view === 'favorites') Favorites.load();
-        if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
-        if (view === 'shopping-list') ShoppingList.load();
-        if (view === 'tokens') Tokens.load();
-        if (view === 'users') Users.load();
-      };
-
-      const origBack = Nav.back.bind(Nav);
-      Nav.back = () => {
-        origBack();
-        syncHeaderClasses(Nav.current);
-      };
+      Nav.go('cocktails');
     } catch (e) {
       if (e.message !== 'Please login') console.error('Init error:', e);
     }
   },
-
-  async _loadBars(selectedId) {
-    try {
-      const d = await get('/api/bars');
-      const bars = d.data || [];
-      const sel = el('cfg-bar');
-      sel.innerHTML = bars
-        .map(
-          (b) =>
-            `<option value="${b.id}" ${b.id == selectedId ? 'selected' : ''}>${escHtml(b.name)}</option>`
-        )
-        .join('');
-      if (!selectedId && bars.length) {
-        el('cfg-bar').value = bars[0].id;
-        this.saveBar();
-      }
-    } catch (e) {
-      /* silent */
-    }
-  },
-
-  async loadVersion() {
-    try {
-      const d = await get('/api/server/version');
-      el('server-version').textContent = `API Version: ${d.data?.version || 'Unknown'}`;
-    } catch (e) {
-      el('server-version').textContent = 'API Version: Error';
-    }
-  },
 };
 
-document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('DOMContentLoaded', () => {
+  UIScale.apply();
+  App.init();
+});

@@ -20,25 +20,6 @@
     <button id="logout-btn" class="btn btn-ghost btn-sm hidden" style="padding: 4px 8px; font-size: 0.75rem" onclick="App.auth.logout()">Logout</button>
   </header>
 
-  <!-- ── LOGIN VIEW ───────────────────────────────────────── -->
-  <section id="view-login" class="view" style="justify-content: center; align-items: center; padding: 20px; z-index: 200; background: var(--bg-deep);">
-    <div class="settings-form" style="background: var(--bg-glass); border: 1px solid var(--border); border-radius: 24px; padding: 32px; width: 100%; max-width: 400px; backdrop-filter: var(--blur)">
-      <h1 class="app-title" style="font-size: 2rem; margin-bottom: 24px; text-align: center">Sugar Rim</h1>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" id="login-email" class="text-input" placeholder="you@example.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input type="password" id="login-pass" class="text-input" placeholder="••••••••" onkeydown="if(event.key==='Enter') App.auth.login()">
-      </div>
-      <button class="btn btn-primary btn-wide" style="margin-top: 12px" onclick="App.auth.login()">Login</button>
-      <div id="login-msg" class="cfg-status" style="margin-top: 12px; text-align: center"></div>
-      <hr>
-      <button class="btn btn-ghost btn-wide" onclick="App.nav.go('settings')">Server Settings</button>
-    </div>
-  </section>
-
   <main id="app-main">
 
     <!-- ── SHELF VIEW ───────────────────────────────────────── -->
@@ -252,37 +233,26 @@
       <div id="stats-body" class="stats-grid"></div>
     </section>
 
-    <!-- ── SETTINGS VIEW ────────────────────────────────────── -->
-    <section id="view-settings" class="view">
-      <div class="settings-form">
-        <h2>API Settings</h2>
-        <label>Bar Assistant API URL
-          <input type="url" id="cfg-url" placeholder="http://localhost:8000/api" class="text-input">
-        </label>
-        <button class="btn btn-primary btn-wide" onclick="App.settings.saveUrl()">Save URL</button>
-        <div id="cfg-message" class="cfg-status"></div>
-        <hr>
-        <h2>Active Bar</h2>
-        <label>Select bar
-          <select id="cfg-bar" class="text-input">
-            <option value="">— log in first —</option>
-          </select>
-        </label>
-        <button class="btn btn-primary btn-wide" onclick="App.settings.saveBar()">Set Active Bar</button>
-        <div id="cfg-bar-message" class="cfg-status"></div>
-        <hr>
-        <h2>Display Units</h2>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="shelf-toggle-btn" id="settings-unit-oz" onclick="App.settings.setUnit('oz')">oz</button>
-          <button class="shelf-toggle-btn" id="settings-unit-ml" onclick="App.settings.setUnit('ml')">ml</button>
-          <span class="cfg-status" id="settings-unit-msg"></span>
-        </div>
-        <hr>
-        <div class="header-subtitle" id="server-version">API Version: Loading…</div>
-      </div>
-    </section>
-
   </main>
+
+  <!-- ── LOGIN VIEW ───────────────────────────────────────── -->
+  <section id="view-login" class="view" style="justify-content: center; align-items: center; padding: 20px; background: var(--bg-deep);">
+    <div class="settings-form" style="background: var(--bg-glass); border: 1px solid var(--border); border-radius: 24px; padding: 32px; width: 100%; max-width: 400px; backdrop-filter: var(--blur)">
+      <h1 class="app-title" style="font-size: 2rem; margin-bottom: 24px; text-align: center">Sugar Rim</h1>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="login-email" class="text-input" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="login-pass" class="text-input" placeholder="••••••••" onkeydown="if(event.key==='Enter') App.auth.login()">
+      </div>
+      <button class="btn btn-primary btn-wide" style="margin-top: 12px" onclick="App.auth.login()">Login</button>
+      <div id="login-msg" class="cfg-status" style="margin-top: 12px; text-align: center"></div>
+      <hr>
+      <button class="btn btn-ghost btn-wide" onclick="App.settings.openModal()">Server Settings</button>
+    </div>
+  </section>
 
   <nav id="app-nav">
     <button class="nav-btn active" data-view="cocktails" onclick="App.nav.go('cocktails')">
@@ -297,7 +267,7 @@
     <button class="nav-btn" data-view="manage" onclick="App.nav.go('manage')">
       <span class="nav-icon material-symbols-rounded">settings</span><span class="nav-label">Manage</span>
     </button>
-    <button class="nav-btn" data-view="settings" onclick="App.nav.go('settings')">
+    <button class="nav-btn" onclick="App.settings.openModal()">
       <span class="nav-icon material-symbols-rounded">tune</span><span class="nav-label">Settings</span>
     </button>
   </nav>
@@ -307,7 +277,7 @@
     <div class="modal-box" id="modal-box">
       <div class="modal-header">
         <h3 id="modal-title"></h3>
-        <button class="modal-close" onclick="App.modal.close()">✕</button>
+        <button id="modal-close" class="modal-close" onclick="App.modal.close()">✕</button>
       </div>
       <div class="modal-body" id="modal-body"></div>
       <div class="modal-footer" id="modal-footer"></div>
