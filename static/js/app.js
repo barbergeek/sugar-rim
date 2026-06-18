@@ -297,7 +297,10 @@ const Settings = {
           </div>
         </div>
         <hr>
-        <div id="server-version" class="header-subtitle">API Version: Loading…</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div id="server-version" class="header-subtitle">API Version: Loading…</div>
+          <div id="app-version" class="header-subtitle">App Version: Loading…</div>
+        </div>
       </div>`;
   },
 
@@ -308,6 +311,8 @@ const Settings = {
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
       }
+      const av = el('app-version');
+      if (av) av.textContent = `App Version: ${cfg.app_version || 'Unknown'}`;
     } catch (e) {
       /* silent */
     }

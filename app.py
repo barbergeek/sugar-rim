@@ -19,6 +19,8 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret)
     os.environ["SECRET_KEY"] = _secret
 
+APP_VERSION = "1.0.0"
+
 app = Flask(__name__)
 app.secret_key = _secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -102,7 +104,8 @@ def get_config():
     return jsonify({
         "api_url":      os.getenv("BA_API_URL", ""),
         "bar_id":       os.getenv("BA_BAR_ID", ""),
-        "is_logged_in": "ba_token" in session
+        "is_logged_in": "ba_token" in session,
+        "app_version":  APP_VERSION,
     })
 
 
