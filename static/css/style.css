@@ -1824,3 +1824,94 @@ hr {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* ── Kiosk mode (bar-pi, 1920×1200 display @ device-scale 2 = 960×600 logical) ── */
+.kiosk-mode {
+  --nav-h: 88px;
+  --header-h: 52px;
+  --toolbar-h: 56px;
+}
+
+.kiosk-mode .nav-icon.material-symbols-rounded {
+  font-size: 2rem;
+}
+
+.kiosk-mode .nav-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.kiosk-mode .btn {
+  padding: 12px 22px;
+  font-size: 1rem;
+}
+
+.kiosk-mode .btn-ghost {
+  padding: 10px 18px;
+}
+
+.kiosk-mode .shelf-toggle-btn {
+  padding: 9px 18px;
+  font-size: 0.9rem;
+}
+
+.kiosk-mode .search-input {
+  font-size: 1rem;
+  padding: 10px 16px;
+  height: 42px;
+}
+
+/* Cocktail detail — most important: readable while making a drink */
+.kiosk-mode .ingredient-row {
+  font-size: 1.1rem;
+  padding: 14px 0;
+  gap: 16px;
+}
+
+.kiosk-mode .ing-amount {
+  font-size: 1.15rem;
+  min-width: 84px;
+}
+
+.kiosk-mode .ing-dot {
+  width: 12px;
+  height: 12px;
+}
+
+.kiosk-mode .detail-section h3 {
+  font-size: 0.95rem;
+  margin-bottom: 14px;
+}
+
+.kiosk-mode .detail-section {
+  padding: 20px;
+}
+
+.kiosk-mode .detail-instructions {
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+.kiosk-mode .servings-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 1.3rem;
+}
+
+.kiosk-mode .detail-image-main {
+  width: 200px;
+}
+
+/* Modal close button easier to hit */
+.kiosk-mode .modal-close {
+  width: 44px;
+  height: 44px;
+  font-size: 1.2rem;
+}
+
+/* Shelf remove button — bigger tap target */
+.kiosk-mode .remove-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+}

@@ -20,7 +20,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 app = Flask(__name__)
 app.secret_key = _secret
@@ -96,6 +96,11 @@ def bar_id_or_err():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/kiosk")
+def kiosk():
+    return render_template("kiosk.html")
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

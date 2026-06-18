@@ -106,7 +106,9 @@ const UIScale = {
   STEP: 25,
 
   get() {
-    return parseInt(localStorage.getItem(this.KEY) || '100', 10);
+    const stored = localStorage.getItem(this.KEY);
+    if (!stored && window.KIOSK) return 125;
+    return parseInt(stored || '100', 10);
   },
 
   _apply(pct) {
