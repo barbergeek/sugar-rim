@@ -1,6 +1,7 @@
 import os
 import math
 import secrets
+import logging
 from datetime import timedelta
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
@@ -549,6 +550,42 @@ def method_detail(mid):
 @app.route("/api/server/version")
 def server_version():
     return proxy("GET", "/server/version", bar_ctx=False)
+
+
+def _log_startup():
+    log = logging.getLogger(__name__)
+    api_url   = os.getenv("BA_API_URL", "")
+    bar_id    = os.getenv("BA_BAR_ID", "")
+    has_token = bool(os.getenv("BA_API_TOKEN", ""))
+
+    api_version = "unavailable"
+    if api_url:
+        try:
+            r = http.get(
+                ba_url("/server/version"),
+                headers={"Accept": "application/json"},
+                timeout=5,
+            )
+            if r.ok:
+                api_version = r.json().get("data", {}).get("version", "unknown")
+        except Exception:
+            pass
+
+    log.info("=" * 50)
+    log.info("sugar-rim v%s", APP_VERSION)
+    log.info("Bar Assistant API : %s", api_url or "not configured")
+    log.info("BA API version    : %s", api_version)
+    log.info("API token         : %s", "set" if has_token else "not set")
+    log.info("Active bar ID     : %s", bar_id or "not set")
+    log.info("=" * 50)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_log_startup()
 
 
 if __name__ == "__main__":
