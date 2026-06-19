@@ -100,7 +100,6 @@
       <div class="ksh-list" id="ksh-list">
         <div class="ksh-msg">Loading ingredients…</div>
       </div>
-      <div class="ksh-pager" id="ksh-pager"></div>
       <!-- hidden stubs kept for shared app.js Shelf references -->
       <div id="shelf-list" style="display:none"></div>
       <div id="shelf-empty" style="display:none"><p></p></div>
@@ -659,108 +658,85 @@
   // shopping-list membership; Manage (rename/delete) and Add reuse the shared
   // ingredient editor (App.ingredients).
   const KioskShelf = {
-    page: 1,
-    perPage: 50,
+    all: [],                 // full ingredient catalog (loaded once, scrolled)
     query: '',
-    meta: null,
     shelfIds: new Set(),
     cartIds: new Set(),
+    MAX_PAGES: 20,
 
     async load() {
       this.query = '';
       const inp = document.getElementById('shelf-search');
       if (inp) inp.value = '';
-      this.page = 1;
-      await this._loadSets();
-      await this._loadPage();
+      const list = document.getElementById('ksh-list');
+      if (list) list.innerHTML = '<div class="ksh-msg">Loading ingredients…</div>';
+      try {
+        await Promise.all([this._loadAll(), this._loadSets()]);
+      } catch (e) {
+        if (list) list.innerHTML = `<div class="ksh-msg">${escHtml(e.message)}</div>`;
+        return;
+      }
+      this._render();
     },
 
-    // Re-pull membership sets + current page (after a manage edit/delete)
+    // Re-pull catalog + membership sets (after a manage edit/delete), keep scroll
     async refresh() {
-      await this._loadSets();
-      await this._loadPage();
+      const list = document.getElementById('ksh-list');
+      const st = list ? list.scrollTop : 0;
+      try { await Promise.all([this._loadAll(), this._loadSets()]); } catch (e) { /* keep */ }
+      this._render();
+      if (list) list.scrollTop = st;
+    },
+
+    // Fetch every ingredient by walking pages (no on-screen pagination)
+    async _loadAll() {
+      const all = [];
+      let page = 1, last = 1;
+      do {
+        const d = await get('/api/ingredients', { per_page: 100, page, sort: 'name' });
+        (d.data || []).forEach(x => all.push(x));
+        last = d.meta?.last_page || 1;
+        page++;
+      } while (page <= last && page <= this.MAX_PAGES);
+      this.all = all;
     },
 
     async _loadSets() {
-      try {
-        const [shelf, cart] = await Promise.all([
-          get('/api/shelf', { per_page: 500 }),
-          get('/api/shopping-list'),
-        ]);
-        this.shelfIds = new Set((shelf.data || []).map(i => i.ingredient?.id || i.id).filter(Boolean));
-        State.shelfIds = this.shelfIds;  // keep global availability in sync
-        this.cartIds = new Set((cart.data || []).map(i => i.ingredient?.id).filter(Boolean));
-      } catch (e) { /* leave sets as-is */ }
+      const [shelf, cart] = await Promise.all([
+        get('/api/shelf', { per_page: 500 }),
+        get('/api/shopping-list'),
+      ]);
+      this.shelfIds = new Set((shelf.data || []).map(i => i.ingredient?.id || i.id).filter(Boolean));
+      State.shelfIds = this.shelfIds;  // keep global availability in sync
+      this.cartIds = new Set((cart.data || []).map(i => i.ingredient?.id).filter(Boolean));
     },
 
     search(q) {
-      this.query = (q || '').trim();
-      this.page = 1;
-      this._loadPage();
+      this.query = (q || '').trim().toLowerCase();
+      this._render();
     },
 
-    go(p) {
-      this.page = p;
-      const list = document.getElementById('ksh-list');
-      if (list) list.scrollTop = 0;
-      this._loadPage();
-    },
-
-    async _loadPage() {
+    _render() {
       const list = document.getElementById('ksh-list');
       if (!list) return;
-      list.innerHTML = '<div class="ksh-msg">Loading…</div>';
-      const params = { per_page: this.perPage, page: this.page, sort: 'name' };
-      if (this.query) params['filter[name]'] = this.query;
-      try {
-        const d = await get('/api/ingredients', params);
-        this.meta = d.meta || {};
-        this._render(d.data || []);
-      } catch (e) {
-        list.innerHTML = `<div class="ksh-msg">${escHtml(e.message)}</div>`;
-      }
-    },
-
-    _render(items) {
-      const list = document.getElementById('ksh-list');
-      if (!list) return;
+      const items = this.query
+        ? this.all.filter(i => (i.name || '').toLowerCase().includes(this.query))
+        : this.all;
       if (!items.length) {
         list.innerHTML = `<div class="ksh-msg">${this.query ? 'No ingredients match your search.' : 'No ingredients found.'}</div>`;
-        this._renderPager();
         return;
       }
       list.innerHTML = items.map(i => {
         const onShelf = this.shelfIds.has(i.id);
         const inCart = this.cartIds.has(i.id);
-        const cat = i.category?.name ? `<small>${escHtml(i.category.name)}</small>` : '';
-        return `<div class="ksh-row" data-id="${i.id}">
-            <span class="ksh-name">${escHtml(i.name)}${cat}</span>
-            <button class="ksh-tog shelf${onShelf ? ' on' : ''}" onclick="KioskShelf.toggleShelf(${i.id}, this)">
-              <span class="material-symbols-rounded">${onShelf ? 'check' : 'add'}</span> Shelf
-            </button>
-            <button class="ksh-tog cart${inCart ? ' on' : ''}" onclick="KioskShelf.toggleCart(${i.id}, this)">
-              <span class="material-symbols-rounded">shopping_cart</span> List
-            </button>
-            <button class="ksh-manage" onclick="App.ingredients.showEdit(${i.id})" title="Rename or delete">
-              <span class="material-symbols-rounded">more_horiz</span>
-            </button>
+        return `<div class="ksh-card" data-id="${i.id}">
+            <button class="ksh-card-name" onclick="App.ingredients.showEdit(${i.id})" title="Rename or delete">${escHtml(i.name)}</button>
+            <button class="ksh-ind shelf${onShelf ? ' on' : ''}" onclick="KioskShelf.toggleShelf(${i.id}, this)" title="On the shelf">
+              <span class="material-symbols-rounded">liquor</span></button>
+            <button class="ksh-ind cart${inCart ? ' on' : ''}" onclick="KioskShelf.toggleCart(${i.id}, this)" title="On the shopping list">
+              <span class="material-symbols-rounded">shopping_cart</span></button>
           </div>`;
       }).join('');
-      this._renderPager();
-    },
-
-    _renderPager() {
-      const p = document.getElementById('ksh-pager');
-      if (!p) return;
-      const last = this.meta?.last_page || 1;
-      const cur = this.meta?.current_page || this.page;
-      if (last <= 1) { p.innerHTML = ''; return; }
-      p.innerHTML =
-        `<button class="kf-fbtn" ${cur <= 1 ? 'disabled' : ''} onclick="KioskShelf.go(${cur - 1})">` +
-          '<span class="material-symbols-rounded">chevron_left</span> Prev</button>' +
-        `<span class="ksh-page">Page ${cur} of ${last}</span>` +
-        `<button class="kf-fbtn" ${cur >= last ? 'disabled' : ''} onclick="KioskShelf.go(${cur + 1})">` +
-          'Next <span class="material-symbols-rounded">chevron_right</span></button>';
     },
 
     async toggleShelf(id, btn) {
@@ -774,8 +750,6 @@
           this.shelfIds.add(id); State.shelfIds.add(id);
         }
         btn.classList.toggle('on', !on);
-        const icon = btn.querySelector('.material-symbols-rounded');
-        if (icon) icon.textContent = !on ? 'check' : 'add';
       } catch (e) { Toast.err(e.message); }
     },
 
