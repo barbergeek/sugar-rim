@@ -88,17 +88,22 @@
       <div id="favorites-empty" class="empty-state hidden"><p>No favorites yet.</p></div>
     </section>
 
-    <!-- ── SHELF ──────────────────────────────────────────────────── -->
+    <!-- ── SHELF / INGREDIENTS (kiosk: compact rows + shelf/list toggles) ─ -->
     <section id="view-shelf" class="view">
-      <div class="view-toolbar">
-        <input type="search" id="shelf-search" placeholder="Search ingredients…" class="search-input">
-        <button class="btn btn-primary" onclick="App.shelf.showAddModal()">+ Add</button>
+      <div class="ksh-bar">
+        <span class="material-symbols-rounded ksh-search-icon">search</span>
+        <input type="search" id="shelf-search" class="ksh-search" placeholder="Search ingredients…">
+        <button class="kf-fbtn primary" onclick="App.ingredients.showCreate()">
+          <span class="material-symbols-rounded">add</span> Add
+        </button>
       </div>
-      <div id="shelf-list" class="card-grid"></div>
-      <div id="shelf-empty" class="empty-state hidden">
-        <p>Your bar shelf is empty.</p>
-        <button class="btn btn-primary" onclick="App.shelf.showAddModal()">Add Ingredients</button>
+      <div class="ksh-list" id="ksh-list">
+        <div class="ksh-msg">Loading ingredients…</div>
       </div>
+      <div class="ksh-pager" id="ksh-pager"></div>
+      <!-- hidden stubs kept for shared app.js Shelf references -->
+      <div id="shelf-list" style="display:none"></div>
+      <div id="shelf-empty" style="display:none"><p></p></div>
     </section>
 
     <!-- ── SHOPPING LIST ──────────────────────────────────────────── -->
@@ -644,8 +649,148 @@
       el.addEventListener('pointercancel', end);
     },
     enableAll() {
-      ['kf-results', 'favorites-list', 'shelf-list', 'shopping-list-items', 'detail-body', 'modal-body']
+      ['kf-results', 'favorites-list', 'ksh-list', 'shopping-list-items', 'detail-body', 'modal-body']
         .forEach(id => this.enable(document.getElementById(id)));
+    },
+  };
+
+  // ── KioskShelf: browsable ingredient list with shelf + shopping toggles ─────
+  // Lists ALL ingredients (paged/searchable). Each row toggles bar-shelf and
+  // shopping-list membership; Manage (rename/delete) and Add reuse the shared
+  // ingredient editor (App.ingredients).
+  const KioskShelf = {
+    page: 1,
+    perPage: 50,
+    query: '',
+    meta: null,
+    shelfIds: new Set(),
+    cartIds: new Set(),
+
+    async load() {
+      this.query = '';
+      const inp = document.getElementById('shelf-search');
+      if (inp) inp.value = '';
+      this.page = 1;
+      await this._loadSets();
+      await this._loadPage();
+    },
+
+    // Re-pull membership sets + current page (after a manage edit/delete)
+    async refresh() {
+      await this._loadSets();
+      await this._loadPage();
+    },
+
+    async _loadSets() {
+      try {
+        const [shelf, cart] = await Promise.all([
+          get('/api/shelf', { per_page: 500 }),
+          get('/api/shopping-list'),
+        ]);
+        this.shelfIds = new Set((shelf.data || []).map(i => i.ingredient?.id || i.id).filter(Boolean));
+        State.shelfIds = this.shelfIds;  // keep global availability in sync
+        this.cartIds = new Set((cart.data || []).map(i => i.ingredient?.id).filter(Boolean));
+      } catch (e) { /* leave sets as-is */ }
+    },
+
+    search(q) {
+      this.query = (q || '').trim();
+      this.page = 1;
+      this._loadPage();
+    },
+
+    go(p) {
+      this.page = p;
+      const list = document.getElementById('ksh-list');
+      if (list) list.scrollTop = 0;
+      this._loadPage();
+    },
+
+    async _loadPage() {
+      const list = document.getElementById('ksh-list');
+      if (!list) return;
+      list.innerHTML = '<div class="ksh-msg">Loading…</div>';
+      const params = { per_page: this.perPage, page: this.page, sort: 'name' };
+      if (this.query) params['filter[name]'] = this.query;
+      try {
+        const d = await get('/api/ingredients', params);
+        this.meta = d.meta || {};
+        this._render(d.data || []);
+      } catch (e) {
+        list.innerHTML = `<div class="ksh-msg">${escHtml(e.message)}</div>`;
+      }
+    },
+
+    _render(items) {
+      const list = document.getElementById('ksh-list');
+      if (!list) return;
+      if (!items.length) {
+        list.innerHTML = `<div class="ksh-msg">${this.query ? 'No ingredients match your search.' : 'No ingredients found.'}</div>`;
+        this._renderPager();
+        return;
+      }
+      list.innerHTML = items.map(i => {
+        const onShelf = this.shelfIds.has(i.id);
+        const inCart = this.cartIds.has(i.id);
+        const cat = i.category?.name ? `<small>${escHtml(i.category.name)}</small>` : '';
+        return `<div class="ksh-row" data-id="${i.id}">
+            <span class="ksh-name">${escHtml(i.name)}${cat}</span>
+            <button class="ksh-tog shelf${onShelf ? ' on' : ''}" onclick="KioskShelf.toggleShelf(${i.id}, this)">
+              <span class="material-symbols-rounded">${onShelf ? 'check' : 'add'}</span> Shelf
+            </button>
+            <button class="ksh-tog cart${inCart ? ' on' : ''}" onclick="KioskShelf.toggleCart(${i.id}, this)">
+              <span class="material-symbols-rounded">shopping_cart</span> List
+            </button>
+            <button class="ksh-manage" onclick="App.ingredients.showEdit(${i.id})" title="Rename or delete">
+              <span class="material-symbols-rounded">more_horiz</span>
+            </button>
+          </div>`;
+      }).join('');
+      this._renderPager();
+    },
+
+    _renderPager() {
+      const p = document.getElementById('ksh-pager');
+      if (!p) return;
+      const last = this.meta?.last_page || 1;
+      const cur = this.meta?.current_page || this.page;
+      if (last <= 1) { p.innerHTML = ''; return; }
+      p.innerHTML =
+        `<button class="kf-fbtn" ${cur <= 1 ? 'disabled' : ''} onclick="KioskShelf.go(${cur - 1})">` +
+          '<span class="material-symbols-rounded">chevron_left</span> Prev</button>' +
+        `<span class="ksh-page">Page ${cur} of ${last}</span>` +
+        `<button class="kf-fbtn" ${cur >= last ? 'disabled' : ''} onclick="KioskShelf.go(${cur + 1})">` +
+          'Next <span class="material-symbols-rounded">chevron_right</span></button>';
+    },
+
+    async toggleShelf(id, btn) {
+      const on = this.shelfIds.has(id);
+      try {
+        if (on) {
+          await post('/api/shelf/batch-delete', { ingredients: [id] });
+          this.shelfIds.delete(id); State.shelfIds.delete(id);
+        } else {
+          await post('/api/shelf/batch', { ingredients: [id] });
+          this.shelfIds.add(id); State.shelfIds.add(id);
+        }
+        btn.classList.toggle('on', !on);
+        const icon = btn.querySelector('.material-symbols-rounded');
+        if (icon) icon.textContent = !on ? 'check' : 'add';
+      } catch (e) { Toast.err(e.message); }
+    },
+
+    async toggleCart(id, btn) {
+      const on = this.cartIds.has(id);
+      try {
+        if (on) {
+          await post('/api/shopping-list/batch-delete', { ingredients: [{ id }] });
+          this.cartIds.delete(id);
+        } else {
+          await post('/api/shopping-list/batch', { ingredients: [{ id, quantity: 1 }] });
+          this.cartIds.add(id);
+        }
+        btn.classList.toggle('on', !on);
+      } catch (e) { Toast.err(e.message); }
     },
   };
 
@@ -674,6 +819,23 @@
       KioskApp._activePicker = null;
       const box = document.getElementById('modal-box');
       if (box) box.classList.remove('kf-picker-modal');
+    };
+
+    // Route the shared Shelf nav + search to the kiosk ingredient browser.
+    // (app.js calls Shelf.load() on shelf nav and Shelf.filter() from #shelf-search.)
+    Shelf.load = function () { return KioskShelf.load(); };
+    Shelf.filter = function (q) { return KioskShelf.search(q); };
+
+    // Refresh the ingredient list after a rename/delete/create from the editor.
+    const _origSubmit = Ingredients._submit.bind(Ingredients);
+    Ingredients._submit = async function (id) {
+      await _origSubmit(id);
+      if (Nav.current === 'shelf') KioskShelf.refresh();
+    };
+    const _origDelete = Ingredients._delete.bind(Ingredients);
+    Ingredients._delete = async function (id) {
+      await _origDelete(id);
+      if (Nav.current === 'shelf') KioskShelf.refresh();
     };
   })();
   </script>

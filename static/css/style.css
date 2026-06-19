@@ -1897,7 +1897,8 @@ hr {
 .kiosk-mode .detail-body,
 .kiosk-mode #modal-body,
 .kiosk-mode .kf-picker,
-.kiosk-mode .kf-sel-bar {
+.kiosk-mode .kf-sel-bar,
+.kiosk-mode .ksh-list {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -2299,6 +2300,160 @@ hr {
   border-color: var(--accent);
   color: #120d07;
   font-weight: 700;
+}
+
+/* ── Shelf / ingredients: compact rows with shelf + list toggles ─────── */
+.kiosk-mode #view-shelf {
+  flex-direction: column;
+  padding: 0;
+}
+.ksh-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 60px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(200, 134, 10, 0.18);
+  background: rgba(10, 8, 3, 0.5);
+}
+.ksh-search-icon { flex-shrink: 0; color: var(--accent); opacity: 0.7; font-size: 1.2rem; }
+.ksh-search {
+  flex: 1;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(200, 134, 10, 0.06);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.95rem;
+}
+.ksh-search::placeholder { color: var(--text-dim); }
+
+.ksh-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 134, 10, 0.35) transparent;
+}
+.ksh-list::-webkit-scrollbar { width: 8px; }
+.ksh-list::-webkit-scrollbar-thumb { background: rgba(200, 134, 10, 0.3); border-radius: 4px; }
+
+.ksh-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 6px 10px 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 134, 10, 0.14);
+  background: rgba(200, 134, 10, 0.03);
+}
+.ksh-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font);
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ksh-name small {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+
+.ksh-tog {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 96px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(200, 134, 10, 0.25);
+  background: rgba(200, 134, 10, 0.05);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.13s, border-color 0.13s, color 0.13s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ksh-tog .material-symbols-rounded { font-size: 1.05rem; }
+.ksh-tog:active { transform: scale(0.96); }
+.ksh-tog.on {
+  background: rgba(200, 134, 10, 0.18);
+  border-color: var(--accent);
+  color: var(--accent2);
+}
+.ksh-tog.cart.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #120d07;
+}
+
+.ksh-manage {
+  flex-shrink: 0;
+  width: 44px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 230, 204, 0.16);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ksh-manage .material-symbols-rounded { font-size: 1.4rem; }
+.ksh-manage:active { background: rgba(245, 230, 204, 0.08); }
+
+.ksh-pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 0 16px;
+  border-top: 1px solid rgba(200, 134, 10, 0.14);
+  background: rgba(10, 8, 3, 0.4);
+}
+.ksh-pager:empty { display: none; }
+.ksh-page {
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.ksh-msg {
+  padding: 30px 10px;
+  text-align: center;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.95rem;
+  opacity: 0.7;
 }
 
 /* ── Cocktail detail overrides ───────────────────────────────────────── */
