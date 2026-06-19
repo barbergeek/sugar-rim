@@ -546,12 +546,53 @@
     },
   };
 
+  // ── Touch drag-to-scroll ────────────────────────────────────────────────────
+  // The bar-pi touchscreen delivers pointer events that don't natively
+  // drag-scroll overflow containers (only the scrollbar works). Drive scrolling
+  // from pointer moves so it feels like a phone/tablet. A small movement
+  // threshold distinguishes a tap (opens a card) from a drag (scrolls).
+  const KioskScroll = {
+    enable(el) {
+      if (!el || el.dataset.dragScroll) return;
+      el.dataset.dragScroll = '1';
+      let active = false, moved = false, startY = 0, startTop = 0;
+      const THRESH = 8;
+      el.addEventListener('pointerdown', e => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        active = true; moved = false; startY = e.clientY; startTop = el.scrollTop;
+        try { el.setPointerCapture(e.pointerId); } catch(_) {}
+      });
+      el.addEventListener('pointermove', e => {
+        if (!active) return;
+        const dy = e.clientY - startY;
+        if (!moved && Math.abs(dy) >= THRESH) moved = true;
+        if (moved) el.scrollTop = startTop - dy;
+      });
+      const end = () => {
+        if (!active) return;
+        active = false;
+        if (moved) {  // swallow the click a real drag would otherwise trigger
+          const swallow = ev => { ev.stopPropagation(); ev.preventDefault(); };
+          el.addEventListener('click', swallow, true);
+          setTimeout(() => el.removeEventListener('click', swallow, true), 0);
+        }
+      };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    },
+    enableAll() {
+      ['kf-results', 'favorites-list', 'shelf-list', 'shopping-list-items', 'detail-body', 'modal-body']
+        .forEach(id => this.enable(document.getElementById(id)));
+    },
+  };
+
   // ── Wire into App lifecycle ────────────────────────────────────────────────
   (function () {
-    // UIScale: default 125% for kiosk when no stored preference
+    // UIScale: default 100% for kiosk; physical size is set via Chromium's
+    // --force-device-scale-factor on bar-pi (uniform; scales px + rem together).
     UIScale.get = function() {
       const stored = localStorage.getItem(UIScale.KEY);
-      if (!stored) return 125;
+      if (!stored) return 100;
       return parseInt(stored, 10);
     };
 
@@ -559,6 +600,7 @@
     const _origInit = App.init.bind(App);
     App.init = async function () {
       await _origInit();
+      KioskScroll.enableAll();
       if (App._loggedIn) KioskApp.init();
     };
   })();

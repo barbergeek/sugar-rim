@@ -1889,6 +1889,18 @@ hr {
    A random match is featured; all matches list below. Clear resets filters.
    ──────────────────────────────────────────────────────────────────────── */
 
+/* Scroll containers are driven by JS drag-to-scroll (KioskScroll) since the
+   touchscreen's pointer events don't natively drag-scroll. touch-action:none
+   hands gesture control to the script so scrolling is deterministic. */
+.kiosk-mode #kf-results,
+.kiosk-mode .card-grid,
+.kiosk-mode .detail-body,
+.kiosk-mode #modal-body {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .kiosk-mode #view-cocktails {
   flex-direction: column;
   padding: 0;
