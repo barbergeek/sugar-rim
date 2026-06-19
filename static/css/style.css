@@ -1825,93 +1825,481 @@ hr {
   color: var(--accent);
 }
 
-/* ── Kiosk mode (bar-pi, 1920×1200 display @ device-scale 2 = 960×600 logical) ── */
+
+/* ── Kiosk mode — Amber Noir ──────────────────────────────────────────────────
+   bar-pi 1920×1200 @ --force-device-scale-factor=2 → 960×600 logical px
+   All selectors scoped to .kiosk-mode so the phone UI at / is untouched.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Palette, typography, layout vars ──────────────────────────────────── */
 .kiosk-mode {
-  --nav-h: 88px;
-  --header-h: 52px;
-  --toolbar-h: 56px;
+  --bg:             #120d07;
+  --bg-deep:        #0a0803;
+  --bg-glass:       rgba(200, 134, 10, 0.04);
+  --bg-glass-heavy: rgba(200, 134, 10, 0.09);
+  --accent:         #c8860a;
+  --accent-rgb:     200, 134, 10;
+  --accent2:        #e8c870;
+  --text:           #f5e6cc;
+  --text-dim:       rgba(245, 230, 204, 0.5);
+  --border:         rgba(200, 134, 10, 0.18);
+  --card-bg:        rgba(200, 134, 10, 0.04);
+  --shadow:         0 8px 32px rgba(0, 0, 0, 0.65);
+  --radius:         8px;
+  --blur:           blur(16px);
+  --nav-h:          80px;
+  --header-h:       48px;
+  --font:           'Barlow Condensed', system-ui, sans-serif;
+  --font-display:   'Cormorant Garamond', Georgia, serif;
+  background-image:
+    radial-gradient(ellipse at 12% 20%, rgba(200, 134, 10, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 80%, rgba(160, 92, 26, 0.05) 0%, transparent 50%);
 }
 
-.kiosk-mode .nav-icon.material-symbols-rounded {
-  font-size: 2rem;
+/* ── Header ──────────────────────────────────────────────────────────── */
+.kiosk-mode #app-header {
+  background: rgba(10, 8, 3, 0.9);
+  border-bottom: 1px solid rgba(200, 134, 10, 0.2);
 }
+.kiosk-mode .app-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.kiosk-mode #header-shelf-toggle,
+.kiosk-mode #header-fav-shelf-toggle { display: none; }
 
+/* ── Nav ─────────────────────────────────────────────────────────────── */
+.kiosk-mode #app-nav {
+  background: rgba(10, 8, 3, 0.92);
+  border-top: 1px solid rgba(200, 134, 10, 0.2);
+}
+.kiosk-mode .nav-btn::after    { background: var(--accent); }
+.kiosk-mode .nav-icon.material-symbols-rounded { font-size: 1.8rem; }
 .kiosk-mode .nav-label {
-  font-size: 0.85rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Kiosk cocktail view layout ─────────────────────────────────────── */
+/* view-cocktails in kiosk is 3-row flex column:
+   [ing bar ~54px] [tag bar ~50px] [hero fills rest]                      */
+
+.kiosk-mode #view-cocktails {
+  flex-direction: column;
+}
+
+/* Filter bars */
+.kf-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 16px;
+  border-bottom: 1px solid rgba(200, 134, 10, 0.12);
+  background: rgba(10, 8, 3, 0.45);
+  gap: 10px;
+}
+.kf-ing-bar { height: 54px; }
+.kf-tag-bar  { height: 50px; }
+
+.kf-bar-icon {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.kf-chips-scroll {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* hide scrollbar, still scrollable via touch */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.kf-chips-scroll::-webkit-scrollbar { display: none; }
+
+.kf-chips {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px 8px 2px;
+  white-space: nowrap;
+}
+
+.kf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(200, 134, 10, 0.22);
+  background: rgba(200, 134, 10, 0.06);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.82rem;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.kf-chip:active { opacity: 0.6; }
+.kf-chip.active {
+  background: rgba(200, 134, 10, 0.2);
+  border-color: rgba(200, 134, 10, 0.55);
+  color: var(--accent2);
+}
+.kf-chip.active::before {
+  content: '✓';
+  font-size: 0.75rem;
+  color: var(--accent);
 }
 
-.kiosk-mode .btn {
-  padding: 12px 22px;
+/* Clear-all chip */
+.kf-chip-clear {
+  border-color: rgba(245, 230, 204, 0.2);
+  background: rgba(245, 230, 204, 0.05);
+  color: var(--text-dim);
+}
+.kf-chip-clear:active { color: var(--text); }
+
+/* ── Hero zone ───────────────────────────────────────────────────────── */
+.kf-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kf-hero-card {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Skeleton while loading */
+.kf-skeleton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 24px;
+}
+.kf-skel-img {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  border-radius: 8px;
+  background: rgba(200, 134, 10, 0.07);
+  animation: kf-pulse 1.8s ease-in-out infinite;
+}
+.kf-skel-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.kf-skel-line {
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(200, 134, 10, 0.07);
+  animation: kf-pulse 1.8s ease-in-out infinite;
+}
+.kf-skel-line.xl  { height: 52px; width: 70%; animation-delay: 0.1s; }
+.kf-skel-line.lg  { height: 18px; width: 80%; animation-delay: 0.2s; }
+.kf-skel-line.md  { height: 14px; width: 55%; animation-delay: 0.3s; }
+@keyframes kf-pulse {
+  0%, 100% { opacity: 0.2; }
+  50%       { opacity: 0.5; }
+}
+
+/* Empty state */
+.kf-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-family: var(--font);
   font-size: 1rem;
+  letter-spacing: 0.06em;
+}
+.kf-empty .material-symbols-rounded {
+  font-size: 3rem;
+  opacity: 0.3;
 }
 
-.kiosk-mode .btn-ghost {
-  padding: 10px 18px;
+/* Cocktail content */
+.kf-content {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
 }
 
-.kiosk-mode .shelf-toggle-btn {
-  padding: 9px 18px;
+.kf-image-col {
+  flex-shrink: 0;
+  width: 260px;
+  overflow: hidden;
+  position: relative;
+  background: rgba(200, 134, 10, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid rgba(200, 134, 10, 0.12);
+}
+.kf-image-col img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.kf-image-placeholder {
+  font-size: 4rem;
+  opacity: 0.2;
+  color: var(--accent);
+}
+
+.kf-info-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 24px 32px 20px;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.kf-cocktail-name {
+  font-family: var(--font-display);
+  font-size: 3.2rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kf-ings-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kf-ing-pill {
+  padding: 5px 12px;
+  border-radius: 3px;
+  background: rgba(200, 134, 10, 0.1);
+  border: 1px solid rgba(200, 134, 10, 0.25);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.kf-ing-pill.on-shelf {
+  color: var(--accent2);
+  border-color: rgba(200, 134, 10, 0.4);
+}
+
+.kf-rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font);
+}
+.kf-stars { color: var(--accent2); font-size: 1.1rem; letter-spacing: 0.05em; }
+.kf-rating-num { color: var(--text-dim); font-size: 0.85rem; }
+
+.kf-recipe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: #120d07;
+  border: none;
+  border-radius: 5px;
+  font-family: var(--font);
   font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.kf-recipe-btn:active {
+  background: var(--accent2);
+  transform: scale(0.97);
+}
+.kf-recipe-btn .material-symbols-rounded { font-size: 1.1rem; }
+
+/* ── Hero navigation footer ──────────────────────────────────────────── */
+.kf-hero-footer {
+  flex-shrink: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-top: 1px solid rgba(200, 134, 10, 0.12);
+  background: rgba(10, 8, 3, 0.5);
 }
 
-.kiosk-mode .search-input {
-  font-size: 1rem;
-  padding: 10px 16px;
-  height: 42px;
+.kf-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: rgba(200, 134, 10, 0.08);
+  border: 1px solid rgba(200, 134, 10, 0.22);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.kf-nav-btn .material-symbols-rounded { font-size: 1.1rem; }
+.kf-nav-btn:active {
+  background: rgba(200, 134, 10, 0.2);
+  border-color: rgba(200, 134, 10, 0.5);
+  color: var(--accent2);
+}
+.kf-nav-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
-/* Cocktail detail — most important: readable while making a drink */
+.kf-footer-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.kf-count {
+  font-family: var(--font);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.kf-shuffle-link {
+  font-family: var(--font);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(200, 134, 10, 0.5);
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  transition: color 0.15s;
+}
+.kf-shuffle-link:active { color: var(--accent); }
+
+/* ── Cocktail detail overrides ───────────────────────────────────────── */
+.kiosk-mode #detail-title {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
 .kiosk-mode .ingredient-row {
   font-size: 1.1rem;
   padding: 14px 0;
   gap: 16px;
 }
-
 .kiosk-mode .ing-amount {
   font-size: 1.15rem;
+  font-weight: 700;
   min-width: 84px;
+  color: var(--accent2);
 }
-
-.kiosk-mode .ing-dot {
-  width: 12px;
-  height: 12px;
-}
-
+.kiosk-mode .ing-dot  { width: 12px; height: 12px; }
+.kiosk-mode .detail-section { padding: 20px; }
 .kiosk-mode .detail-section h3 {
-  font-size: 0.95rem;
+  font-family: var(--font);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
   margin-bottom: 14px;
 }
+.kiosk-mode .detail-instructions { font-size: 1.05rem; line-height: 1.8; }
+.kiosk-mode .detail-image-main   { width: 200px; border-radius: 8px; }
 
-.kiosk-mode .detail-section {
-  padding: 20px;
-}
-
-.kiosk-mode .detail-instructions {
-  font-size: 1.05rem;
-  line-height: 1.75;
-}
-
-.kiosk-mode .servings-btn {
-  width: 36px;
-  height: 36px;
-  font-size: 1.3rem;
-}
-
-.kiosk-mode .detail-image-main {
-  width: 200px;
-}
-
-/* Modal close button easier to hit */
-.kiosk-mode .modal-close {
-  width: 44px;
-  height: 44px;
-  font-size: 1.2rem;
-}
-
-/* Shelf remove button — bigger tap target */
-.kiosk-mode .remove-btn {
-  width: 36px;
-  height: 36px;
+/* ── Favorites view ──────────────────────────────────────────────────── */
+.kiosk-mode .card-name {
+  font-family: var(--font-display);
   font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.kiosk-mode .card-ings {
+  font-family: var(--font);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+.kiosk-mode .card:active {
+  border-color: rgba(200, 134, 10, 0.35);
+  background: rgba(200, 134, 10, 0.07);
+  transform: scale(0.975);
+}
+
+/* ── Misc touch targets ──────────────────────────────────────────────── */
+.kiosk-mode .btn {
+  padding: 11px 20px;
+  font-size: 0.82rem;
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-radius: 5px;
+}
+.kiosk-mode .btn-ghost   { padding: 10px 16px; }
+.kiosk-mode .btn-primary { background: var(--accent); color: #120d07; }
+.kiosk-mode .btn-primary:hover { background: var(--accent2); }
+.kiosk-mode .servings-btn { width: 36px; height: 36px; font-size: 1.3rem; }
+.kiosk-mode .modal-close  { width: 44px; height: 44px; font-size: 1.2rem; }
+.kiosk-mode .remove-btn   { width: 36px; height: 36px; font-size: 1rem; }
+.kiosk-mode .shelf-toggle-btn {
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+.kiosk-mode .shelf-toggle-btn.shelf-active {
+  background: rgba(200, 134, 10, 0.18);
+  border-color: rgba(200, 134, 10, 0.45);
+  color: var(--accent2);
+}
+.kiosk-mode .sort-select {
+  font-family: var(--font);
+  font-size: 0.82rem;
 }
