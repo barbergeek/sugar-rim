@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Sugar Rim</title>
+  <title>Sugar Rim Kiosk</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" rel="stylesheet">
@@ -12,7 +12,7 @@
 <body class="kiosk-mode">
 
   <header id="app-header">
-    <span class="app-title">Sugar Rim</span>
+    <span class="app-title">Sugar Rim Kiosk</span>
     <span id="header-subtitle" class="header-subtitle"></span>
     <div class="header-view-controls">
       <button class="shelf-toggle-btn hidden" id="header-shelf-toggle" onclick="Cocktails.toggleShelf()"></button>
@@ -193,7 +193,7 @@
   <!-- ── LOGIN ──────────────────────────────────────────────────────── -->
   <section id="view-login" class="view" style="justify-content:center;align-items:center;padding:20px;background:var(--bg-deep);">
     <div class="settings-form" style="background:var(--bg-glass);border:1px solid var(--border);border-radius:16px;padding:32px;width:100%;max-width:400px;backdrop-filter:var(--blur)">
-      <h1 class="app-title" style="font-family:var(--font-display);font-size:2rem;margin-bottom:24px;text-align:center">Sugar Rim</h1>
+      <h1 class="app-title" style="font-family:var(--font-display);font-size:2rem;margin-bottom:24px;text-align:center">Sugar Rim Kiosk</h1>
       <div class="form-group">
         <label class="form-label">Email</label>
         <input type="email" id="login-email" class="text-input" placeholder="you@example.com">
@@ -332,7 +332,6 @@
     _openPicker(kind) {
       const isIng = kind === 'ing';
       const items = isIng ? this._ingItems : this._tagItems;
-      const sel   = isIng ? this.ingFilters : this.tagFilters;
       const title = isIng ? 'Choose Ingredients' : 'Choose Tags';
 
       if (!items.length) {
@@ -340,37 +339,89 @@
         return;
       }
 
-      const body = '<div class="kf-picker">' +
-        items.map(i => `<button class="kf-ptile${sel.has(i.id) ? ' active' : ''}" data-id="${i.id}">${escHtml(i.name)}</button>`).join('') +
-        '</div>';
+      this._activePicker = kind;
+      const body =
+        '<div class="kf-sel-bar" id="kf-sel-bar"></div>' +
+        '<div class="kf-picker" id="kf-picker-list"></div>';
       const footer =
         `<button class="btn btn-ghost btn-wide" onclick="KioskApp.clearKind('${kind}')">Clear selection</button>` +
         `<button class="btn btn-primary btn-wide" id="kf-picker-done" onclick="App.modal.close()">${this._doneLabel()}</button>`;
 
       App.modal.open(title, body, footer);
-      this._activePicker = kind;
-
-      document.querySelectorAll('#modal-body .kf-ptile').forEach(btn => {
-        btn.onclick = () => this._togglePick(kind, parseInt(btn.dataset.id, 10), btn);
-      });
+      const box = document.getElementById('modal-box');
+      if (box) box.classList.add('kf-picker-modal');
+      this._renderSelBar();
+      this._renderPickerList();
+      KioskScroll.enable(document.getElementById('kf-picker-list'));
     },
 
-    _togglePick(kind, id, btn) {
-      const isIng = kind === 'ing';
-      const sel   = isIng ? this.ingFilters : this.tagFilters;
-      const items = isIng ? this._ingItems : this._tagItems;
-      const item  = items.find(x => x.id === id);
-      if (sel.has(id)) sel.delete(id);
-      else sel.set(id, item ? item.name : '');
-      if (btn) btn.classList.toggle('active', sel.has(id));
+    _curSel()   { return this._activePicker === 'ing' ? this.ingFilters : this.tagFilters; },
+    _curItems() { return this._activePicker === 'ing' ? this._ingItems  : this._tagItems; },
+
+    // Selected items pinned at the top (sticky); tap a chip to remove it.
+    _renderSelBar() {
+      const bar = document.getElementById('kf-sel-bar');
+      if (!bar) return;
+      const sel = this._curSel();
+      if (!sel.size) {
+        bar.classList.remove('has-items');
+        bar.innerHTML = '<span class="kf-sel-empty">Nothing selected yet — tap items below to add them</span>';
+        return;
+      }
+      bar.classList.add('has-items');
+      let html = '<span class="kf-sel-label">Selected</span>';
+      for (const [id, name] of sel) {
+        html += `<button class="kf-sel-chip" data-id="${id}">${escHtml(name)}<span class="kf-sel-x">×</span></button>`;
+      }
+      bar.innerHTML = html;
+      bar.querySelectorAll('.kf-sel-chip').forEach(c =>
+        c.onclick = () => this._deselect(parseInt(c.dataset.id, 10)));
+    },
+
+    // List shows only items that are NOT selected.
+    _renderPickerList() {
+      const list = document.getElementById('kf-picker-list');
+      if (!list) return;
+      const sel = this._curSel();
+      const items = this._curItems().filter(i => !sel.has(i.id));
+      if (!items.length) {
+        list.innerHTML = '<div class="kf-results-msg">Everything here is selected.</div>';
+        return;
+      }
+      list.innerHTML = items.map(i => `<button class="kf-ptile" data-id="${i.id}">${escHtml(i.name)}</button>`).join('');
+      list.querySelectorAll('.kf-ptile').forEach(b =>
+        b.onclick = () => this._select(parseInt(b.dataset.id, 10)));
+    },
+
+    _select(id) {
+      const item = this._curItems().find(x => x.id === id);
+      if (!item) return;
+      this._curSel().set(id, item.name);
+      this._repaintPicker();
       this._syncControls();
       this.loadPool();
     },
 
+    _deselect(id) {
+      this._curSel().delete(id);
+      this._repaintPicker();
+      this._syncControls();
+      this.loadPool();
+    },
+
+    // Re-render the picker, preserving the list scroll position.
+    _repaintPicker() {
+      const list = document.getElementById('kf-picker-list');
+      const st = list ? list.scrollTop : 0;
+      this._renderSelBar();
+      this._renderPickerList();
+      const l2 = document.getElementById('kf-picker-list');
+      if (l2) l2.scrollTop = st;
+    },
+
     clearKind(kind) {
-      const sel = kind === 'ing' ? this.ingFilters : this.tagFilters;
-      sel.clear();
-      document.querySelectorAll('#modal-body .kf-ptile').forEach(b => b.classList.remove('active'));
+      (kind === 'ing' ? this.ingFilters : this.tagFilters).clear();
+      this._repaintPicker();
       this._syncControls();
       this.loadPool();
     },
@@ -557,15 +608,21 @@
       el.dataset.dragScroll = '1';
       let active = false, moved = false, startY = 0, startTop = 0;
       const THRESH = 8;
+      let pid = null;
       el.addEventListener('pointerdown', e => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        active = true; moved = false; startY = e.clientY; startTop = el.scrollTop;
-        try { el.setPointerCapture(e.pointerId); } catch(_) {}
+        active = true; moved = false; startY = e.clientY; startTop = el.scrollTop; pid = e.pointerId;
+        // NOTE: do NOT capture here — capturing on pointerdown retargets the
+        // follow-up click to this container, breaking taps on child buttons.
+        // Capture only once a real drag begins (below).
       });
       el.addEventListener('pointermove', e => {
         if (!active) return;
         const dy = e.clientY - startY;
-        if (!moved && Math.abs(dy) >= THRESH) moved = true;
+        if (!moved && Math.abs(dy) >= THRESH) {
+          moved = true;
+          try { el.setPointerCapture(pid); } catch(_) {}
+        }
         if (moved) el.scrollTop = startTop - dy;
       });
       const end = () => {
@@ -602,6 +659,15 @@
       await _origInit();
       KioskScroll.enableAll();
       if (App._loggedIn) KioskApp.init();
+    };
+
+    // Reset picker-modal state on any close (X, backdrop, Done)
+    const _origClose = Modal.close.bind(Modal);
+    Modal.close = function () {
+      _origClose();
+      KioskApp._activePicker = null;
+      const box = document.getElementById('modal-box');
+      if (box) box.classList.remove('kf-picker-modal');
     };
   })();
   </script>
