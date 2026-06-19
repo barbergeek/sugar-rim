@@ -1895,7 +1895,9 @@ hr {
 .kiosk-mode #kf-results,
 .kiosk-mode .card-grid,
 .kiosk-mode .detail-body,
-.kiosk-mode #modal-body {
+.kiosk-mode #modal-body,
+.kiosk-mode .kf-picker,
+.kiosk-mode .kf-sel-bar {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;

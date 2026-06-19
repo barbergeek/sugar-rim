@@ -353,6 +353,7 @@
       this._renderSelBar();
       this._renderPickerList();
       KioskScroll.enable(document.getElementById('kf-picker-list'));
+      KioskScroll.enable(document.getElementById('kf-sel-bar'));
     },
 
     _curSel()   { return this._activePicker === 'ing' ? this.ingFilters : this.tagFilters; },
@@ -611,6 +612,11 @@
       let pid = null;
       el.addEventListener('pointerdown', e => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
+        // Only engage if this element can actually scroll. Prevents a
+        // non-scrolling ancestor (e.g. the picker modal body) from competing
+        // with the real scroller nested inside it.
+        if (el.scrollHeight <= el.clientHeight) return;
+        e.stopPropagation();  // innermost scrollable container wins the gesture
         active = true; moved = false; startY = e.clientY; startTop = el.scrollTop; pid = e.pointerId;
         // NOTE: do NOT capture here — capturing on pointerdown retargets the
         // follow-up click to this container, breaking taps on child buttons.
