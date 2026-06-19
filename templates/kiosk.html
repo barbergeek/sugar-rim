@@ -93,7 +93,7 @@
       <div class="ksh-bar">
         <span class="material-symbols-rounded ksh-search-icon">search</span>
         <input type="search" id="shelf-search" class="ksh-search" placeholder="Search ingredients…">
-        <button class="kf-fbtn primary" onclick="App.ingredients.showCreate()">
+        <button class="kf-fbtn primary" onclick="KioskShelf.manage(null)">
           <span class="material-symbols-rounded">add</span> Add
         </button>
       </div>
@@ -730,7 +730,7 @@
         const onShelf = this.shelfIds.has(i.id);
         const inCart = this.cartIds.has(i.id);
         return `<div class="ksh-card" data-id="${i.id}">
-            <button class="ksh-card-name" onclick="App.ingredients.showEdit(${i.id})" title="Rename or delete">${escHtml(i.name)}</button>
+            <button class="ksh-card-name" onclick="KioskShelf.manage(${i.id})" title="Manage">${escHtml(i.name)}</button>
             <button class="ksh-ind shelf${onShelf ? ' on' : ''}" onclick="KioskShelf.toggleShelf(${i.id}, this)" title="On the shelf">
               <span class="material-symbols-rounded">liquor</span></button>
             <button class="ksh-ind cart${inCart ? ' on' : ''}" onclick="KioskShelf.toggleCart(${i.id}, this)" title="On the shopping list">
@@ -749,7 +749,7 @@
           await post('/api/shelf/batch', { ingredients: [id] });
           this.shelfIds.add(id); State.shelfIds.add(id);
         }
-        btn.classList.toggle('on', !on);
+        this._syncToggle('shelf', id, !on, btn);
       } catch (e) { Toast.err(e.message); }
     },
 
@@ -763,7 +763,95 @@
           await post('/api/shopping-list/batch', { ingredients: [{ id, quantity: 1 }] });
           this.cartIds.add(id);
         }
-        btn.classList.toggle('on', !on);
+        this._syncToggle('cart', id, !on, btn);
+      } catch (e) { Toast.err(e.message); }
+    },
+
+    // Reflect a toggle on the source button, the grid card, and the manage modal
+    _syncToggle(kind, id, nowOn, srcBtn) {
+      if (srcBtn) srcBtn.classList.toggle('on', nowOn);
+      const grid = document.querySelector(`#ksh-list .ksh-card[data-id="${id}"] .ksh-ind.${kind}`);
+      if (grid && grid !== srcBtn) grid.classList.toggle('on', nowOn);
+      const mng = document.getElementById(kind === 'shelf' ? 'mng-shelf' : 'mng-cart');
+      if (mng && mng !== srcBtn) mng.classList.toggle('on', nowOn);
+    },
+
+    // ── Manage / Add modal (kiosk-specific; reuses App.ingredients save/image) ──
+    async manage(id) {
+      const isEdit = id != null;
+      let data = {};
+      if (isEdit) {
+        try {
+          const cached = App.ingredients._cache?.get(id);
+          data = cached || (await get('/api/ingredients/' + id)).data;
+          App.ingredients._cache?.set(id, data);
+        } catch (e) { Toast.err(e.message); return; }
+      }
+      const img = data.images?.[0];
+      const imgSrc = img ? (img.thumb_url || ('/api/images/' + img.id + '/thumb')) : '';
+      const imgIds = JSON.stringify((data.images || []).map(im => im.id));
+      const onShelf = isEdit && this.shelfIds.has(id);
+      const inCart = isEdit && this.cartIds.has(id);
+
+      const body =
+        '<div class="ksh-mng">' +
+          '<div class="ksh-mng-top">' +
+            '<div class="ksh-mng-img">' +
+              (imgSrc
+                ? `<img id="if-img-preview" src="${escHtml(imgSrc)}" alt="">`
+                : '<div id="if-img-preview" class="ksh-mng-img-empty"><span class="material-symbols-rounded">local_bar</span></div>') +
+            '</div>' +
+            '<div class="ksh-mng-fields">' +
+              '<label class="form-label">Name</label>' +
+              `<input class="text-input" id="if-name" value="${escHtml(data.name || '')}" placeholder="Ingredient name">` +
+              '<label class="form-label">Photo</label>' +
+              '<label class="ing-img-file-label"><input type="file" id="if-image-file" accept="image/*" onchange="App.ingredients._previewFile(this)"> Choose photo</label>' +
+              '<input class="text-input" id="if-image-url" placeholder="…or paste an image URL" oninput="App.ingredients._previewUrl(this.value)">' +
+            '</div>' +
+          '</div>' +
+          '<label class="form-label">Description</label>' +
+          `<textarea class="text-input ksh-mng-desc" id="if-desc">${escHtml(data.description || '')}</textarea>` +
+          (isEdit
+            ? '<div class="ksh-mng-toggles">' +
+                `<button class="ksh-mtog${onShelf ? ' on' : ''}" id="mng-shelf" onclick="KioskShelf.toggleShelf(${id}, this)"><span class="material-symbols-rounded">liquor</span> On shelf</button>` +
+                `<button class="ksh-mtog cart${inCart ? ' on' : ''}" id="mng-cart" onclick="KioskShelf.toggleCart(${id}, this)"><span class="material-symbols-rounded">shopping_cart</span> Shopping list</button>` +
+              '</div>'
+            : '') +
+          `<input type="hidden" id="if-color" value="${escHtml(data.color || '')}">` +
+          `<input type="hidden" id="if-existing-img-ids" value="${escHtml(imgIds)}">` +
+        '</div>';
+
+      const footer =
+        (isEdit ? `<button class="btn btn-danger" id="mng-del" onclick="KioskShelf._confirmDelete(${id})" style="margin-right:auto">Delete</button>` : '') +
+        '<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>' +
+        `<button class="btn btn-primary" onclick="App.ingredients._submit(${isEdit ? id : 'null'})">${isEdit ? 'Save' : 'Create'}</button>`;
+
+      App.modal.open(isEdit ? ('Manage: ' + data.name) : 'New Ingredient', body, footer);
+    },
+
+    // Two-tap delete (kiosk Chromium suppresses native confirm())
+    _confirmDelete(id) {
+      const btn = document.getElementById('mng-del');
+      if (!btn) return;
+      if (btn.dataset.armed === '1') { this._doDelete(id); return; }
+      btn.dataset.armed = '1';
+      btn.classList.add('armed');
+      btn.textContent = 'Tap again to confirm';
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => {
+        btn.dataset.armed = '';
+        btn.classList.remove('armed');
+        btn.textContent = 'Delete';
+      }, 4000);
+    },
+
+    async _doDelete(id) {
+      try {
+        await del('/api/ingredients/' + id);
+        App.ingredients._cache?.delete(id);
+        Modal.close();
+        Toast.show('Deleted');
+        this.refresh();
       } catch (e) { Toast.err(e.message); }
     },
   };
