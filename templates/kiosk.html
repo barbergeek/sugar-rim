@@ -23,52 +23,53 @@
 
   <main id="app-main">
 
-    <!-- ── COCKTAILS (kiosk redesign: filter chips + hero carousel) ─── -->
+    <!-- ── COCKTAILS (kiosk: two selection columns + compact hero) ──── -->
     <section id="view-cocktails" class="view">
 
-      <!-- Ingredient filter bar -->
-      <div class="kf-bar kf-ing-bar">
-        <span class="material-symbols-rounded kf-bar-icon">liquor</span>
-        <div class="kf-chips-scroll">
-          <div class="kf-chips" id="kf-ing-chips">
-            <span style="color:var(--text-dim);font-family:var(--font);font-size:0.8rem;opacity:0.5;padding:0 4px">Loading shelf…</span>
-          </div>
+      <!-- Compact hero strip: previews a matching cocktail -->
+      <div class="kf-hero-strip">
+        <div class="kf-hero-thumb" id="kf-hero-thumb">
+          <span class="material-symbols-rounded">local_bar</span>
+        </div>
+        <div class="kf-hero-meta">
+          <span class="kf-hero-eyebrow" id="kf-hero-eyebrow">Tonight's Pick</span>
+          <span class="kf-hero-name" id="kf-hero-name">Loading…</span>
+          <span class="kf-hero-count" id="kf-hero-count">—</span>
+        </div>
+        <div class="kf-hero-actions">
+          <button class="kf-hero-btn" onclick="KioskApp.shuffle()">
+            <span class="material-symbols-rounded">casino</span> Shuffle
+          </button>
+          <button class="kf-hero-btn clear" id="kf-clear-btn" onclick="KioskApp.clearAll()" disabled>
+            <span class="material-symbols-rounded">close</span> Clear
+          </button>
+          <button class="kf-hero-btn primary" id="kf-hero-open" onclick="KioskApp.openCurrent()">
+            View Recipe <span class="material-symbols-rounded">arrow_forward</span>
+          </button>
         </div>
       </div>
 
-      <!-- Tag filter bar -->
-      <div class="kf-bar kf-tag-bar">
-        <span class="material-symbols-rounded kf-bar-icon">label</span>
-        <div class="kf-chips-scroll">
-          <div class="kf-chips" id="kf-tag-chips">
-            <span style="color:var(--text-dim);font-family:var(--font);font-size:0.8rem;opacity:0.5;padding:0 4px">Loading tags…</span>
+      <!-- Two big selection columns -->
+      <div class="kf-cols">
+        <div class="kf-col kf-col-ing">
+          <div class="kf-col-head">
+            <span class="material-symbols-rounded">liquor</span>
+            <span>Ingredients</span>
+            <span class="kf-col-badge" id="kf-ing-badge">0</span>
+          </div>
+          <div class="kf-col-body" id="kf-ing-chips">
+            <div class="kf-col-loading">Loading shelf…</div>
           </div>
         </div>
-      </div>
-
-      <!-- Hero cocktail display -->
-      <div class="kf-hero">
-        <div class="kf-hero-card" id="kf-hero-card">
-          <div class="kf-skeleton">
-            <div class="kf-skel-img"></div>
-            <div class="kf-skel-lines">
-              <div class="kf-skel-line xl"></div>
-              <div class="kf-skel-line lg"></div>
-              <div class="kf-skel-line md"></div>
-            </div>
+        <div class="kf-col kf-col-tag">
+          <div class="kf-col-head">
+            <span class="material-symbols-rounded">label</span>
+            <span>Tags</span>
+            <span class="kf-col-badge" id="kf-tag-badge">0</span>
           </div>
-        </div>
-        <div class="kf-hero-footer">
-          <button class="kf-nav-btn" id="kf-prev-btn" onclick="KioskApp.prev()">
-            <span class="material-symbols-rounded">chevron_left</span> Prev
-          </button>
-          <div class="kf-footer-center">
-            <span class="kf-count" id="kf-count">—</span>
-            <button class="kf-shuffle-link" onclick="KioskApp.shuffle()">shuffle</button>
+          <div class="kf-col-body" id="kf-tag-chips">
+            <div class="kf-col-loading">Loading tags…</div>
           </div>
-          <button class="kf-nav-btn" id="kf-next-btn" onclick="KioskApp.next()">
-            Next <span class="material-symbols-rounded">chevron_right</span>
-          </button>
         </div>
       </div>
 
@@ -255,17 +256,16 @@
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <script src="{{ asset_url('js/app.js') }}"></script>
   <script>
-  // ── KioskApp: ingredient+tag chip filters → hero carousel ───────────────────
-  // Completely replaces the cocktail list view on kiosk.
-  // Uses app.js helpers (get, escHtml, Cocktails._cache, App.cocktails.open).
+  // ── KioskApp: two-column ingredient + tag selection → hero preview ──────────
+  // Selection-first kiosk UI. Tap ingredient/tag tiles (multi-select) to filter
+  // shelf cocktails; the hero strip previews one match. Clear resets to default.
 
   const KioskApp = {
     ingFilters: new Map(),  // id → name
     tagFilters: new Map(),  // id → name
     pool: [],
     poolMeta: null,
-    idx: 0,
-    _loading: false,
+    current: null,          // currently previewed cocktail
     _initialized: false,
 
     // ── Init ──────────────────────────────────────────────────────────
@@ -279,98 +279,109 @@
     async _loadShelf() {
       try {
         const d = await get('/api/shelf');
-        const items = (d.data || []).sort((a, b) =>
-          (a.ingredient?.name || a.name || '').localeCompare(b.ingredient?.name || b.name || '')
-        );
-        this._renderIngChips(items);
+        const items = (d.data || [])
+          .map(i => ({ id: i.ingredient?.id || i.id, name: i.ingredient?.name || i.name || '' }))
+          .filter(i => i.id && i.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        this._renderIngTiles(items);
       } catch(e) {
-        const el = document.getElementById('kf-ing-chips');
-        if (el) el.innerHTML = '<span style="color:var(--text-dim);font-family:var(--font);font-size:0.8rem;padding:0 4px;opacity:0.5">Could not load shelf</span>';
+        const c = document.getElementById('kf-ing-chips');
+        if (c) c.innerHTML = '<div class="kf-col-empty-msg">Could not load shelf.</div>';
       }
     },
 
     async _loadTags() {
       try {
         const d = await get('/api/tags');
-        const tags = (d.data || []).sort((a, b) => a.name.localeCompare(b.name));
-        this._renderTagChips(tags);
+        const seen = new Set();
+        const tags = (d.data || [])
+          .filter(t => { const k = t.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        this._renderTagTiles(tags);
       } catch(e) {
-        const el = document.getElementById('kf-tag-chips');
-        if (el) el.innerHTML = '';
+        const c = document.getElementById('kf-tag-chips');
+        if (c) c.innerHTML = '<div class="kf-col-empty-msg">No tags available.</div>';
       }
     },
 
-    _renderIngChips(items) {
+    _tile(id, name, active) {
+      return `<button class="kf-tile${active ? ' active' : ''}" data-id="${id}">` +
+               '<span class="kf-tile-check">✓</span>' +
+               `<span class="kf-tile-label">${escHtml(name)}</span>` +
+             '</button>';
+    },
+
+    _renderIngTiles(items) {
       const c = document.getElementById('kf-ing-chips');
       if (!c) return;
-      let html = '';
-      for (const i of items) {
-        const name = i.ingredient?.name || i.name || '';
-        const id   = i.ingredient?.id   || i.id;
-        if (!name || !id) continue;
-        const active = this.ingFilters.has(id);
-        html += `<button class="kf-chip${active ? ' active' : ''}" onclick="KioskApp.toggleIngredient(${id},'${name.replace(/'/g,"\\'")}')">` +
-                escHtml(name) + '</button>';
-      }
-      if (!html) html = '<span style="color:var(--text-dim);font-family:var(--font);font-size:0.8rem;padding:0 4px;opacity:0.5">Shelf is empty</span>';
-      c.innerHTML = html;
+      this._ingItems = items;
+      if (!items.length) { c.innerHTML = '<div class="kf-col-empty-msg">Your shelf is empty.</div>'; return; }
+      c.innerHTML = items.map(i => this._tile(i.id, i.name, this.ingFilters.has(i.id))).join('');
+      c.querySelectorAll('.kf-tile').forEach(btn => {
+        btn.onclick = () => {
+          const id = parseInt(btn.dataset.id, 10);
+          const item = items.find(x => x.id === id);
+          this.toggleIngredient(id, item ? item.name : '', btn);
+        };
+      });
     },
 
-    _renderTagChips(tags) {
+    _renderTagTiles(tags) {
       const c = document.getElementById('kf-tag-chips');
       if (!c) return;
-      // dedupe by lowercase name
-      const seen = new Set();
-      const deduped = (tags || this._cachedTags || []).filter(t => {
-        const k = t.name.toLowerCase();
-        if (seen.has(k)) return false;
-        seen.add(k); return true;
+      this._tagItems = tags;
+      if (!tags.length) { c.innerHTML = '<div class="kf-col-empty-msg">No tags available.</div>'; return; }
+      c.innerHTML = tags.map(t => this._tile(t.id, t.name, this.tagFilters.has(t.id))).join('');
+      c.querySelectorAll('.kf-tile').forEach(btn => {
+        btn.onclick = () => {
+          const id = parseInt(btn.dataset.id, 10);
+          const tag = tags.find(x => x.id === id);
+          this.toggleTag(id, tag ? tag.name : '', btn);
+        };
       });
-      this._cachedTags = deduped;
-      let html = '';
-      for (const t of deduped) {
-        const active = this.tagFilters.has(t.id);
-        html += `<button class="kf-chip${active ? ' active' : ''}" onclick="KioskApp.toggleTag(${t.id},'${t.name.replace(/'/g,"\\'")}')">` +
-                escHtml(t.name) + '</button>';
-      }
-      c.innerHTML = html;
     },
 
     // ── Filter toggles ────────────────────────────────────────────────
-    toggleIngredient(id, name) {
+    toggleIngredient(id, name, btn) {
       if (this.ingFilters.has(id)) this.ingFilters.delete(id);
       else this.ingFilters.set(id, name);
-      document.querySelectorAll('#kf-ing-chips .kf-chip').forEach(btn => {
-        const match = btn.textContent.trim() === name;
-        btn.classList.toggle('active', match && this.ingFilters.has(id));
-      });
-      this.idx = 0;
+      if (btn) btn.classList.toggle('active', this.ingFilters.has(id));
+      this._syncControls();
       this.loadPool();
     },
 
-    toggleTag(id, name) {
+    toggleTag(id, name, btn) {
       if (this.tagFilters.has(id)) this.tagFilters.delete(id);
       else this.tagFilters.set(id, name);
-      document.querySelectorAll('#kf-tag-chips .kf-chip').forEach(btn => {
-        const match = btn.textContent.trim() === name;
-        btn.classList.toggle('active', match && this.tagFilters.has(id));
-      });
-      this.idx = 0;
+      if (btn) btn.classList.toggle('active', this.tagFilters.has(id));
+      this._syncControls();
       this.loadPool();
+    },
+
+    clearAll() {
+      this.ingFilters.clear();
+      this.tagFilters.clear();
+      document.querySelectorAll('#kf-ing-chips .kf-tile, #kf-tag-chips .kf-tile')
+        .forEach(b => b.classList.remove('active'));
+      this._syncControls();
+      this.loadPool();
+    },
+
+    _syncControls() {
+      const ingN = this.ingFilters.size, tagN = this.tagFilters.size;
+      const ingBadge = document.getElementById('kf-ing-badge');
+      const tagBadge = document.getElementById('kf-tag-badge');
+      if (ingBadge) { ingBadge.textContent = ingN; ingBadge.classList.toggle('show', ingN > 0); }
+      if (tagBadge) { tagBadge.textContent = tagN; tagBadge.classList.toggle('show', tagN > 0); }
+      const clearBtn = document.getElementById('kf-clear-btn');
+      if (clearBtn) clearBtn.disabled = (ingN + tagN) === 0;
     },
 
     // ── Pool loading ──────────────────────────────────────────────────
     async loadPool() {
-      this._loading = true;
-      this._renderSkeleton();
-
-      const params = { 'filter[on_shelf]': true, per_page: 50, sort: 'name' };
-      if (this.ingFilters.size) {
-        params['filter[ingredient_name][]'] = [...this.ingFilters.values()];
-      }
-      if (this.tagFilters.size) {
-        params['filter[tag_id][]'] = [...this.tagFilters.keys()];
-      }
+      const params = { 'filter[on_shelf]': true, per_page: 100, sort: 'name' };
+      if (this.ingFilters.size) params['filter[ingredient_name][]'] = [...this.ingFilters.values()];
+      if (this.tagFilters.size) params['filter[tag_id][]'] = [...this.tagFilters.keys()];
 
       try {
         const d = await get('/api/cocktails', params);
@@ -381,153 +392,77 @@
         this.poolMeta = null;
       }
 
-      this._loading = false;
-      if (this.idx >= this.pool.length) this.idx = 0;
+      this._pickCurrent();
       this._renderHero();
-      this._updateFooter();
     },
 
-    // ── Navigation ────────────────────────────────────────────────────
-    prev() {
-      if (!this.pool.length) return;
-      this.idx = (this.idx - 1 + this.pool.length) % this.pool.length;
-      this._renderHero();
-      this._updateFooter();
-    },
-
-    next() {
-      if (!this.pool.length) return;
-      this.idx = (this.idx + 1) % this.pool.length;
-      this._renderHero();
-      this._updateFooter();
+    // Keep current preview if still in pool, else pick a fresh random one
+    _pickCurrent() {
+      if (!this.pool.length) { this.current = null; return; }
+      if (this.current && this.pool.some(c => c.id === this.current.id)) {
+        this.current = this.pool.find(c => c.id === this.current.id);
+        return;
+      }
+      this.current = this.pool[Math.floor(Math.random() * this.pool.length)];
     },
 
     shuffle() {
-      if (this.pool.length < 2) return;
-      let r;
-      do { r = Math.floor(Math.random() * this.pool.length); } while (r === this.idx);
-      this.idx = r;
+      if (this.pool.length < 2) { this._renderHero(); return; }
+      let next;
+      do { next = this.pool[Math.floor(Math.random() * this.pool.length)]; }
+      while (this.current && next.id === this.current.id);
+      this.current = next;
       this._renderHero();
-      this._updateFooter();
     },
 
-    // ── Rendering ─────────────────────────────────────────────────────
-    _renderSkeleton() {
-      const card = document.getElementById('kf-hero-card');
-      if (!card) return;
-      card.innerHTML =
-        '<div class="kf-skeleton">' +
-          '<div class="kf-skel-img"></div>' +
-          '<div class="kf-skel-lines">' +
-            '<div class="kf-skel-line xl"></div>' +
-            '<div class="kf-skel-line lg"></div>' +
-            '<div class="kf-skel-line md"></div>' +
-          '</div>' +
-        '</div>';
+    openCurrent() {
+      if (this.current) App.cocktails.open(this.current.id);
     },
 
+    // ── Hero rendering ─────────────────────────────────────────────────
     _renderHero() {
-      const card = document.getElementById('kf-hero-card');
-      if (!card) return;
+      const eyebrow = document.getElementById('kf-hero-eyebrow');
+      const nameEl  = document.getElementById('kf-hero-name');
+      const countEl = document.getElementById('kf-hero-count');
+      const thumb   = document.getElementById('kf-hero-thumb');
+      const openBtn = document.getElementById('kf-hero-open');
+      const hasFilters = this.ingFilters.size || this.tagFilters.size;
+      const n = this.pool.length;
+      const total = this.poolMeta && this.poolMeta.total > n ? this.poolMeta.total : n;
 
-      if (!this.pool.length) {
-        card.innerHTML =
-          '<div class="kf-empty">' +
-            '<span class="material-symbols-rounded">search_off</span>' +
-            (this.ingFilters.size || this.tagFilters.size
-              ? 'No shelf cocktails match those filters.'
-              : 'No cocktails found on your shelf.') +
-          '</div>';
+      if (eyebrow) eyebrow.textContent = hasFilters ? 'Matching now' : "Tonight's Pick";
+
+      if (!this.current) {
+        if (nameEl)  nameEl.textContent  = hasFilters ? 'No matches' : 'Nothing on your shelf';
+        if (countEl) countEl.textContent = hasFilters ? 'Try fewer filters' : '—';
+        if (thumb)   thumb.innerHTML = '<span class="material-symbols-rounded">search_off</span>';
+        if (openBtn) openBtn.disabled = true;
         return;
       }
 
-      const c = this.pool[this.idx];
+      const c = this.current;
+      if (nameEl)  nameEl.textContent  = c.name;
+      if (countEl) countEl.textContent = total === 1 ? '1 cocktail you can make' : total + ' cocktails you can make';
+      if (openBtn) openBtn.disabled = false;
+      if (thumb)   thumb.innerHTML = '<span class="material-symbols-rounded">local_bar</span>';
 
-      // Build ingredient pills
-      const ings = c.ingredients && c.ingredients.length
-        ? c.ingredients.filter(i => !i.optional).map(i => ({
-            name: i.ingredient && i.ingredient.name || '',
-            onShelf: !!(i.ingredient && (window.State && State.shelfIds.has(i.ingredient.id)))
-          })).filter(i => i.name)
-        : (c.short_ingredients || []).map(n => ({ name: n, onShelf: true }));
-
-      const ingPills = ings.map(i =>
-        `<span class="kf-ing-pill${i.onShelf ? ' on-shelf' : ''}">${escHtml(i.name)}</span>`
-      ).join('');
-
-      const favIcon = c.is_favorited ? '★' : '☆';
-
-      card.innerHTML =
-        '<div class="kf-content">' +
-          '<div class="kf-image-col" id="kf-img-col-' + c.id + '">' +
-            '<span class="material-symbols-rounded kf-image-placeholder">local_bar</span>' +
-          '</div>' +
-          '<div class="kf-info-col">' +
-            '<div class="kf-cocktail-name">' + escHtml(c.name) + '</div>' +
-            (ingPills ? '<div class="kf-ings-wrap">' + ingPills + '</div>' : '') +
-            '<div class="kf-rating" id="kf-rating-' + c.id + '"></div>' +
-            '<div style="display:flex;gap:10px;align-items:center;margin-top:auto">' +
-              '<button class="kf-recipe-btn" onclick="App.cocktails.open(' + c.id + ')">' +
-                'View Recipe <span class="material-symbols-rounded">arrow_forward</span>' +
-              '</button>' +
-              '<button class="btn btn-ghost" onclick="KioskApp._toggleFav(' + c.id + ')" id="kf-fav-' + c.id + '" style="font-size:1.4rem;padding:10px 14px">' + favIcon + '</button>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-
-      this._enrich(c.id);
+      this._enrichThumb(c.id);
     },
 
-    async _enrich(id) {
+    async _enrichThumb(id) {
       try {
         const cached = Cocktails._cache.get(id);
         const data   = cached || (await get('/api/cocktails/' + id)).data;
         if (!cached) Cocktails._cache.set(id, data);
-
-        const imgCol = document.getElementById('kf-img-col-' + id);
-        if (imgCol && data.images && data.images[0]) {
+        if (!this.current || this.current.id !== id) return;  // changed while fetching
+        const thumb = document.getElementById('kf-hero-thumb');
+        if (thumb && data.images && data.images[0]) {
+          thumb.innerHTML = '';
           const img = document.createElement('img');
           img.src = '/api/images/' + data.images[0].id + '/thumb';
-          img.style.cssText = 'width:100%;height:100%;object-fit:cover';
-          imgCol.innerHTML = '';
-          imgCol.appendChild(img);
-        }
-
-        const rEl = document.getElementById('kf-rating-' + id);
-        if (rEl && data.rating && data.rating.average > 0) {
-          const avg  = data.rating.average;
-          const full = Math.round(avg);
-          rEl.innerHTML =
-            '<span class="kf-stars">' + '★'.repeat(full) + '☆'.repeat(5 - full) + '</span>' +
-            '<span class="kf-rating-num">' + avg.toFixed(1) + '</span>';
+          thumb.appendChild(img);
         }
       } catch(e) { /* keep placeholder */ }
-    },
-
-    async _toggleFav(id) {
-      try {
-        await post('/api/cocktails/' + id + '/toggle-favorite');
-        const c = this.pool[this.idx];
-        if (c && c.id === id) {
-          c.is_favorited = !c.is_favorited;
-          const btn = document.getElementById('kf-fav-' + id);
-          if (btn) btn.textContent = c.is_favorited ? '★' : '☆';
-          if (Cocktails._cache.has(id)) Cocktails._cache.get(id).is_favorited = c.is_favorited;
-        }
-      } catch(e) { Toast.show('Could not update favorite'); }
-    },
-
-    _updateFooter() {
-      const countEl = document.getElementById('kf-count');
-      const prevBtn = document.getElementById('kf-prev-btn');
-      const nextBtn = document.getElementById('kf-next-btn');
-      const n = this.pool.length;
-      const total = this.poolMeta && this.poolMeta.total > n ? this.poolMeta.total : n;
-      if (countEl) {
-        countEl.textContent = n === 0 ? 'No results' : (this.idx + 1) + ' of ' + total;
-      }
-      if (prevBtn) prevBtn.disabled = n === 0;
-      if (nextBtn) nextBtn.disabled = n === 0;
     },
   };
 
