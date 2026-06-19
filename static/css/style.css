@@ -1903,6 +1903,12 @@ hr {
   -webkit-user-select: none;
 }
 
+/* Touchscreen kiosk: no mouse pointer */
+.kiosk-mode,
+.kiosk-mode * {
+  cursor: none !important;
+}
+
 /* Don't let a drag that starts on an image kick off the browser's native
    image-drag ("ghost"). Make images non-draggable and pass the touch
    through to the scroll container / card. */
