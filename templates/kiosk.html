@@ -23,54 +23,41 @@
 
   <main id="app-main">
 
-    <!-- ── COCKTAILS (kiosk: two selection columns + compact hero) ──── -->
+    <!-- ── COCKTAILS (kiosk: popup filters + featured pick + results) ─ -->
     <section id="view-cocktails" class="view">
 
-      <!-- Compact hero strip: previews a matching cocktail -->
-      <div class="kf-hero-strip">
-        <div class="kf-hero-thumb" id="kf-hero-thumb">
-          <span class="material-symbols-rounded">local_bar</span>
-        </div>
-        <div class="kf-hero-meta">
-          <span class="kf-hero-eyebrow" id="kf-hero-eyebrow">Tonight's Pick</span>
-          <span class="kf-hero-name" id="kf-hero-name">Loading…</span>
-          <span class="kf-hero-count" id="kf-hero-count">—</span>
-        </div>
-        <div class="kf-hero-actions">
-          <button class="kf-hero-btn" onclick="KioskApp.shuffle()">
-            <span class="material-symbols-rounded">casino</span> Shuffle
-          </button>
-          <button class="kf-hero-btn clear" id="kf-clear-btn" onclick="KioskApp.clearAll()" disabled>
-            <span class="material-symbols-rounded">close</span> Clear
-          </button>
-          <button class="kf-hero-btn primary" id="kf-hero-open" onclick="KioskApp.openCurrent()">
-            View Recipe <span class="material-symbols-rounded">arrow_forward</span>
-          </button>
-        </div>
+      <!-- Filter bar: popup pickers + clear -->
+      <div class="kf-filterbar">
+        <button class="kf-fbtn" id="kf-ing-btn" onclick="KioskApp.openIngredients()">
+          <span class="material-symbols-rounded">liquor</span>
+          <span>Ingredients</span>
+          <span class="kf-fbtn-count" id="kf-ing-count">0</span>
+        </button>
+        <button class="kf-fbtn" id="kf-tag-btn" onclick="KioskApp.openTags()">
+          <span class="material-symbols-rounded">label</span>
+          <span>Tags</span>
+          <span class="kf-fbtn-count" id="kf-tag-count">0</span>
+        </button>
+        <button class="kf-fbtn clear" id="kf-clear-btn" onclick="KioskApp.clearAll()" disabled>
+          <span class="material-symbols-rounded">close</span>
+          <span>Clear</span>
+        </button>
+        <button class="kf-toggle on" id="kf-shelf-toggle" onclick="KioskApp.toggleShelfOnly()">
+          <span class="material-symbols-rounded">inventory_2</span>
+          <span>Shelf only</span>
+          <span class="kf-toggle-state" id="kf-shelf-state">On</span>
+        </button>
+        <span class="kf-found" id="kf-found">—</span>
       </div>
 
-      <!-- Two big selection columns -->
-      <div class="kf-cols">
-        <div class="kf-col kf-col-ing">
-          <div class="kf-col-head">
-            <span class="material-symbols-rounded">liquor</span>
-            <span>Ingredients</span>
-            <span class="kf-col-badge" id="kf-ing-badge">0</span>
-          </div>
-          <div class="kf-col-body" id="kf-ing-chips">
-            <div class="kf-col-loading">Loading shelf…</div>
-          </div>
-        </div>
-        <div class="kf-col kf-col-tag">
-          <div class="kf-col-head">
-            <span class="material-symbols-rounded">label</span>
-            <span>Tags</span>
-            <span class="kf-col-badge" id="kf-tag-badge">0</span>
-          </div>
-          <div class="kf-col-body" id="kf-tag-chips">
-            <div class="kf-col-loading">Loading tags…</div>
-          </div>
-        </div>
+      <!-- Featured random pick -->
+      <div class="kf-feature empty" id="kf-feature">
+        <div class="kf-feature-info"><span class="kf-feature-name">Loading…</span></div>
+      </div>
+
+      <!-- All matching cocktails -->
+      <div class="kf-results" id="kf-results">
+        <div class="kf-results-msg">Loading cocktails…</div>
       </div>
 
     </section>
@@ -256,104 +243,134 @@
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <script src="{{ asset_url('js/app.js') }}"></script>
   <script>
-  // ── KioskApp: two-column ingredient + tag selection → hero preview ──────────
-  // Selection-first kiosk UI. Tap ingredient/tag tiles (multi-select) to filter
-  // shelf cocktails; the hero strip previews one match. Clear resets to default.
+  // ── KioskApp: popup ingredient/tag pickers → featured pick + results list ──
+  // Ingredients / Tags buttons open full-list pickers (tap to highlight, no
+  // checkboxes). Matches show as a featured random pick plus a results grid.
 
   const KioskApp = {
     ingFilters: new Map(),  // id → name
     tagFilters: new Map(),  // id → name
+    shelfOnly: true,        // default: only my shelf / makeable cocktails
+    _ingShelf: [],          // shelf ingredients (for picker when shelfOnly)
+    _ingAll: null,          // all ingredients (lazy; for picker when !shelfOnly)
+    _ingItems: [],          // active ingredient list shown in the picker
+    _tagItems: [],          // full tag list for the picker
     pool: [],
     poolMeta: null,
-    current: null,          // currently previewed cocktail
+    current: null,          // featured cocktail
+    _seq: 0,                // guards out-of-order pool loads
     _initialized: false,
 
     // ── Init ──────────────────────────────────────────────────────────
     async init() {
       if (this._initialized) return;
       this._initialized = true;
+      try { const v = localStorage.getItem('kf-shelf-only'); this.shelfOnly = (v === null) ? true : (v === '1'); } catch(e) {}
+      this._syncShelfToggle();
       await Promise.all([this._loadShelf(), this._loadTags()]);
+      await this._refreshIngList();
       await this.loadPool();
     },
 
     async _loadShelf() {
       try {
         const d = await get('/api/shelf');
-        const items = (d.data || [])
+        this._ingShelf = (d.data || [])
           .map(i => ({ id: i.ingredient?.id || i.id, name: i.ingredient?.name || i.name || '' }))
           .filter(i => i.id && i.name)
           .sort((a, b) => a.name.localeCompare(b.name));
-        this._renderIngTiles(items);
-      } catch(e) {
-        const c = document.getElementById('kf-ing-chips');
-        if (c) c.innerHTML = '<div class="kf-col-empty-msg">Could not load shelf.</div>';
-      }
+      } catch(e) { this._ingShelf = []; }
+    },
+
+    async _loadAllIngredients() {
+      try {
+        const d = await get('/api/ingredients', { per_page: 250, sort: 'name' });
+        this._ingAll = (d.data || [])
+          .map(i => ({ id: i.id, name: i.name }))
+          .filter(i => i.id && i.name);
+      } catch(e) { this._ingAll = []; }
+    },
+
+    // Point _ingItems at the right source for the current shelfOnly mode
+    async _refreshIngList() {
+      if (this.shelfOnly) { this._ingItems = this._ingShelf; return; }
+      if (!this._ingAll) await this._loadAllIngredients();
+      this._ingItems = this._ingAll || [];
     },
 
     async _loadTags() {
       try {
         const d = await get('/api/tags');
         const seen = new Set();
-        const tags = (d.data || [])
+        this._tagItems = (d.data || [])
           .filter(t => { const k = t.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
           .sort((a, b) => a.name.localeCompare(b.name));
-        this._renderTagTiles(tags);
-      } catch(e) {
-        const c = document.getElementById('kf-tag-chips');
-        if (c) c.innerHTML = '<div class="kf-col-empty-msg">No tags available.</div>';
+      } catch(e) { this._tagItems = []; }
+    },
+
+    // ── Shelf-only toggle ──────────────────────────────────────────────
+    async toggleShelfOnly() {
+      this.shelfOnly = !this.shelfOnly;
+      try { localStorage.setItem('kf-shelf-only', this.shelfOnly ? '1' : '0'); } catch(e) {}
+      this._syncShelfToggle();
+      await this._refreshIngList();
+      this.loadPool();
+    },
+
+    _syncShelfToggle() {
+      const b = document.getElementById('kf-shelf-toggle');
+      if (!b) return;
+      b.classList.toggle('on', this.shelfOnly);
+      const s = document.getElementById('kf-shelf-state');
+      if (s) s.textContent = this.shelfOnly ? 'On' : 'Off';
+    },
+
+    // ── Pickers (popups) ───────────────────────────────────────────────
+    openIngredients() { this._openPicker('ing'); },
+    openTags()        { this._openPicker('tag'); },
+
+    _openPicker(kind) {
+      const isIng = kind === 'ing';
+      const items = isIng ? this._ingItems : this._tagItems;
+      const sel   = isIng ? this.ingFilters : this.tagFilters;
+      const title = isIng ? 'Choose Ingredients' : 'Choose Tags';
+
+      if (!items.length) {
+        Toast.show(isIng ? (this.shelfOnly ? 'Your shelf is empty.' : 'No ingredients found.') : 'No tags available.');
+        return;
       }
-    },
 
-    _tile(id, name, active) {
-      return `<button class="kf-tile${active ? ' active' : ''}" data-id="${id}">` +
-               '<span class="kf-tile-check">✓</span>' +
-               `<span class="kf-tile-label">${escHtml(name)}</span>` +
-             '</button>';
-    },
+      const body = '<div class="kf-picker">' +
+        items.map(i => `<button class="kf-ptile${sel.has(i.id) ? ' active' : ''}" data-id="${i.id}">${escHtml(i.name)}</button>`).join('') +
+        '</div>';
+      const footer =
+        `<button class="btn btn-ghost btn-wide" onclick="KioskApp.clearKind('${kind}')">Clear selection</button>` +
+        `<button class="btn btn-primary btn-wide" id="kf-picker-done" onclick="App.modal.close()">${this._doneLabel()}</button>`;
 
-    _renderIngTiles(items) {
-      const c = document.getElementById('kf-ing-chips');
-      if (!c) return;
-      this._ingItems = items;
-      if (!items.length) { c.innerHTML = '<div class="kf-col-empty-msg">Your shelf is empty.</div>'; return; }
-      c.innerHTML = items.map(i => this._tile(i.id, i.name, this.ingFilters.has(i.id))).join('');
-      c.querySelectorAll('.kf-tile').forEach(btn => {
-        btn.onclick = () => {
-          const id = parseInt(btn.dataset.id, 10);
-          const item = items.find(x => x.id === id);
-          this.toggleIngredient(id, item ? item.name : '', btn);
-        };
+      App.modal.open(title, body, footer);
+      this._activePicker = kind;
+
+      document.querySelectorAll('#modal-body .kf-ptile').forEach(btn => {
+        btn.onclick = () => this._togglePick(kind, parseInt(btn.dataset.id, 10), btn);
       });
     },
 
-    _renderTagTiles(tags) {
-      const c = document.getElementById('kf-tag-chips');
-      if (!c) return;
-      this._tagItems = tags;
-      if (!tags.length) { c.innerHTML = '<div class="kf-col-empty-msg">No tags available.</div>'; return; }
-      c.innerHTML = tags.map(t => this._tile(t.id, t.name, this.tagFilters.has(t.id))).join('');
-      c.querySelectorAll('.kf-tile').forEach(btn => {
-        btn.onclick = () => {
-          const id = parseInt(btn.dataset.id, 10);
-          const tag = tags.find(x => x.id === id);
-          this.toggleTag(id, tag ? tag.name : '', btn);
-        };
-      });
-    },
-
-    // ── Filter toggles ────────────────────────────────────────────────
-    toggleIngredient(id, name, btn) {
-      if (this.ingFilters.has(id)) this.ingFilters.delete(id);
-      else this.ingFilters.set(id, name);
-      if (btn) btn.classList.toggle('active', this.ingFilters.has(id));
+    _togglePick(kind, id, btn) {
+      const isIng = kind === 'ing';
+      const sel   = isIng ? this.ingFilters : this.tagFilters;
+      const items = isIng ? this._ingItems : this._tagItems;
+      const item  = items.find(x => x.id === id);
+      if (sel.has(id)) sel.delete(id);
+      else sel.set(id, item ? item.name : '');
+      if (btn) btn.classList.toggle('active', sel.has(id));
       this._syncControls();
       this.loadPool();
     },
 
-    toggleTag(id, name, btn) {
-      if (this.tagFilters.has(id)) this.tagFilters.delete(id);
-      else this.tagFilters.set(id, name);
-      if (btn) btn.classList.toggle('active', this.tagFilters.has(id));
+    clearKind(kind) {
+      const sel = kind === 'ing' ? this.ingFilters : this.tagFilters;
+      sel.clear();
+      document.querySelectorAll('#modal-body .kf-ptile').forEach(b => b.classList.remove('active'));
       this._syncControls();
       this.loadPool();
     },
@@ -361,108 +378,171 @@
     clearAll() {
       this.ingFilters.clear();
       this.tagFilters.clear();
-      document.querySelectorAll('#kf-ing-chips .kf-tile, #kf-tag-chips .kf-tile')
-        .forEach(b => b.classList.remove('active'));
       this._syncControls();
       this.loadPool();
     },
 
     _syncControls() {
       const ingN = this.ingFilters.size, tagN = this.tagFilters.size;
-      const ingBadge = document.getElementById('kf-ing-badge');
-      const tagBadge = document.getElementById('kf-tag-badge');
-      if (ingBadge) { ingBadge.textContent = ingN; ingBadge.classList.toggle('show', ingN > 0); }
-      if (tagBadge) { tagBadge.textContent = tagN; tagBadge.classList.toggle('show', tagN > 0); }
+      const set = (id, n, btnId) => {
+        const c = document.getElementById(id);
+        if (c) { c.textContent = n; c.classList.toggle('show', n > 0); }
+        const b = document.getElementById(btnId);
+        if (b) b.classList.toggle('active', n > 0);
+      };
+      set('kf-ing-count', ingN, 'kf-ing-btn');
+      set('kf-tag-count', tagN, 'kf-tag-btn');
       const clearBtn = document.getElementById('kf-clear-btn');
       if (clearBtn) clearBtn.disabled = (ingN + tagN) === 0;
     },
 
     // ── Pool loading ──────────────────────────────────────────────────
     async loadPool() {
-      const params = { 'filter[on_shelf]': true, per_page: 100, sort: 'name' };
+      const seq = ++this._seq;
+      const params = { per_page: 100, sort: 'name' };
+      if (this.shelfOnly) params['filter[on_shelf]'] = true;
       if (this.ingFilters.size) params['filter[ingredient_name][]'] = [...this.ingFilters.values()];
       if (this.tagFilters.size) params['filter[tag_id][]'] = [...this.tagFilters.keys()];
 
+      let pool = [], meta = null;
       try {
         const d = await get('/api/cocktails', params);
-        this.pool     = d.data || [];
-        this.poolMeta = d.meta;
-      } catch(e) {
-        this.pool     = [];
-        this.poolMeta = null;
-      }
+        pool = d.data || [];
+        meta = d.meta;
+      } catch(e) { /* leave empty */ }
+
+      if (seq !== this._seq) return;  // a newer load superseded this one
+      this.pool = pool;
+      this.poolMeta = meta;
 
       this._pickCurrent();
-      this._renderHero();
+      this._renderFeature();
+      this._renderResults();
+      this._updateFound();
+      this._updatePickerDone();
     },
 
-    // Keep current preview if still in pool, else pick a fresh random one
+    _total() {
+      const n = this.pool.length;
+      return this.poolMeta && this.poolMeta.total > n ? this.poolMeta.total : n;
+    },
+    _doneLabel() {
+      const t = this._total();
+      return t === 0 ? 'No matches' : (t === 1 ? 'Show 1 recipe' : 'Show ' + t + ' recipes');
+    },
+    _updateFound() {
+      const el = document.getElementById('kf-found');
+      if (!el) return;
+      const t = this._total();
+      el.textContent = t === 0 ? 'None found' : (t === 1 ? '1 found' : t + ' found');
+    },
+    _updatePickerDone() {
+      const done = document.getElementById('kf-picker-done');
+      if (done) done.textContent = this._doneLabel();
+    },
+
+    // Keep featured pick if still in pool, else pick a fresh random one
     _pickCurrent() {
       if (!this.pool.length) { this.current = null; return; }
-      if (this.current && this.pool.some(c => c.id === this.current.id)) {
-        this.current = this.pool.find(c => c.id === this.current.id);
-        return;
-      }
-      this.current = this.pool[Math.floor(Math.random() * this.pool.length)];
+      const keep = this.current && this.pool.find(c => c.id === this.current.id);
+      this.current = keep || this.pool[Math.floor(Math.random() * this.pool.length)];
     },
 
     shuffle() {
-      if (this.pool.length < 2) { this._renderHero(); return; }
+      if (this.pool.length < 2) return;
       let next;
       do { next = this.pool[Math.floor(Math.random() * this.pool.length)]; }
       while (this.current && next.id === this.current.id);
       this.current = next;
-      this._renderHero();
+      this._renderFeature();
+      this._markFeatured();
     },
 
     openCurrent() {
       if (this.current) App.cocktails.open(this.current.id);
     },
 
-    // ── Hero rendering ─────────────────────────────────────────────────
-    _renderHero() {
-      const eyebrow = document.getElementById('kf-hero-eyebrow');
-      const nameEl  = document.getElementById('kf-hero-name');
-      const countEl = document.getElementById('kf-hero-count');
-      const thumb   = document.getElementById('kf-hero-thumb');
-      const openBtn = document.getElementById('kf-hero-open');
+    // ── Featured pick ──────────────────────────────────────────────────
+    _renderFeature() {
+      const f = document.getElementById('kf-feature');
+      if (!f) return;
       const hasFilters = this.ingFilters.size || this.tagFilters.size;
-      const n = this.pool.length;
-      const total = this.poolMeta && this.poolMeta.total > n ? this.poolMeta.total : n;
-
-      if (eyebrow) eyebrow.textContent = hasFilters ? 'Matching now' : "Tonight's Pick";
 
       if (!this.current) {
-        if (nameEl)  nameEl.textContent  = hasFilters ? 'No matches' : 'Nothing on your shelf';
-        if (countEl) countEl.textContent = hasFilters ? 'Try fewer filters' : '—';
-        if (thumb)   thumb.innerHTML = '<span class="material-symbols-rounded">search_off</span>';
-        if (openBtn) openBtn.disabled = true;
+        f.className = 'kf-feature empty';
+        f.onclick = null;
+        f.innerHTML = '<div class="kf-feature-info">' +
+          '<span class="kf-feature-eyebrow">' + (hasFilters ? 'No matches' : 'Nothing available') + '</span>' +
+          '<span class="kf-feature-name">' + (hasFilters ? 'Try fewer filters' : (this.shelfOnly ? 'Add items to your shelf' : 'No cocktails found')) + '</span>' +
+          '</div>';
         return;
       }
 
       const c = this.current;
-      if (nameEl)  nameEl.textContent  = c.name;
-      if (countEl) countEl.textContent = total === 1 ? '1 cocktail you can make' : total + ' cocktails you can make';
-      if (openBtn) openBtn.disabled = false;
-      if (thumb)   thumb.innerHTML = '<span class="material-symbols-rounded">local_bar</span>';
+      const ings = (c.ingredients && c.ingredients.length)
+        ? c.ingredients.filter(i => !i.optional).map(i => i.ingredient && i.ingredient.name).filter(Boolean)
+        : (c.short_ingredients || []);
+      const ingLine = ings.join(' · ');
 
-      this._enrichThumb(c.id);
+      f.className = 'kf-feature';
+      f.onclick = () => this.openCurrent();
+      f.innerHTML =
+        '<div class="kf-feature-img" id="kf-feature-img"><span class="material-symbols-rounded">local_bar</span></div>' +
+        '<div class="kf-feature-info">' +
+          '<span class="kf-feature-eyebrow">Featured pick</span>' +
+          '<span class="kf-feature-name">' + escHtml(c.name) + '</span>' +
+          (ingLine ? '<span class="kf-feature-ings">' + escHtml(ingLine) + '</span>' : '') +
+          '<div class="kf-feature-actions">' +
+            '<button class="kf-feature-btn primary" onclick="event.stopPropagation();KioskApp.openCurrent()">' +
+              'View Recipe <span class="material-symbols-rounded">arrow_forward</span></button>' +
+            '<button class="kf-feature-btn ghost" onclick="event.stopPropagation();KioskApp.shuffle()">' +
+              '<span class="material-symbols-rounded">casino</span> Shuffle</button>' +
+          '</div>' +
+        '</div>';
+
+      this._enrichFeatureImg(c.id);
     },
 
-    async _enrichThumb(id) {
+    async _enrichFeatureImg(id) {
       try {
         const cached = Cocktails._cache.get(id);
         const data   = cached || (await get('/api/cocktails/' + id)).data;
         if (!cached) Cocktails._cache.set(id, data);
         if (!this.current || this.current.id !== id) return;  // changed while fetching
-        const thumb = document.getElementById('kf-hero-thumb');
-        if (thumb && data.images && data.images[0]) {
-          thumb.innerHTML = '';
+        const box = document.getElementById('kf-feature-img');
+        if (box && data.images && data.images[0]) {
+          box.innerHTML = '';
           const img = document.createElement('img');
           img.src = '/api/images/' + data.images[0].id + '/thumb';
-          thumb.appendChild(img);
+          box.appendChild(img);
         }
       } catch(e) { /* keep placeholder */ }
+    },
+
+    // ── Results list ───────────────────────────────────────────────────
+    _renderResults() {
+      const grid = document.getElementById('kf-results');
+      if (!grid) return;
+      if (!this.pool.length) {
+        const hasFilters = this.ingFilters.size || this.tagFilters.size;
+        grid.innerHTML = '<div class="kf-results-msg">' +
+          (hasFilters ? 'No cocktails match those filters.'
+                      : (this.shelfOnly ? 'No cocktails you can make yet — add to your shelf.' : 'No cocktails found.')) + '</div>';
+        return;
+      }
+      grid.innerHTML = this.pool.map(c => Cocktails._card(c)).join('');
+      Cocktails._enrichCards(this.pool);
+      this._markFeatured();
+    },
+
+    _markFeatured() {
+      const grid = document.getElementById('kf-results');
+      if (!grid) return;
+      grid.querySelectorAll('.cocktail-card.is-featured').forEach(el => el.classList.remove('is-featured'));
+      if (this.current) {
+        const card = grid.querySelector('.cocktail-card[data-id="' + this.current.id + '"]');
+        if (card) card.classList.add('is-featured');
+      }
     },
   };
 

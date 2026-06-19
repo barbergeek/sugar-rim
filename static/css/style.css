@@ -1884,9 +1884,9 @@ hr {
   text-transform: uppercase;
 }
 
-/* ── Kiosk cocktail view: two big selection columns + compact hero ──────────
-   Selection-first layout. Ingredients (left) + Tags (right) fill the screen
-   as tappable tile grids; a slim hero strip at top previews a matching drink.
+/* ── Kiosk cocktail view: popup filters + featured pick + results list ───────
+   Ingredients / Tags open full-list pickers (highlight selection, no boxes).
+   A random match is featured; all matches list below. Clear resets filters.
    ──────────────────────────────────────────────────────────────────────── */
 
 .kiosk-mode #view-cocktails {
@@ -1895,95 +1895,30 @@ hr {
   gap: 0;
 }
 
-/* ── Hero strip (compact result preview) ─────────────────────────────── */
-.kf-hero-strip {
+/* ── Filter bar ──────────────────────────────────────────────────────── */
+.kf-filterbar {
   flex-shrink: 0;
-  height: 92px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 18px;
+  gap: 10px;
+  height: 60px;
+  padding: 0 16px;
   border-bottom: 1px solid rgba(200, 134, 10, 0.18);
-  background:
-    linear-gradient(90deg, rgba(200, 134, 10, 0.07), transparent 60%),
-    rgba(10, 8, 3, 0.5);
+  background: rgba(10, 8, 3, 0.5);
 }
 
-.kf-hero-thumb {
-  flex-shrink: 0;
-  width: 68px;
-  height: 68px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(200, 134, 10, 0.07);
-  border: 1px solid rgba(200, 134, 10, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.kf-hero-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.kf-hero-thumb .material-symbols-rounded {
-  font-size: 2rem;
-  color: var(--accent);
-  opacity: 0.35;
-}
-
-.kf-hero-meta {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.kf-hero-eyebrow {
-  font-family: var(--font);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--accent);
-  opacity: 0.8;
-}
-.kf-hero-name {
-  font-family: var(--font-display);
-  font-size: 1.85rem;
-  font-weight: 600;
-  line-height: 1.05;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.kf-hero-count {
-  font-family: var(--font);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.kf-hero-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.kf-hero-btn {
+.kf-fbtn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 11px 18px;
-  border-radius: 5px;
-  border: 1px solid rgba(200, 134, 10, 0.25);
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(200, 134, 10, 0.28);
   background: rgba(200, 134, 10, 0.07);
-  color: var(--text-dim);
+  color: var(--text);
   font-family: var(--font);
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1992,168 +1927,277 @@ hr {
   transition: all 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
-.kf-hero-btn .material-symbols-rounded { font-size: 1.05rem; }
-.kf-hero-btn:active { transform: scale(0.96); }
-.kf-hero-btn.primary {
-  background: var(--accent);
+.kf-fbtn .material-symbols-rounded { font-size: 1.2rem; color: var(--accent); }
+.kf-fbtn:active { transform: scale(0.97); background: rgba(200, 134, 10, 0.14); }
+.kf-fbtn.active {
   border-color: var(--accent);
-  color: #120d07;
+  background: rgba(200, 134, 10, 0.16);
 }
-.kf-hero-btn.primary:active { background: var(--accent2); }
-.kf-hero-btn.clear {
+.kf-fbtn.clear {
+  margin-left: 0;
   border-color: rgba(245, 230, 204, 0.2);
-  color: var(--text-dim);
 }
-.kf-hero-btn.clear:active { color: var(--text); }
-.kf-hero-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-  transform: none;
-}
+.kf-fbtn.clear .material-symbols-rounded { color: var(--text-dim); }
+.kf-fbtn:disabled { opacity: 0.3; cursor: default; transform: none; }
 
-/* ── Two selection columns ───────────────────────────────────────────── */
-.kf-cols {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  gap: 12px;
-  padding: 12px;
-}
-
-.kf-col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  border: 1px solid rgba(200, 134, 10, 0.16);
-  border-radius: 10px;
-  background: rgba(200, 134, 10, 0.03);
-  overflow: hidden;
-}
-.kf-col-ing  { flex: 1.5; }
-.kf-col-tag  { flex: 1; }
-
-.kf-col-head {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  height: 42px;
-  padding: 0 16px;
-  border-bottom: 1px solid rgba(200, 134, 10, 0.14);
-  background: rgba(10, 8, 3, 0.4);
-  font-family: var(--font);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text);
-}
-.kf-col-head .material-symbols-rounded {
-  font-size: 1.1rem;
-  color: var(--accent);
-  opacity: 0.8;
-}
-.kf-col-badge {
-  margin-left: auto;
+.kf-fbtn-count {
+  display: none;
   min-width: 22px;
   height: 22px;
-  padding: 0 7px;
-  display: none;
+  padding: 0 6px;
   align-items: center;
   justify-content: center;
   border-radius: 11px;
   background: var(--accent);
   color: #120d07;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 800;
   letter-spacing: 0;
 }
-.kf-col-badge.show { display: inline-flex; }
+.kf-fbtn-count.show { display: inline-flex; }
 
-.kf-col-body {
+/* Shelf-only toggle */
+.kf-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 14px;
+  margin-left: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(200, 134, 10, 0.28);
+  background: rgba(200, 134, 10, 0.05);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.kf-toggle .material-symbols-rounded { font-size: 1.15rem; color: var(--text-dim); }
+.kf-toggle:active { transform: scale(0.97); }
+.kf-toggle-state {
+  min-width: 36px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(245, 230, 204, 0.1);
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  text-align: center;
+}
+.kf-toggle.on {
+  border-color: var(--accent);
+  background: rgba(200, 134, 10, 0.16);
+  color: var(--accent2);
+}
+.kf-toggle.on .material-symbols-rounded { color: var(--accent); }
+.kf-toggle.on .kf-toggle-state { background: var(--accent); color: #120d07; }
+
+.kf-found {
+  margin-left: 4px;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* ── Featured pick ───────────────────────────────────────────────────── */
+.kf-feature {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  height: 150px;
+  margin: 14px 16px;
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(200, 134, 10, 0.22);
+  background:
+    linear-gradient(90deg, rgba(200, 134, 10, 0.1), rgba(200, 134, 10, 0.02) 60%),
+    rgba(10, 8, 3, 0.4);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.kf-feature:active { border-color: var(--accent); }
+
+.kf-feature-img {
+  flex-shrink: 0;
+  width: 150px;
+  height: 150px;
+  background: rgba(200, 134, 10, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.kf-feature-img img { width: 100%; height: 100%; object-fit: cover; }
+.kf-feature-img .material-symbols-rounded { font-size: 3rem; color: var(--accent); opacity: 0.3; }
+
+.kf-feature-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 18px 14px 0;
+}
+.kf-feature-eyebrow {
+  font-family: var(--font);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.kf-feature-name {
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kf-feature-ings {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kf-feature-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.kf-feature-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 5px;
+  border: none;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.kf-feature-btn .material-symbols-rounded { font-size: 1.05rem; }
+.kf-feature-btn.primary { background: var(--accent); color: #120d07; }
+.kf-feature-btn.primary:active { background: var(--accent2); transform: scale(0.97); }
+.kf-feature-btn.ghost {
+  background: rgba(200, 134, 10, 0.08);
+  border: 1px solid rgba(200, 134, 10, 0.28);
+  color: var(--text-dim);
+}
+.kf-feature-btn.ghost:active { transform: scale(0.97); color: var(--accent2); }
+
+.kf-feature.empty {
+  cursor: default;
+  align-items: center;
+  justify-content: center;
+}
+.kf-feature.empty .kf-feature-info {
+  align-items: center;
+  text-align: center;
+  padding: 0;
+}
+
+/* ── Results list ────────────────────────────────────────────────────── */
+.kf-results {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   grid-auto-rows: min-content;
-  gap: 7px;
-  padding: 12px;
+  gap: 12px;
+  padding: 4px 16px 16px;
   align-content: start;
-  /* slim amber scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(200, 134, 10, 0.35) transparent;
 }
-.kf-col-body::-webkit-scrollbar { width: 8px; }
-.kf-col-body::-webkit-scrollbar-thumb {
-  background: rgba(200, 134, 10, 0.3);
-  border-radius: 4px;
-}
+.kf-results::-webkit-scrollbar { width: 8px; }
+.kf-results::-webkit-scrollbar-thumb { background: rgba(200, 134, 10, 0.3); border-radius: 4px; }
 
-.kf-col-loading,
-.kf-col-empty-msg {
+.kf-results-msg {
   grid-column: 1 / -1;
-  padding: 16px 4px;
+  padding: 30px 10px;
+  text-align: center;
   color: var(--text-dim);
   font-family: var(--font);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   letter-spacing: 0.04em;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
-/* ── Selectable tiles ────────────────────────────────────────────────── */
-.kf-tile {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(200, 134, 10, 0.2);
+/* Featured cocktail also flagged in the list */
+.kf-results .cocktail-card.is-featured {
+  border-color: rgba(200, 134, 10, 0.5);
+  box-shadow: 0 0 0 1px rgba(200, 134, 10, 0.3);
+}
+
+/* ── Picker modal (Ingredients / Tags) ───────────────────────────────── */
+.kiosk-mode #modal-box {
+  width: min(90vw, 860px);
+  max-width: 90vw;
+  max-height: 86vh;
+  background: #1a1206;
+  border-color: rgba(200, 134, 10, 0.28);
+}
+.kiosk-mode .modal-header { border-bottom-color: rgba(200, 134, 10, 0.16); }
+.kiosk-mode .modal-footer { border-top-color: rgba(200, 134, 10, 0.16); }
+.kiosk-mode #modal-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+.kf-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 9px;
+}
+.kf-ptile {
+  min-height: 50px;
+  padding: 10px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(200, 134, 10, 0.22);
   background: rgba(200, 134, 10, 0.05);
   color: var(--text);
   font-family: var(--font);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  line-height: 1.15;
-  text-align: left;
+  line-height: 1.2;
+  text-align: center;
   cursor: pointer;
   transition: all 0.13s;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
-.kf-tile:active { transform: scale(0.97); }
-.kf-tile-check {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1.5px solid rgba(200, 134, 10, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  color: transparent;
-  transition: all 0.13s;
-}
-.kf-tile-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kf-tile.active {
-  background: rgba(200, 134, 10, 0.2);
-  border-color: var(--accent);
-  color: var(--accent2);
-}
-.kf-tile.active .kf-tile-check {
+.kf-ptile:active { transform: scale(0.96); }
+.kf-ptile.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #120d07;
+  font-weight: 700;
 }
 
 /* ── Cocktail detail overrides ───────────────────────────────────────── */

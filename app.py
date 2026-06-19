@@ -437,7 +437,12 @@ def shelf():
     bid, err = bar_id_or_err()
     if err:
         return err
-    return proxy("GET", f"/bars/{bid}/ingredients", bar_ctx=False)
+    # Forward query params and default to a high per_page so the full shelf
+    # comes back — BA's default page size otherwise truncates the list
+    # (e.g. ingredients past "S" silently dropped). Mirrors the cocktails cap.
+    params = request.args.to_dict(flat=False)
+    params.setdefault("per_page", ["500"])
+    return proxy("GET", f"/bars/{bid}/ingredients", bar_ctx=False, params=params)
 
 
 @app.route("/api/shelf/batch", methods=["POST"])
