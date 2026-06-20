@@ -2621,6 +2621,26 @@ hr {
 /* ── Kiosk: Maintenance tab ─────────────────────────────────────────── */
 .kiosk-mode #view-maintenance.active {
   display: flex;
+  position: relative;
+}
+/* Maintenance-helper status: a small dot in the corner, no layout footprint. */
+.km-health {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  z-index: 5;
+}
+.km-health.ok {
+  background: #4caf50;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.7);
+}
+.km-health.bad {
+  background: #e0563a;
+  box-shadow: 0 0 8px rgba(224, 86, 58, 0.7);
 }
 .km-wrap {
   width: 100%;
@@ -2693,16 +2713,6 @@ hr {
   border-color: rgba(232, 161, 58, 0.6);
 }
 .km-action.armed .km-sub { color: var(--text); font-weight: 700; }
-
-.km-status {
-  text-align: center;
-  font-size: 0.9rem;
-  color: var(--text-dim);
-  min-height: 1.2em;
-  margin-top: 6px;
-}
-.km-status.ok  { color: #7ac77a; }
-.km-status.bad { color: #e0563a; }
 
 /* ── Kiosk: Maintenance — system info panel ─────────────────────────── */
 .km-info {
