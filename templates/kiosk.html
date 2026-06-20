@@ -512,18 +512,26 @@
     // ── Pool loading ──────────────────────────────────────────────────
     async loadPool() {
       const seq = ++this._seq;
-      const params = { per_page: 100, sort: 'name' };
+      const params = { per_page: 500, sort: 'name' };
       if (this.shelfOnly) params['filter[on_shelf]'] = true;
       if (this.query) params['filter[name]'] = this.query;
       if (this.ingFilters.size) params['filter[ingredient_name][]'] = [...this.ingFilters.values()];
       if (this.tagFilters.size) params['filter[tag_id][]'] = [...this.tagFilters.keys()];
 
-      let pool = [], meta = null;
+      // Walk every page so the pool holds ALL matches, not just the first page.
+      // (per_page is large, so this is normally a single request.)
+      let pool = [], meta = null, page = 1, last = 1;
+      const MAX_PAGES = 10;
       try {
-        const d = await get('/api/cocktails', params);
-        pool = d.data || [];
-        meta = d.meta;
-      } catch(e) { /* leave empty */ }
+        do {
+          const d = await get('/api/cocktails', { ...params, page });
+          if (seq !== this._seq) return;  // a newer load superseded this one
+          pool = pool.concat(d.data || []);
+          meta = d.meta;
+          last = (d.meta && d.meta.last_page) || 1;
+          page++;
+        } while (page <= last && page <= MAX_PAGES);
+      } catch(e) { /* keep whatever we managed to fetch */ }
 
       if (seq !== this._seq) return;  // a newer load superseded this one
       this.pool = pool;
