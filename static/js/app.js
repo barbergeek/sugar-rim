@@ -2143,40 +2143,40 @@ const Users = {
 // ── Shopping List ──────────────────────────────────────────────────────────
 
 const ShoppingList = {
+  CHECK_KEY: 'sl-checked',
+  items: [],
+  checked: new Set(),
+
+  _loadChecked() {
+    try {
+      this.checked = new Set(JSON.parse(localStorage.getItem(this.CHECK_KEY) || '[]'));
+    } catch (e) {
+      this.checked = new Set();
+    }
+  },
+  _saveChecked() {
+    localStorage.setItem(this.CHECK_KEY, JSON.stringify([...this.checked]));
+  },
+
   async load() {
     const grid = el('shopping-list-items');
     const empty = el('shopping-list-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
     try {
       const d = await get('/api/shopping-list');
-      const items = d.data || [];
-      if (!items.length) {
+      this.items = d.data || [];
+      if (!this.items.length) {
         grid.innerHTML = '';
         empty.classList.remove('hidden');
         return;
       }
       empty.classList.add('hidden');
-      grid.innerHTML = items
-        .map((item) => {
-          const ing = item.ingredient;
-          const onShelf = State.shelfIds.has(ing.id);
-          return `<div class="card row-layout shelf-card">
-          <div class="card-content">
-            <div class="card-name">${escHtml(ing.name)}</div>
-            ${item.quantity ? `<div class="card-sub">Qty: ${item.quantity}</div>` : ''}
-          </div>
-          ${
-            !onShelf
-              ? `<button class="ing-action-btn" style="flex-shrink:0"
-            onclick="App.shoppingList.addToShelf(${ing.id}, '${escHtml(ing.name)}')"
-            title="Add to bar shelf">+ shelf</button>`
-              : ''
-          }
-          <button class="remove-btn" style="position:static;margin-left:${onShelf ? 'auto' : '6px'}"
-            onclick="App.shoppingList.remove(${ing.id})" title="Remove from list">✕</button>
-        </div>`;
-        })
-        .join('');
+      // Drop checks for items no longer on the list.
+      this._loadChecked();
+      const ids = new Set(this.items.map((i) => i.ingredient.id));
+      this.checked = new Set([...this.checked].filter((id) => ids.has(id)));
+      this._saveChecked();
+      this._render();
     } catch (e) {
       grid.innerHTML = '';
       empty.classList.remove('hidden');
@@ -2184,9 +2184,58 @@ const ShoppingList = {
     }
   },
 
+  _render() {
+    const grid = el('shopping-list-items');
+    const total = this.items.length;
+    const got = this.items.filter((i) => this.checked.has(i.ingredient.id)).length;
+    const left = total - got;
+
+    // Still-to-get first, in-cart sink to the bottom; alphabetical within each.
+    const rows = [...this.items].sort((a, b) => {
+      const ca = this.checked.has(a.ingredient.id);
+      const cb = this.checked.has(b.ingredient.id);
+      if (ca !== cb) return ca ? 1 : -1;
+      return a.ingredient.name.localeCompare(b.ingredient.name);
+    });
+
+    const head = `
+      <div class="sl-head">
+        <div class="sl-progress">
+          <span class="sl-left">${left === 0 ? 'All in the cart 🎉' : left + (left === 1 ? ' item to get' : ' items to get')}</span>
+          <span class="sl-got">${got} of ${total} in cart</span>
+        </div>
+        ${got ? `<button class="sl-tobar" onclick="App.shoppingList.purchasedToShelf()">Move ${got} to shelf</button>` : ''}
+      </div>`;
+
+    const list = rows
+      .map((item) => {
+        const ing = item.ingredient;
+        const isGot = this.checked.has(ing.id);
+        return `<div class="sl-row${isGot ? ' got' : ''}" onclick="App.shoppingList.toggle(${ing.id})">
+          <span class="sl-check material-symbols-rounded">${isGot ? 'check_circle' : 'radio_button_unchecked'}</span>
+          <span class="sl-name">${escHtml(ing.name)}</span>
+          ${item.quantity && item.quantity > 1 ? `<span class="sl-qty">×${item.quantity}</span>` : ''}
+          <span class="sl-remove material-symbols-rounded" title="Remove from list"
+            onclick="event.stopPropagation();App.shoppingList.remove(${ing.id})">close</span>
+        </div>`;
+      })
+      .join('');
+
+    grid.innerHTML = head + `<div class="sl-rows">${list}</div>`;
+  },
+
+  toggle(id) {
+    if (this.checked.has(id)) this.checked.delete(id);
+    else this.checked.add(id);
+    this._saveChecked();
+    this._render();
+  },
+
   async remove(id) {
     try {
       await post('/api/shopping-list/batch-delete', { ingredients: [{ id }] });
+      this.checked.delete(id);
+      this._saveChecked();
       const btn = el(`icart-${id}`);
       if (btn) {
         btn.textContent = '+ list';
@@ -2201,17 +2250,25 @@ const ShoppingList = {
     }
   },
 
-  async addToShelf(id, name) {
+  // Grocery → bar: add the checked (purchased) items to the shelf and clear
+  // them off the list in one tap.
+  async purchasedToShelf() {
+    const ids = [...this.checked];
+    if (!ids.length) return;
     try {
-      await post('/api/shelf/batch', { ingredients: [id] });
-      State.shelfIds.add(id);
-      const shelfBtn = el(`ishelf-${id}`);
-      if (shelfBtn) {
-        shelfBtn.textContent = '✓ shelf';
-        shelfBtn.className = 'ing-action-btn shelf-active';
-        Ingredients._shelfState.set(id, true);
+      const toShelf = ids.filter((id) => !State.shelfIds.has(id));
+      if (toShelf.length) {
+        await post('/api/shelf/batch', { ingredients: toShelf });
+        toShelf.forEach((id) => {
+          State.shelfIds.add(id);
+          Ingredients._shelfState?.set(id, true);
+        });
       }
-      Toast.show(`${name} added to shelf`);
+      await post('/api/shopping-list/batch-delete', { ingredients: ids.map((id) => ({ id })) });
+      ids.forEach((id) => Ingredients._cartState?.set(id, false));
+      this.checked.clear();
+      this._saveChecked();
+      Toast.show(ids.length === 1 ? '1 item moved to shelf' : `${ids.length} items moved to shelf`);
       this.load();
     } catch (e) {
       Toast.err(e.message);
@@ -2234,6 +2291,8 @@ const ShoppingList = {
         }
         Ingredients._cartState.set(id, false);
       });
+      this.checked.clear();
+      this._saveChecked();
       Toast.show('Shopping list cleared');
       this.load();
     } catch (e) {
