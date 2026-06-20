@@ -12,6 +12,8 @@ exit the browser) need a small local helper here.
 | `kiosk-exit.sh` | `~/.local/bin/kiosk-exit.sh` | brings up a touch-usable desktop (on-screen keyboard + terminal) after Exit |
 | `kiosk-agent.service` | `~/.config/systemd/user/kiosk-agent.service` | runs the agent under the user session |
 | `autostart` | `~/.config/labwc/autostart` | Chromium kiosk restart loop + sentinel exit + starts the agent |
+| `wifi-boot-check.sh` | `/usr/local/bin/wifi-boot-check.sh` | times WiFi association at each boot (diagnostics) |
+| `wifi-boot-check.service` | `/etc/systemd/system/wifi-boot-check.service` | runs the check at boot (system service, root) |
 
 ## How it works
 
@@ -61,3 +63,35 @@ ssh bar-pi.home '
 ```
 
 The `autostart` change takes effect on next reboot/login.
+
+## WiFi boot-time diagnostics
+
+bar-pi has shown intermittent slow WiFi association at boot (one boot took ~4.5
+min of `CTRL-EVENT-ASSOC-REJECT status_code=16` / "association took too long"
+before connecting; surrounding boots were instant). `wifi-boot-check` records
+one line per boot so recurrence can be quantified.
+
+Install (system service, needs root):
+
+```sh
+scp bar-pi/wifi-boot-check.sh      bar-pi.home:/tmp/
+scp bar-pi/wifi-boot-check.service bar-pi.home:/tmp/
+
+ssh bar-pi.home '
+  sudo install -m755 /tmp/wifi-boot-check.sh /usr/local/bin/wifi-boot-check.sh
+  sudo install -m644 /tmp/wifi-boot-check.service /etc/systemd/system/wifi-boot-check.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable wifi-boot-check.service
+'
+```
+
+Review the history any time:
+
+```sh
+ssh bar-pi.home 'cat /var/log/wifi-boot-check.log'
+# 2026-06-21 08:00:12  CONNECTED in 9s  ssid=hogedom bssid=… signal=-54dBm … assoc_rejects=0 assoc_timeouts=0
+```
+
+A consistently low `CONNECTED in Ns` with `assoc_rejects=0` means WiFi is
+healthy; spikes (large N, non-zero rejects/timeouts) flag a recurrence — at
+which point the fix is AP-side (band-steering/802.11r) or wiring Ethernet.

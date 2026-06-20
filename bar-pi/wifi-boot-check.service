@@ -1,0 +1,13 @@
+[Unit]
+Description=Log WiFi association time at boot (bar-pi diagnostics)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+# simple, not oneshot: it polls for up to 10 min, so it must not delay boot.
+Type=simple
+Nice=10
+ExecStart=/usr/local/bin/wifi-boot-check.sh
+
+[Install]
+WantedBy=multi-user.target
