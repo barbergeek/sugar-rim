@@ -8,6 +8,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ asset_url('css/style.css') }}">
+  <script>
+    // Hide the mouse pointer only on actual touchscreens. The bar-pi reports a
+    // "fine" pointer + "hover" to CSS media queries (so they can't tell it from
+    // a desktop mouse), but it exposes touch points; a non-touch desktop reports
+    // maxTouchPoints === 0. Set a class the cursor rule keys off of.
+    if (navigator.maxTouchPoints > 0) document.documentElement.classList.add('touch-device');
+  </script>
 </head>
 <body class="kiosk-mode">
 

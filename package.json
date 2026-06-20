@@ -1,6 +1,6 @@
 {
   "name": "sugar-rim",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Alternate web interface for [Bar Assistant](https://github.com/bar-assistant/bar-assistant), optimized for touch screens and the Raspberry Pi.",
   "main": "index.js",
   "scripts": {

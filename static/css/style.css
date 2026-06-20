@@ -1904,9 +1904,11 @@ hr {
   -webkit-user-select: none;
 }
 
-/* Touchscreen kiosk: no mouse pointer */
-.kiosk-mode,
-.kiosk-mode * {
+/* Touchscreen kiosk: no mouse pointer (only on real touch devices, so the
+   kiosk stays usable when viewed in a desktop browser — see the maxTouchPoints
+   check in kiosk.html). */
+.touch-device .kiosk-mode,
+.touch-device .kiosk-mode * {
   cursor: none !important;
 }
 
