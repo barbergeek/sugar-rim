@@ -38,6 +38,10 @@
           <span>Tags</span>
           <span class="kf-fbtn-count" id="kf-tag-count">0</span>
         </button>
+        <div class="kf-search">
+          <span class="material-symbols-rounded">search</span>
+          <input type="search" id="kf-cocktail-search" placeholder="Search recipes…">
+        </div>
         <button class="kf-fbtn clear" id="kf-clear-btn" onclick="KioskApp.clearAll()" disabled>
           <span class="material-symbols-rounded">close</span>
           <span>Clear</span>
@@ -259,6 +263,7 @@
     _ingAll: null,          // all ingredients (lazy; for picker when !shelfOnly)
     _ingItems: [],          // active ingredient list shown in the picker
     _tagItems: [],          // full tag list for the picker
+    query: '',              // recipe name search
     pool: [],
     poolMeta: null,
     current: null,          // featured cocktail
@@ -271,9 +276,17 @@
       this._initialized = true;
       try { const v = localStorage.getItem('kf-shelf-only'); this.shelfOnly = (v === null) ? true : (v === '1'); } catch(e) {}
       this._syncShelfToggle();
+      const si = document.getElementById('kf-cocktail-search');
+      if (si) si.addEventListener('input', debounce(e => this.search(e.target.value), 300));
       await Promise.all([this._loadShelf(), this._loadTags()]);
       await this._refreshIngList();
       await this.loadPool();
+    },
+
+    search(q) {
+      this.query = (q || '').trim();
+      this._syncControls();
+      this.loadPool();
     },
 
     async _loadShelf() {
@@ -434,6 +447,9 @@
     clearAll() {
       this.ingFilters.clear();
       this.tagFilters.clear();
+      this.query = '';
+      const si = document.getElementById('kf-cocktail-search');
+      if (si) si.value = '';
       this._syncControls();
       this.loadPool();
     },
@@ -449,7 +465,7 @@
       set('kf-ing-count', ingN, 'kf-ing-btn');
       set('kf-tag-count', tagN, 'kf-tag-btn');
       const clearBtn = document.getElementById('kf-clear-btn');
-      if (clearBtn) clearBtn.disabled = (ingN + tagN) === 0;
+      if (clearBtn) clearBtn.disabled = (ingN + tagN + (this.query ? 1 : 0)) === 0;
     },
 
     // ── Pool loading ──────────────────────────────────────────────────
@@ -457,6 +473,7 @@
       const seq = ++this._seq;
       const params = { per_page: 100, sort: 'name' };
       if (this.shelfOnly) params['filter[on_shelf]'] = true;
+      if (this.query) params['filter[name]'] = this.query;
       if (this.ingFilters.size) params['filter[ingredient_name][]'] = [...this.ingFilters.values()];
       if (this.tagFilters.size) params['filter[tag_id][]'] = [...this.tagFilters.keys()];
 
@@ -869,9 +886,9 @@
       ['q','w','e','r','t','y','u','i','o','p'],
       ['a','s','d','f','g','h','j','k','l'],
       ['{shift}','z','x','c','v','b','n','m','{back}'],
-      ['{close}','@','-','{space}','.','{enter}'],
+      ['{close}','{clear}','@','-','{space}','.','{enter}'],
     ],
-    _LABEL: { '{shift}':'⇧', '{back}':'⌫', '{space}':'space', '{enter}':'return', '{close}':'✕' },
+    _LABEL: { '{shift}':'⇧', '{back}':'⌫', '{space}':'space', '{enter}':'return', '{close}':'✕', '{clear}':'clear' },
 
     init() {
       if (this._el) return;
@@ -921,6 +938,7 @@
       const t = this.target;
       if (!t) return;
       if (k === '{shift}') { this.shifted = !this.shifted; this._el.classList.toggle('shifted', this.shifted); return; }
+      if (k === '{clear}') { t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true })); return; }
       if (k === '{back}')  { this._edit(t, '', true); return; }
       if (k === '{enter}') { this._enter(t); return; }
       let ch = k === '{space}' ? ' ' : k;

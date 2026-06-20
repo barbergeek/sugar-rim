@@ -2029,6 +2029,33 @@ hr {
 .kf-toggle.on .material-symbols-rounded { color: var(--accent); }
 .kf-toggle.on .kf-toggle-state { background: var(--accent); color: #120d07; }
 
+/* Recipe full-text search box in the filter bar */
+.kf-search {
+  flex: 1 1 200px;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(200, 134, 10, 0.06);
+}
+.kf-search .material-symbols-rounded { flex-shrink: 0; color: var(--accent); opacity: 0.7; font-size: 1.1rem; }
+.kf-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.95rem;
+}
+.kf-search input::placeholder { color: var(--text-dim); }
+.kf-search input:focus { outline: none; }
+
 .kf-found {
   margin-left: 4px;
   font-family: var(--font);
@@ -2474,34 +2501,35 @@ hr {
   z-index: 9999;
   display: none;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
+  gap: 5px;
+  padding: 6px;
   background: rgba(8, 6, 2, 0.98);
   border-top: 1px solid rgba(200, 134, 10, 0.35);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7);
 }
 .ksh-kbd.show { display: flex; }
-.ksh-kbd-row { display: flex; gap: 6px; justify-content: center; }
+.ksh-kbd-row { display: flex; gap: 5px; justify-content: center; }
 .ksh-key {
   flex: 1 1 0;
   min-width: 0;
-  height: 50px;
-  border-radius: 7px;
+  height: 40px;
+  border-radius: 6px;
   border: 1px solid rgba(200, 134, 10, 0.25);
   background: rgba(200, 134, 10, 0.08);
   color: var(--text);
   font-family: var(--font);
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .ksh-key:active { background: var(--accent); color: #120d07; }
 .ksh-kbd.shifted .ksh-key { text-transform: uppercase; }
-.ksh-key-wide { flex: 1.6 1 0; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent2); }
+.ksh-key-wide { flex: 1.5 1 0; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent2); }
 .ksh-key-space { flex: 6 1 0; }
 .ksh-kbd.shifted .ksh-key-shift { background: var(--accent); color: #120d07; }
 .ksh-key-enter { color: var(--accent2); }
+.ksh-key-clear { color: #e7a3a3; }
 
 /* Lift centered modals so the keyboard doesn't cover the focused field */
 .kiosk-mode.kbd-open #modal-box { transform: translateY(-14vh); transition: transform 0.18s; }
