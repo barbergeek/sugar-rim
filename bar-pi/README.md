@@ -9,6 +9,7 @@ exit the browser) need a small local helper here.
 | File | Installs to | Purpose |
 |------|-------------|---------|
 | `kiosk-agent.py` | `~/.local/bin/kiosk-agent.py` | localhost-only HTTP helper (`/ping`, `/reboot`, `/exit`) |
+| `kiosk-exit.sh` | `~/.local/bin/kiosk-exit.sh` | brings up a touch-usable desktop (on-screen keyboard + terminal) after Exit |
 | `kiosk-agent.service` | `~/.config/systemd/user/kiosk-agent.service` | runs the agent under the user session |
 | `autostart` | `~/.config/labwc/autostart` | Chromium kiosk restart loop + sentinel exit + starts the agent |
 
@@ -19,10 +20,15 @@ The kiosk's **Maintenance** tab calls the agent over `http://localhost:8765`:
 - **Refresh** — pure client-side `location.reload()`, no agent needed.
 - **Reboot** — `POST /reboot` → `sudo systemctl reboot` (relies on the host's
   existing passwordless sudo).
-- **Exit** — `POST /exit` → drops `$XDG_RUNTIME_DIR/kiosk-stop` and kills the
-  kiosk Chromium. The `autostart` loop sees the sentinel and stops relaunching.
-  The sentinel is on tmpfs, so a **reboot or power-cycle clears it** and the
-  kiosk comes back automatically.
+- **Exit** — `POST /exit` → drops `$XDG_RUNTIME_DIR/kiosk-stop`, kills Chromium,
+  and runs `kiosk-exit.sh` to leave the Pi usable: it launches the on-screen
+  keyboard (squeekboard) and a terminal (lxterminal). The `autostart` loop sees
+  the sentinel and stops relaunching. The sentinel is on tmpfs, so a **reboot or
+  power-cycle clears it** and the kiosk comes back automatically.
+
+The Maintenance tab only shows **Exit** and **Reboot** when the agent answers
+`/ping`; if it's not installed/running, those buttons are hidden and the tab
+says the helper isn't running (Refresh still works).
 
 The agent binds to `127.0.0.1` only and rejects browser requests whose `Origin`
 isn't the kiosk site. The https→localhost fetch works because `localhost` is a
@@ -30,8 +36,11 @@ isn't the kiosk site. The https→localhost fetch works because `localhost` is a
 not require a Private/Local Network Access preflight in testing; the agent still
 sends the PNA headers defensively.
 
-> **Note:** after **Exit** there is no on-screen way back (touch-only, no
-> on-screen keyboard) — recover via SSH or a power-cycle.
+> **Squeekboard note:** it's masked from autostart because it renders nothing
+> under the fullscreen kiosk Chromium; `kiosk-exit.sh` launches it explicitly
+> (and force-shows it over DBus) only once Chromium is gone, where it works.
+> After **Exit**, get back to the kiosk by rebooting (`reboot` in the terminal,
+> or power-cycle).
 
 ## Install / update
 
@@ -39,11 +48,12 @@ From a machine that can reach bar-pi:
 
 ```sh
 scp bar-pi/kiosk-agent.py        bar-pi.home:~/.local/bin/kiosk-agent.py
+scp bar-pi/kiosk-exit.sh         bar-pi.home:~/.local/bin/kiosk-exit.sh
 scp bar-pi/kiosk-agent.service   bar-pi.home:~/.config/systemd/user/kiosk-agent.service
 scp bar-pi/autostart             bar-pi.home:~/.config/labwc/autostart
 
 ssh bar-pi.home '
-  chmod +x ~/.local/bin/kiosk-agent.py ~/.config/labwc/autostart
+  chmod +x ~/.local/bin/kiosk-agent.py ~/.local/bin/kiosk-exit.sh ~/.config/labwc/autostart
   systemctl --user daemon-reload
   systemctl --user enable --now kiosk-agent.service
   curl -s http://127.0.0.1:8765/ping

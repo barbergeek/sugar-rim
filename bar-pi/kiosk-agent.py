@@ -98,13 +98,20 @@ class Handler(BaseHTTPRequestHandler):
 
         elif self.path == "/exit":
             # Drop the sentinel so the autostart loop won't relaunch, then kill
-            # the kiosk Chromium. A reboot/power-cycle clears the sentinel.
+            # Chromium. A reboot/power-cycle clears the sentinel.
             try:
                 open(STOP_SENTINEL, "w").close()
             except OSError as e:
                 self._json(500, {"ok": False, "error": str(e)})
                 return
-            subprocess.Popen(["pkill", "-f", "chromium.*--kiosk"])
+            subprocess.Popen(["pkill", "chromium"])
+            # Leave the Pi touch-usable: bring up an on-screen keyboard + a
+            # terminal (the kiosk hides both while it's running).
+            helper = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "kiosk-exit.sh"
+            )
+            if os.path.exists(helper):
+                subprocess.Popen(["/bin/sh", helper])
             self._json(200, {"ok": True, "action": "exit"})
 
         else:
