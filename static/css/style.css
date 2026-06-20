@@ -2465,6 +2465,48 @@ hr {
 .ksh-mtog.cart.on { background: var(--accent); border-color: var(--accent); color: #120d07; }
 .kiosk-mode .btn.armed { background: #7f1d1d; border-color: #b91c1c; color: #fff; }
 
+/* In-page on-screen keyboard (kiosk touchscreen) */
+.ksh-kbd {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(8, 6, 2, 0.98);
+  border-top: 1px solid rgba(200, 134, 10, 0.35);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7);
+}
+.ksh-kbd.show { display: flex; }
+.ksh-kbd-row { display: flex; gap: 6px; justify-content: center; }
+.ksh-key {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 50px;
+  border-radius: 7px;
+  border: 1px solid rgba(200, 134, 10, 0.25);
+  background: rgba(200, 134, 10, 0.08);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ksh-key:active { background: var(--accent); color: #120d07; }
+.ksh-kbd.shifted .ksh-key { text-transform: uppercase; }
+.ksh-key-wide { flex: 1.6 1 0; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent2); }
+.ksh-key-space { flex: 6 1 0; }
+.ksh-kbd.shifted .ksh-key-shift { background: var(--accent); color: #120d07; }
+.ksh-key-enter { color: var(--accent2); }
+
+/* Lift centered modals so the keyboard doesn't cover the focused field */
+.kiosk-mode.kbd-open #modal-box { transform: translateY(-14vh); transition: transform 0.18s; }
+.kiosk-mode.kbd-open #view-login { align-items: flex-start; padding-top: 6vh; }
+
 /* ── Cocktail detail overrides ───────────────────────────────────────── */
 .kiosk-mode #detail-title {
   font-family: var(--font-display);

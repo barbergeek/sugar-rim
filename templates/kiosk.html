@@ -856,6 +856,100 @@
     },
   };
 
+  // ── KioskKeyboard: in-page on-screen keyboard ───────────────────────────────
+  // The touchscreen has no usable system OSK under fullscreen kiosk Chromium
+  // (layer-shell keyboards get occluded), so we render our own. It auto-shows
+  // when a text field is focused and types into it via the caret.
+  const KioskKeyboard = {
+    target: null,
+    shifted: false,
+    _el: null,
+    LAYOUT: [
+      ['1','2','3','4','5','6','7','8','9','0'],
+      ['q','w','e','r','t','y','u','i','o','p'],
+      ['a','s','d','f','g','h','j','k','l'],
+      ['{shift}','z','x','c','v','b','n','m','{back}'],
+      ['{close}','@','-','{space}','.','{enter}'],
+    ],
+    _LABEL: { '{shift}':'⇧', '{back}':'⌫', '{space}':'space', '{enter}':'return', '{close}':'✕' },
+
+    init() {
+      if (this._el) return;
+      const kb = document.createElement('div');
+      kb.className = 'ksh-kbd';
+      kb.innerHTML = this.LAYOUT.map(row =>
+        '<div class="ksh-kbd-row">' + row.map(k => {
+          const label = this._LABEL[k] || k;
+          const wide = k === '{space}' ? ' ksh-key-space' : (k.startsWith('{') ? ' ksh-key-wide' : '');
+          const tag = k.startsWith('{') ? ' ksh-key-' + k.slice(1, -1) : '';
+          return `<button class="ksh-key${wide}${tag}" data-k="${k}">${label}</button>`;
+        }).join('') + '</div>'
+      ).join('');
+      document.body.appendChild(kb);
+      this._el = kb;
+
+      // Keep the field focused on tap (preventDefault on pointerdown); act on click.
+      kb.addEventListener('pointerdown', e => { if (e.target.closest('.ksh-key')) e.preventDefault(); });
+      kb.addEventListener('mousedown',  e => { if (e.target.closest('.ksh-key')) e.preventDefault(); });
+      kb.addEventListener('click', e => {
+        const key = e.target.closest('.ksh-key');
+        if (key) this._press(key.dataset.k);
+      });
+
+      document.addEventListener('focusin', e => { if (this._isText(e.target)) this._attach(e.target); });
+      document.addEventListener('focusout', () => setTimeout(() => {
+        const a = document.activeElement;
+        if (!this._isText(a) && !(a && a.closest && a.closest('.ksh-kbd'))) this.hide();
+      }, 60));
+    },
+
+    _isText(el) {
+      if (!el || !el.tagName) return false;
+      if (el.tagName === 'TEXTAREA') return true;
+      if (el.tagName === 'INPUT') {
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        return ['text','search','email','password','url','tel','number'].includes(t);
+      }
+      return false;
+    },
+
+    _attach(el) { this.target = el; this.init(); this._el.classList.add('show'); document.body.classList.add('kbd-open'); },
+    hide() { if (this._el) this._el.classList.remove('show'); document.body.classList.remove('kbd-open'); this.target = null; },
+
+    _press(k) {
+      if (k === '{close}') { const t = this.target; this.hide(); if (t) t.blur(); return; }
+      const t = this.target;
+      if (!t) return;
+      if (k === '{shift}') { this.shifted = !this.shifted; this._el.classList.toggle('shifted', this.shifted); return; }
+      if (k === '{back}')  { this._edit(t, '', true); return; }
+      if (k === '{enter}') { this._enter(t); return; }
+      let ch = k === '{space}' ? ' ' : k;
+      if (this.shifted && ch.length === 1) ch = ch.toUpperCase();
+      this._edit(t, ch, false);
+      if (this.shifted) { this.shifted = false; this._el.classList.remove('shifted'); }
+    },
+
+    _edit(t, ch, isBack) {
+      const s = t.selectionStart, e = t.selectionEnd;
+      if (s != null && e != null && t.setRangeText) {
+        if (isBack) {
+          if (s === e && s > 0) t.setRangeText('', s - 1, s, 'end');
+          else if (s !== e) t.setRangeText('', s, e, 'end');
+        } else {
+          t.setRangeText(ch, s, e, 'end');
+        }
+      } else {
+        t.value = isBack ? t.value.slice(0, -1) : (t.value + ch);
+      }
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+
+    _enter(t) {
+      if (t.tagName === 'TEXTAREA') { this._edit(t, '\n', false); return; }
+      t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    },
+  };
+
   // ── Wire into App lifecycle ────────────────────────────────────────────────
   (function () {
     // UIScale: default 100% for kiosk; physical size is set via Chromium's
@@ -871,6 +965,7 @@
     App.init = async function () {
       await _origInit();
       KioskScroll.enableAll();
+      KioskKeyboard.init();
       if (App._loggedIn) KioskApp.init();
     };
 

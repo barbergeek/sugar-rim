@@ -103,6 +103,11 @@ def kiosk():
     return render_template("kiosk.html")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return app.send_static_file("favicon.ico")
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 @app.route("/config", methods=["GET"])
