@@ -23,7 +23,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 
 app = Flask(__name__)
 app.secret_key = _secret
@@ -80,11 +80,11 @@ def _security_headers(resp):
     resp.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self' http://localhost:8765 http://127.0.0.1:8765; "
+        "connect-src 'self' http://localhost:8765 http://127.0.0.1:8765 https://cloudflareinsights.com; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
     )
     return resp
