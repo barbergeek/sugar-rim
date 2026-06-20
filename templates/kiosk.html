@@ -136,6 +136,10 @@
           <span class="material-symbols-rounded km-ico">restart_alt</span>
           <span class="km-text"><span class="km-title">Reboot display</span><span class="km-sub">Restart this Raspberry Pi</span></span>
         </button>
+        <button class="km-action km-danger km-needs-agent" style="display:none" onclick="KioskMaint.shutdown(this)">
+          <span class="material-symbols-rounded km-ico">power_settings_new</span>
+          <span class="km-text"><span class="km-title">Shut down</span><span class="km-sub">Power off this Raspberry Pi</span></span>
+        </button>
         <div id="km-status" class="km-status"></div>
       </div>
     </section>
@@ -1040,6 +1044,13 @@
       btn.querySelector('.km-sub').textContent = 'Rebooting…';
       // The host goes down mid-response; don't wait on it.
       this._post('/reboot').catch(() => {});
+    },
+
+    async shutdown(btn) {
+      if (!this._arm(btn, 'Power off this Raspberry Pi')) return;
+      btn.querySelector('.km-sub').textContent = 'Shutting down…';
+      // The host powers off mid-response; don't wait on it.
+      this._post('/shutdown').catch(() => {});
     },
 
     // Exit + Reboot need the local helper; hide them unless it answers.

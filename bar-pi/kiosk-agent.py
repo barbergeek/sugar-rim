@@ -96,6 +96,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
             subprocess.Popen(["sudo", "systemctl", "reboot"])
 
+        elif self.path == "/shutdown":
+            # Respond first; the connection dies once the box powers off.
+            self._json(200, {"ok": True, "action": "shutdown"})
+            self.wfile.flush()
+            subprocess.Popen(["sudo", "systemctl", "poweroff"])
+
         elif self.path == "/exit":
             # Drop the sentinel so the autostart loop won't relaunch, then kill
             # Chromium. A reboot/power-cycle clears the sentinel.

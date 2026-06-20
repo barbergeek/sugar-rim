@@ -8,7 +8,7 @@ exit the browser) need a small local helper here.
 
 | File | Installs to | Purpose |
 |------|-------------|---------|
-| `kiosk-agent.py` | `~/.local/bin/kiosk-agent.py` | localhost-only HTTP helper (`/ping`, `/reboot`, `/exit`) |
+| `kiosk-agent.py` | `~/.local/bin/kiosk-agent.py` | localhost-only HTTP helper (`/ping`, `/reboot`, `/shutdown`, `/exit`) |
 | `kiosk-exit.sh` | `~/.local/bin/kiosk-exit.sh` | brings up a touch-usable desktop (on-screen keyboard + terminal) after Exit |
 | `kiosk-agent.service` | `~/.config/systemd/user/kiosk-agent.service` | runs the agent under the user session |
 | `autostart` | `~/.config/labwc/autostart` | Chromium kiosk restart loop + sentinel exit + starts the agent |
@@ -22,6 +22,7 @@ The kiosk's **Maintenance** tab calls the agent over `http://localhost:8765`:
 - **Refresh** — pure client-side `location.reload()`, no agent needed.
 - **Reboot** — `POST /reboot` → `sudo systemctl reboot` (relies on the host's
   existing passwordless sudo).
+- **Shut down** — `POST /shutdown` → `sudo systemctl poweroff`.
 - **Exit** — `POST /exit` → drops `$XDG_RUNTIME_DIR/kiosk-stop`, kills Chromium,
   and runs `kiosk-exit.sh` to leave the Pi usable: it launches the on-screen
   keyboard (squeekboard) and a terminal (lxterminal). The `autostart` loop sees
