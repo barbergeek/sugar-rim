@@ -685,7 +685,7 @@ const Shelf = {
         .map((i) => {
           const onShelf = State.shelfIds.has(i.id);
           return `<button class="card" style="min-height:auto;padding:8px 12px;flex-direction:row;align-items:center;gap:8px;cursor:${onShelf ? 'default' : 'pointer'};opacity:${onShelf ? '.5' : '1'}"
-          ${onShelf ? 'disabled' : `onclick="App.shelf.addById(${i.id}, '${escHtml(i.name)}')"`}>
+          ${onShelf ? 'disabled' : `data-name="${escHtml(i.name)}" onclick="App.shelf.addById(${i.id}, this.dataset.name)"`}>
           <span style="flex:1;font-size:.88rem">${escHtml(i.name)}</span>
           ${onShelf ? '<span style="color:var(--accent2);font-size:.75rem">on shelf</span>' : ''}
         </button>`;

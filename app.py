@@ -1,8 +1,11 @@
 import os
 import math
+import socket
 import secrets
 import logging
+import ipaddress
 from datetime import timedelta
+from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
 from dotenv import load_dotenv, set_key
@@ -20,11 +23,71 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 app = Flask(__name__)
 app.secret_key = _secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+# Cookie hardening. Secure is on by default (prod is HTTPS via Cloudflare);
+# set SESSION_COOKIE_SECURE=0 for plain-HTTP local dev (see run.sh).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "1") not in ("0", "false", "False"),
+)
+
+
+def _logged_in():
+    return "ba_token" in session
+
+
+def _configured():
+    return bool(os.getenv("BA_API_URL"))
+
+
+def _is_public_http_url(url):
+    """True only for http(s) URLs that resolve to a public IP — blocks SSRF to
+    loopback/private/link-local hosts (e.g. internal docker services, the LAN)."""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(p.hostname, p.port or (443 if p.scheme == "https" else 80))
+    except Exception:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # The UI relies on inline handlers/styles, so script/style keep 'unsafe-inline';
+    # connect-src is still locked down (limits where injected JS could exfiltrate to)
+    # and frame-ancestors/object-src/base-uri are hardened.
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' http://localhost:8765 http://127.0.0.1:8765; "
+        "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+    )
+    return resp
 
 
 def _asset_url(path):
@@ -122,6 +185,12 @@ def get_config():
 
 @app.route("/config", methods=["POST"])
 def set_config():
+    # First-run setup (no API URL configured yet) may write unauthenticated so
+    # the UI can bootstrap. Once configured, changing settings — which can
+    # repoint the API URL and intercept credentials — requires a logged-in
+    # session. (In prod BA_API_URL is seeded via env, so this is always gated.)
+    if _configured() and not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(force=True)
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
@@ -396,10 +465,14 @@ def upload_image():
 @app.route("/api/images/from-url", methods=["POST"])
 def image_from_url():
     """Download an image from a URL and upload it to BA."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(force=True) or {}
     src_url = body.get("url", "").strip()
     if not src_url:
         return jsonify({"error": "url required"}), 400
+    if not _is_public_http_url(src_url):
+        return jsonify({"error": "URL not allowed"}), 400
     try:
         r = http.get(src_url, timeout=15,
                      headers={"User-Agent": "Mozilla/5.0 (compatible; sugar-rim/1.0)"})
