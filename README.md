@@ -139,6 +139,19 @@ The kiosk UI lives at `/kiosk` and is a separate, touch-first layout (the phone 
 
 The kiosk shares the backend, login, and Settings with the main UI.
 
+### Maintenance tab
+
+The kiosk has a **Maintenance** tab for managing the display itself, touch-only:
+
+- **Refresh** — reload the kiosk page (client-side; always available).
+- **Exit** — quit the kiosk browser and drop to an on-screen keyboard + terminal for hands-on maintenance.
+- **Reboot** — restart the Raspberry Pi.
+- **Shut down** — power off the Raspberry Pi.
+
+Each destructive action is a two-tap confirm. It also shows **system info** — Sugar Rim and Bar Assistant API versions, and host facts (model, OS, kernel, uptime, CPU temp, memory, disk, Wi-Fi/IP) and client facts (browser, viewport, screen).
+
+Reboot/Exit/Shut down act on the Pi, which the (remotely hosted) backend can't reach, so a tiny localhost-only helper runs on the Pi to perform them. Exit/Reboot/Shut down only appear when that helper is running. See [`bar-pi/`](bar-pi/) for the helper, its install steps, and the boot-time Wi-Fi diagnostics.
+
 ### Raspberry Pi touchscreen setup
 
 Launch Chromium in kiosk mode pointing at the `/kiosk` route. On a Wayland session (e.g. labwc), an autostart entry such as:

@@ -2694,3 +2694,47 @@ hr {
 }
 .km-status.ok  { color: #7ac77a; }
 .km-status.bad { color: #e0563a; }
+
+/* ── Kiosk: Maintenance — system info panel ─────────────────────────── */
+.km-info {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.km-info-loading {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+.km-info-group {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.km-info-title {
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent2);
+  margin-bottom: 8px;
+}
+.km-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+.km-info-row:first-of-type { border-top: none; }
+.km-info-k { color: var(--text-dim); flex: 0 0 auto; }
+.km-info-v {
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}

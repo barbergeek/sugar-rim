@@ -141,6 +141,7 @@
           <span class="km-text"><span class="km-title">Shut down</span><span class="km-sub">Power off this Raspberry Pi</span></span>
         </button>
         <div id="km-status" class="km-status"></div>
+        <div id="km-info" class="km-info"></div>
       </div>
     </section>
 
@@ -256,7 +257,7 @@
       <span class="nav-icon material-symbols-rounded">shopping_cart</span>
       <span class="nav-label">List</span>
     </button>
-    <button class="nav-btn" data-view="maintenance" onclick="App.nav.go('maintenance');KioskMaint.ping()">
+    <button class="nav-btn" data-view="maintenance" onclick="App.nav.go('maintenance');KioskMaint.open()">
       <span class="nav-icon material-symbols-rounded">tune</span>
       <span class="nav-label">Maintenance</span>
     </button>
@@ -1051,6 +1052,83 @@
       btn.querySelector('.km-sub').textContent = 'Shutting down…';
       // The host powers off mid-response; don't wait on it.
       this._post('/shutdown').catch(() => {});
+    },
+
+    // Opening the tab: check the helper (gates buttons) + load system info.
+    open() {
+      this.ping();
+      this.loadInfo();
+    },
+
+    _fmtUptime(s) {
+      if (s == null) return '—';
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return [d && d + 'd', h && h + 'h', (m || (!d && !h)) && m + 'm'].filter(Boolean).join(' ');
+    },
+
+    // Gather host (agent), app/API (backend), and client (browser) facts.
+    async loadInfo() {
+      const box = document.getElementById('km-info');
+      if (!box) return;
+      box.innerHTML = '<div class="km-info-loading">Loading system info…</div>';
+
+      const [host, cfg, ver] = await Promise.all([
+        fetch(this.AGENT + '/info', { cache: 'no-store' }).then((r) => r.json()).then((d) => d.host).catch(() => null),
+        get('/config').catch(() => null),
+        get('/api/server/version').catch(() => null),
+      ]);
+
+      const esc = (v) => String(v).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+      const group = (title, items) =>
+        `<div class="km-info-group"><div class="km-info-title">${title}</div>` +
+        items
+          .filter(Boolean)
+          .map(([k, v]) => `<div class="km-info-row"><span class="km-info-k">${k}</span><span class="km-info-v">${esc(v)}</span></div>`)
+          .join('') +
+        '</div>';
+
+      const baVer = ver && (ver.data?.version || ver.version);
+      const appG = group('App &amp; API', [
+        ['Sugar Rim', cfg?.app_version ? 'v' + cfg.app_version : '—'],
+        ['Bar Assistant API', baVer ? (String(baVer).startsWith('v') ? baVer : 'v' + baVer) : '—'],
+        ['Active bar', cfg?.bar_id || '—'],
+        ['Logged in', cfg?.is_logged_in ? 'yes' : 'no'],
+      ]);
+
+      let hostG;
+      if (host) {
+        const w = host.wifi || {};
+        const wifi = w.ssid
+          ? `${w.ssid}  ${w.signal_dbm} dBm` + (w.freq_mhz ? `  (${Math.round(parseFloat(w.freq_mhz))} MHz)` : '')
+          : null;
+        hostG = group('This display (host)', [
+          host.model && ['Device', host.model],
+          host.os && ['OS', host.os],
+          host.kernel && ['Kernel', host.kernel],
+          ['Uptime', this._fmtUptime(host.uptime_seconds)],
+          host.cpu_temp_c != null && ['CPU temp', host.cpu_temp_c + ' °C'],
+          host.load && ['Load avg', host.load.join('  ')],
+          host.mem_total_mb && ['Memory', `${host.mem_used_mb} / ${host.mem_total_mb} MB`],
+          host.disk_total_gb && ['Disk', `${host.disk_used_gb} / ${host.disk_total_gb} GB`],
+          wifi && ['Wi-Fi', wifi],
+          host.ip && ['IP', host.ip],
+          host.agent_version && ['Agent', 'v' + host.agent_version],
+        ]);
+      } else {
+        hostG = group('This display (host)', [['Status', 'helper offline — host info unavailable']]);
+      }
+
+      const ua = navigator.userAgent;
+      const chrome = (ua.match(/Chrome\/([\d.]+)/) || [])[1];
+      const clientG = group('This browser (client)', [
+        ['Browser', chrome ? 'Chromium ' + chrome : ua.slice(0, 48)],
+        ['Viewport', `${window.innerWidth}×${window.innerHeight} (DPR ${window.devicePixelRatio})`],
+        ['Screen', `${screen.width}×${screen.height}`],
+      ]);
+
+      box.innerHTML = appG + hostG + clientG;
     },
 
     // Exit + Reboot need the local helper; hide them unless it answers.
