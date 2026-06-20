@@ -1,0 +1,44 @@
+#!/bin/sh
+# labwc autostart for the sugar-rim bar-pi kiosk.
+#
+# Restart loop so the display recovers from Chromium crashes. The maintenance
+# "Exit" action (via kiosk-agent) drops $XDG_RUNTIME_DIR/kiosk-stop to break the
+# loop without relaunching. That sentinel lives on tmpfs, so a reboot or
+# power-cycle clears it and always brings the kiosk back.
+STOP="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/kiosk-stop"
+
+(while true; do
+  [ -f "$STOP" ] && break
+  python3 -c "
+import json, os
+f = os.path.expanduser('~/.config/chromium/Default/Preferences')
+try:
+    with open(f) as fp: d = json.load(fp)
+    d.setdefault('profile', {})['exit_type'] = 'Normal'
+    d.setdefault('profile', {})['exited_cleanly'] = True
+    with open(f, 'w') as fp: json.dump(d, fp)
+except: pass
+" 2>/dev/null
+  chromium --kiosk \
+    --force-device-scale-factor=1.5 \
+    --disable-session-crashed-bubble \
+    --disable-infobars \
+    --noerrdialogs \
+    --no-first-run \
+    --disable-translate \
+    --overscroll-history-navigation=0 \
+    --disable-dev-shm-usage \
+    --enable-gpu-rasterization \
+    --use-angle=gles \
+    https://sugar.scotthoge.com/kiosk
+  [ -f "$STOP" ] && break
+  sleep 3
+done) &
+
+# Maintenance agent: localhost-only helper the kiosk page calls to reboot the
+# host or exit the kiosk browser (runs as a systemd --user service; this line
+# is a safety net in case the service isn't enabled).
+[ -x "$HOME/.local/bin/kiosk-agent.py" ] && systemctl --user start kiosk-agent.service 2>/dev/null
+
+# Blank screen after 30 minutes of inactivity
+swayidle -w timeout 1800 'wlopm --off "*"' resume 'wlopm --on "*"' &

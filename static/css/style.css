@@ -2617,3 +2617,80 @@ hr {
   font-family: var(--font);
   font-size: 0.82rem;
 }
+
+/* ── Kiosk: Maintenance tab ─────────────────────────────────────────── */
+.kiosk-mode #view-maintenance.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+}
+.km-wrap {
+  width: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 32px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.km-heading {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 600;
+  color: var(--accent2);
+  text-align: center;
+  margin: 4px 0 12px;
+}
+.km-action {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 22px;
+  text-align: left;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.km-action:active { transform: scale(0.99); }
+.km-action .km-ico {
+  font-size: 2.1rem;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.km-text { display: flex; flex-direction: column; gap: 3px; }
+.km-title {
+  font-family: var(--font);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.km-sub { font-size: 0.95rem; color: var(--text-dim); }
+
+.km-action.km-warn .km-ico   { color: #e8a13a; }
+.km-action.km-danger .km-ico { color: #e0563a; }
+
+.km-action.armed {
+  background: rgba(224, 86, 58, 0.16);
+  border-color: rgba(224, 86, 58, 0.6);
+}
+.km-action.km-warn.armed {
+  background: rgba(232, 161, 58, 0.16);
+  border-color: rgba(232, 161, 58, 0.6);
+}
+.km-action.armed .km-sub { color: var(--text); font-weight: 700; }
+
+.km-status {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  min-height: 1.2em;
+  margin-top: 6px;
+}
+.km-status.ok  { color: #7ac77a; }
+.km-status.bad { color: #e0563a; }

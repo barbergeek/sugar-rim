@@ -120,6 +120,26 @@
       <div id="shopping-list-empty" class="empty-state hidden"><p>Your shopping list is empty.</p></div>
     </section>
 
+    <!-- ── MAINTENANCE ────────────────────────────────────────────── -->
+    <section id="view-maintenance" class="view">
+      <div class="km-wrap">
+        <h2 class="km-heading">Maintenance</h2>
+        <button class="km-action" onclick="KioskMaint.refresh()">
+          <span class="material-symbols-rounded km-ico">refresh</span>
+          <span class="km-text"><span class="km-title">Refresh page</span><span class="km-sub">Reload the kiosk in the browser</span></span>
+        </button>
+        <button class="km-action km-warn" onclick="KioskMaint.exitApp(this)">
+          <span class="material-symbols-rounded km-ico">logout</span>
+          <span class="km-text"><span class="km-title">Exit kiosk</span><span class="km-sub">Quit the kiosk browser</span></span>
+        </button>
+        <button class="km-action km-danger" onclick="KioskMaint.reboot(this)">
+          <span class="material-symbols-rounded km-ico">restart_alt</span>
+          <span class="km-text"><span class="km-title">Reboot display</span><span class="km-sub">Restart this Raspberry Pi</span></span>
+        </button>
+        <div id="km-status" class="km-status"></div>
+      </div>
+    </section>
+
     <!-- ── STUB VIEWS (keep app.js element refs alive) ────────────── -->
     <section id="view-manage" class="view"></section>
     <section id="view-ingredients" class="view">
@@ -231,6 +251,10 @@
     <button class="nav-btn" data-view="shopping-list" onclick="App.nav.go('shopping-list')">
       <span class="nav-icon material-symbols-rounded">shopping_cart</span>
       <span class="nav-label">List</span>
+    </button>
+    <button class="nav-btn" data-view="maintenance" onclick="App.nav.go('maintenance');KioskMaint.ping()">
+      <span class="nav-icon material-symbols-rounded">tune</span>
+      <span class="nav-label">Maintenance</span>
     </button>
   </nav>
 
@@ -965,6 +989,74 @@
     _enter(t) {
       if (t.tagName === 'TEXTAREA') { this._edit(t, '\n', false); return; }
       t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    },
+  };
+
+  // ── KioskMaint: maintenance actions (refresh / exit / reboot) ───────────────
+  // Reboot + Exit must run on bar-pi itself, which the remote backend can't
+  // reach. A localhost-only helper (bar-pi/kiosk-agent.py, a systemd --user
+  // service) exposes the endpoints this calls. Refresh is pure client-side.
+  const KioskMaint = {
+    AGENT: 'http://localhost:8765',
+
+    refresh() {
+      location.reload();
+    },
+
+    // Two-tap confirm (kiosk Chromium suppresses native confirm()).
+    _arm(btn, idleLabel) {
+      const sub = btn.querySelector('.km-sub');
+      if (btn.dataset.armed === '1') {
+        clearTimeout(btn._t);
+        btn.dataset.armed = '';
+        btn.classList.remove('armed');
+        return true;
+      }
+      btn.dataset.armed = '1';
+      btn.classList.add('armed');
+      sub.textContent = 'Tap again to confirm';
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => {
+        btn.dataset.armed = '';
+        btn.classList.remove('armed');
+        sub.textContent = idleLabel;
+      }, 4000);
+      return false;
+    },
+
+    async _post(path) {
+      return fetch(this.AGENT + path, { method: 'POST' });
+    },
+
+    async exitApp(btn) {
+      if (!this._arm(btn, 'Quit the kiosk browser')) return;
+      btn.querySelector('.km-sub').textContent = 'Exiting…';
+      // The browser is about to be killed; fire and forget.
+      this._post('/exit').catch(() => {});
+    },
+
+    async reboot(btn) {
+      if (!this._arm(btn, 'Restart this Raspberry Pi')) return;
+      btn.querySelector('.km-sub').textContent = 'Rebooting…';
+      // The host goes down mid-response; don't wait on it.
+      this._post('/reboot').catch(() => {});
+    },
+
+    // Show whether the local helper is reachable (Exit/Reboot need it).
+    async ping() {
+      const s = document.getElementById('km-status');
+      if (!s) return;
+      s.textContent = 'Checking helper…';
+      s.className = 'km-status';
+      try {
+        const r = await fetch(this.AGENT + '/ping', { cache: 'no-store' });
+        if (!r.ok) throw new Error();
+        s.textContent = 'Maintenance helper connected';
+        s.classList.add('ok');
+      } catch (e) {
+        s.textContent = 'Helper offline — Refresh works, but Exit/Reboot need kiosk-agent on this Pi';
+        s.classList.add('bad');
+      }
     },
   };
 
