@@ -133,9 +133,9 @@ sudo systemctl enable --now sugar-rim
 The kiosk UI lives at `/kiosk` and is a separate, touch-first layout (the phone UI at `/` is unchanged). It is built for a dedicated full-screen display and minimizes keyboard use:
 
 - **Tap-to-filter pickers** — *Ingredients* and *Tags* buttons open near-full-width popups. Tap items to select (highlighted, no checkboxes); selected items pin to a bar at the top and drop out of the list below. Tap a chip to remove it.
-- **Featured pick + results** — a random match is featured up top, with all matching cocktails listed below.
+- **Featured pick + results** — a random match is featured up top, with *all* matching cocktails listed below (the list pages through every match, not just the first page).
 - **Shelf-only toggle** — on by default (and remembered): shows only ingredients on your bar shelf and cocktails you can actually make. Turn it off to browse everything.
-- **Touch niceties** — drag-to-scroll anywhere (including over images), and the mouse cursor is hidden.
+- **Touch niceties** — drag-to-scroll anywhere (including over images), and the mouse cursor is hidden **on touchscreens only** (detected via `navigator.maxTouchPoints`, since the Pi reports a "fine"/"hover" pointer to CSS). Opening `/kiosk` in a desktop browser keeps its normal cursor.
 
 The kiosk shares the backend, login, and Settings with the main UI.
 
