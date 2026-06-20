@@ -2621,18 +2621,27 @@ hr {
 /* ── Kiosk: Maintenance tab ─────────────────────────────────────────── */
 .kiosk-mode #view-maintenance.active {
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  overflow-y: auto;
 }
 .km-wrap {
   width: 100%;
-  max-width: 540px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 32px 20px 40px;
+  padding: 24px 20px 32px;
+  overflow-y: auto;            /* drag-to-scroll (KioskScroll) */
+  touch-action: none;
+}
+.km-cols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+.km-actions {
+  flex: 1 1 320px;
+  min-width: 280px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 .km-heading {
   font-family: var(--font-display);
@@ -2640,7 +2649,7 @@ hr {
   font-weight: 600;
   color: var(--accent2);
   text-align: center;
-  margin: 4px 0 12px;
+  margin: 4px 0 18px;
 }
 .km-action {
   display: flex;
@@ -2697,7 +2706,8 @@ hr {
 
 /* ── Kiosk: Maintenance — system info panel ─────────────────────────── */
 .km-info {
-  margin-top: 14px;
+  flex: 1 1 440px;
+  min-width: 300px;
   display: flex;
   flex-direction: column;
   gap: 14px;

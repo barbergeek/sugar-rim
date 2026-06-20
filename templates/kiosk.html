@@ -122,26 +122,30 @@
 
     <!-- ── MAINTENANCE ────────────────────────────────────────────── -->
     <section id="view-maintenance" class="view">
-      <div class="km-wrap">
+      <div class="km-wrap" id="km-scroll">
         <h2 class="km-heading">Maintenance</h2>
-        <button class="km-action" onclick="KioskMaint.refresh()">
-          <span class="material-symbols-rounded km-ico">refresh</span>
-          <span class="km-text"><span class="km-title">Refresh page</span><span class="km-sub">Reload the kiosk in the browser</span></span>
-        </button>
-        <button class="km-action km-warn km-needs-agent" style="display:none" onclick="KioskMaint.exitApp(this)">
-          <span class="material-symbols-rounded km-ico">logout</span>
-          <span class="km-text"><span class="km-title">Exit kiosk</span><span class="km-sub">Quit to a keyboard + terminal</span></span>
-        </button>
-        <button class="km-action km-danger km-needs-agent" style="display:none" onclick="KioskMaint.reboot(this)">
-          <span class="material-symbols-rounded km-ico">restart_alt</span>
-          <span class="km-text"><span class="km-title">Reboot display</span><span class="km-sub">Restart this Raspberry Pi</span></span>
-        </button>
-        <button class="km-action km-danger km-needs-agent" style="display:none" onclick="KioskMaint.shutdown(this)">
-          <span class="material-symbols-rounded km-ico">power_settings_new</span>
-          <span class="km-text"><span class="km-title">Shut down</span><span class="km-sub">Power off this Raspberry Pi</span></span>
-        </button>
-        <div id="km-status" class="km-status"></div>
-        <div id="km-info" class="km-info"></div>
+        <div class="km-cols">
+          <div class="km-actions">
+            <button class="km-action" onclick="KioskMaint.refresh()">
+              <span class="material-symbols-rounded km-ico">refresh</span>
+              <span class="km-text"><span class="km-title">Refresh page</span><span class="km-sub">Reload the kiosk in the browser</span></span>
+            </button>
+            <button class="km-action km-warn km-needs-agent" style="display:none" onclick="KioskMaint.exitApp(this)">
+              <span class="material-symbols-rounded km-ico">logout</span>
+              <span class="km-text"><span class="km-title">Exit kiosk</span><span class="km-sub">Quit to a keyboard + terminal</span></span>
+            </button>
+            <button class="km-action km-danger km-needs-agent" style="display:none" onclick="KioskMaint.reboot(this)">
+              <span class="material-symbols-rounded km-ico">restart_alt</span>
+              <span class="km-text"><span class="km-title">Reboot display</span><span class="km-sub">Restart this Raspberry Pi</span></span>
+            </button>
+            <button class="km-action km-danger km-needs-agent" style="display:none" onclick="KioskMaint.shutdown(this)">
+              <span class="material-symbols-rounded km-ico">power_settings_new</span>
+              <span class="km-text"><span class="km-title">Shut down</span><span class="km-sub">Power off this Raspberry Pi</span></span>
+            </button>
+            <div id="km-status" class="km-status"></div>
+          </div>
+          <div id="km-info" class="km-info"></div>
+        </div>
       </div>
     </section>
 
@@ -694,7 +698,7 @@
       el.addEventListener('pointercancel', end);
     },
     enableAll() {
-      ['kf-results', 'favorites-list', 'ksh-list', 'shopping-list-items', 'detail-body', 'modal-body']
+      ['kf-results', 'favorites-list', 'ksh-list', 'shopping-list-items', 'detail-body', 'modal-body', 'km-scroll']
         .forEach(id => this.enable(document.getElementById(id)));
     },
   };
