@@ -170,7 +170,6 @@
       </div>
       <div id="ingredient-list" class="card-grid"></div>
       <div id="ingredient-empty" class="empty-state hidden"><p>No ingredients found.</p></div>
-      <div class="pagination-bar" id="ingredient-pagination"></div>
     </section>
     <section id="view-tokens" class="view">
       <div class="view-toolbar">
@@ -653,7 +652,6 @@
         return;
       }
       grid.innerHTML = this.pool.map(c => Cocktails._card(c)).join('');
-      Cocktails._enrichCards(this.pool);
       this._markFeatured();
     },
 

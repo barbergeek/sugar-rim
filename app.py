@@ -280,6 +280,10 @@ def bar_stats(bar_id):
 def cocktails():
     params = request.args.to_dict(flat=False)
 
+    # Carry image + rating data in the list payload so the UI can render cards
+    # without an extra detail fetch per cocktail (no N+1 on complete-set loads).
+    params.setdefault("include", ["images,ratings"])
+
     # Union personal shelf (filter[on_shelf]) and bar stock (filter[bar_shelf]).
     # Fetch all results from both at once, merge, then self-paginate so meta is correct.
     if params.get("filter[on_shelf]") == ["true"]:
@@ -378,6 +382,8 @@ def similar_cocktails(cid):
 @app.route("/api/ingredients")
 def ingredients():
     params = request.args.to_dict(flat=False)
+    # Carry image data in the list payload so cards render without a detail fetch.
+    params.setdefault("include", ["images"])
     return proxy("GET", "/ingredients", params=params)
 
 

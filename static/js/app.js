@@ -66,29 +66,9 @@ function escHtml(s) {
 // ── Layout helpers ─────────────────────────────────────────────────────────
 
 const DESKTOP_PX = 900; // mobile/desktop breakpoint
-const CHROME_H = 44 + 72 + 48; // header + nav + toolbar (px)
-const CARD_MIN_W = 300;
-const CARD_MIN_H = 160;
-const CARD_GAP = 8;
-const CARD_PAD = 8;
 
 function isMobile() {
   return window.innerWidth < DESKTOP_PX;
-}
-
-function calcLayout(gridId) {
-  const grid = el(gridId);
-  const cols = Math.max(
-    1,
-    Math.floor((window.innerWidth - CARD_PAD * 2 + CARD_GAP) / (CARD_MIN_W + CARD_GAP))
-  );
-  const rows = Math.max(
-    1,
-    Math.floor((window.innerHeight - CHROME_H - CARD_PAD * 2 + CARD_GAP) / (CARD_MIN_H + CARD_GAP))
-  );
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-  return cols * rows;
 }
 
 function isOnShelf(ingId, ingredient) {
@@ -712,9 +692,7 @@ const Shelf = {
 // ── Cocktails ──────────────────────────────────────────────────────────────
 
 const Cocktails = {
-  page: 1,
-  lastMeta: null,
-  shelfOnly: false,
+  shelfOnly: true,
   sortBy: 'name',
   sortDir: 'asc',
   query: '',
@@ -726,20 +704,27 @@ const Cocktails = {
   currentData: null,
   _servings: 1,
   _cache: new Map(),
-  _loadingMore: false,
+  _seq: 0,
+  PER_PAGE: 500,
+  MAX_PAGES: 20,
+
+  // Reflect shelf-only state on both the toolbar and header toggles.
+  _syncShelfToggles() {
+    el('shelf-only-toggle').classList.toggle('shelf-active', this.shelfOnly);
+    el('header-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
+  },
 
   toggleShelf() {
     this.shelfOnly = !this.shelfOnly;
-    el('shelf-only-toggle').classList.toggle('shelf-active', this.shelfOnly);
-    el('header-shelf-toggle').classList.toggle('shelf-active', this.shelfOnly);
-    this.load(1);
+    this._syncShelfToggles();
+    this.load();
   },
 
   setSort(value) {
     const [field, dir] = value.split('-');
     this.sortBy = field;
     this.sortDir = dir;
-    this.load(1);
+    this.load();
   },
 
   addIngredient(ing) {
@@ -747,14 +732,14 @@ const Cocktails = {
     this.ingredientFilter.push(ing);
     this._renderChips();
     this._syncClearBtn();
-    this.load(1);
+    this.load();
   },
 
   removeIngredient(id) {
     this.ingredientFilter = this.ingredientFilter.filter((f) => f.id !== id);
     this._renderChips();
     this._syncClearBtn();
-    this.load(1);
+    this.load();
   },
 
   _renderChips() {
@@ -778,7 +763,7 @@ const Cocktails = {
     this._renderTagChips();
     this._syncClearBtn();
     this._syncTagBtn();
-    this.load(1);
+    this.load();
   },
 
   _selectIngredient(ing) {
@@ -837,7 +822,7 @@ const Cocktails = {
     });
     this._renderTagChips();
     this._syncTagBtn();
-    this.load(1);
+    this.load();
   },
 
   _renderTagChips() {
@@ -854,7 +839,7 @@ const Cocktails = {
     this.tagFilter = [];
     this._renderTagChips();
     this._syncTagBtn();
-    this.load(1);
+    this.load();
   },
 
   _syncTagBtn() {
@@ -865,8 +850,8 @@ const Cocktails = {
     btn.classList.toggle('shelf-active', n > 0);
   },
 
-  _buildParams(page, perPage) {
-    const params = { page, per_page: perPage };
+  _buildParams(page) {
+    const params = { page, per_page: this.PER_PAGE };
     if (this.query) params['filter[name]'] = this.query;
     if (this.shelfOnly) params['filter[on_shelf]'] = true;
     if (this.ingredientFilter.length) {
@@ -885,32 +870,59 @@ const Cocktails = {
     return params;
   },
 
-  async load(page = 1) {
-    this.page = page;
+  // Load the entire matching set — walk every page, then render at once.
+  // A sequence guard discards results from a load that a newer one superseded.
+  async load() {
+    const seq = ++this._seq;
     const grid = el('cocktail-list');
     const empty = el('cocktail-empty');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const perPage = isMobile() ? 30 : calcLayout('cocktail-list');
-    const params = this._buildParams(page, perPage);
+    this._updateCount(null);
     try {
-      const d = await get('/api/cocktails', params);
-      const items = d.data || [];
-      this.lastMeta = d.meta;
+      let items = [],
+        page = 1,
+        last = 1;
+      do {
+        const d = await get('/api/cocktails', this._buildParams(page));
+        if (seq !== this._seq) return; // a newer load replaced this one
+        items = items.concat(d.data || []);
+        last = d.meta?.last_page || 1;
+        page++;
+      } while (page <= last && page <= this.MAX_PAGES);
+
       if (!items.length) {
         grid.innerHTML = '';
-        empty.classList.remove('hidden');
-        this._renderPagination();
+        this._showEmpty();
+        this._updateCount(0);
         return;
       }
       empty.classList.add('hidden');
       grid.innerHTML = items.map((c) => this._card(c)).join('');
-      this._renderPagination();
-      this._enrichCards(items);
+      grid.scrollTop = 0;
+      this._updateCount(items.length);
     } catch (e) {
+      if (seq !== this._seq) return;
       grid.innerHTML = '';
       empty.classList.remove('hidden');
       empty.querySelector('p').textContent = e.message;
+      this._updateCount(null);
     }
+  },
+
+  _showEmpty() {
+    const empty = el('cocktail-empty');
+    empty.classList.remove('hidden');
+    const filtered = this.query || this.ingredientFilter.length || this.tagFilter.length;
+    empty.querySelector('p').textContent =
+      this.shelfOnly && !filtered
+        ? 'Nothing you can make yet. Add ingredients to your shelf, or turn off Shelf only to see the whole book.'
+        : 'No cocktails match these filters.';
+  },
+
+  _updateCount(n) {
+    const c = el('cocktail-count');
+    if (!c) return;
+    c.textContent = n == null ? '' : n === 1 ? '1 recipe' : `${n} recipes`;
   },
 
   _card(c) {
@@ -927,19 +939,47 @@ const Cocktails = {
     }
     const ingNames =
       ingFull.length > 100 ? ingFull.slice(0, 100).replace(/ ·[^·]*$/, '') + ' …' : ingFull;
+    // The cocktail list includes images + ratings, so render them inline.
+    // Callers whose payload lacks those relations (Favorites) instead emit
+    // slots that _enrichCards backfills from a detail fetch. We key off the
+    // relation being a real array/object — not mere key presence — so a
+    // null relation still falls back to the slot rather than rendering blank.
+    const img = c.images?.[0];
+    const thumb = img
+      ? `<img class="card-thumb" loading="lazy" alt="" src="${escHtml(img.thumb_url || `/api/images/${img.id}/thumb`)}">`
+      : Array.isArray(c.images)
+        ? '<div class="card-thumb-empty"></div>'
+        : `<div class="card-thumb-slot" id="cthumb-${c.id}"></div>`;
+    let rating;
+    if (c.rating && typeof c.rating === 'object') {
+      const avg = c.rating.average || 0;
+      if (avg > 0) {
+        const full = Math.round(avg);
+        rating =
+          `<div class="card-rating"><span class="rating-stars">${'★'.repeat(full)}${'☆'.repeat(5 - full)}</span>` +
+          `<span class="rating-num">${avg.toFixed(1)}</span></div>`;
+      } else {
+        rating = '<div class="card-rating"></div>';
+      }
+    } else {
+      rating = `<div class="card-rating" id="crating-${c.id}"></div>`;
+    }
     return `<div class="card cocktail-card" data-id="${c.id}" onclick="App.cocktails.open(${c.id})">
       <div class="cocktail-thumb-wrap">
-        <div class="card-thumb-slot" id="cthumb-${c.id}"></div>
+        ${thumb}
         ${fav}
       </div>
       <div class="cocktail-card-body">
         <div class="card-name">${escHtml(c.name)}</div>
         ${ingNames ? `<div class="card-ings">${ingNames}</div>` : ''}
-        <div class="card-rating" id="crating-${c.id}"></div>
+        ${rating}
       </div>
     </div>`;
   },
 
+  // Backfill thumbnails + ratings for cards rendered from payloads that lack
+  // the images/ratings relations (Favorites). One detail fetch per card,
+  // memoised in _cache. The primary cocktail list never needs this.
   async _enrichCards(items) {
     await Promise.all(
       items.map(async (c) => {
@@ -951,11 +991,11 @@ const Cocktails = {
           const thumbSlot = el(`cthumb-${c.id}`);
           if (thumbSlot) {
             if (data.images?.[0]) {
-              const img = document.createElement('img');
-              img.src = `/api/images/${data.images[0].id}/thumb`;
-              img.className = 'card-thumb';
-              img.loading = 'lazy';
-              thumbSlot.replaceWith(img);
+              const im = document.createElement('img');
+              im.src = data.images[0].thumb_url || `/api/images/${data.images[0].id}/thumb`;
+              im.className = 'card-thumb';
+              im.loading = 'lazy';
+              thumbSlot.replaceWith(im);
             } else {
               thumbSlot.className = 'card-thumb-empty';
             }
@@ -974,49 +1014,6 @@ const Cocktails = {
         }
       })
     );
-  },
-
-  _renderPagination() {
-    if (isMobile()) return;
-    const m = this.lastMeta;
-    const bar = el('cocktail-pagination');
-    if (!m || m.last_page <= 1) {
-      bar.innerHTML = '';
-      return;
-    }
-    const prev =
-      m.current_page > 1
-        ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page - 1})">‹ Prev</button>`
-        : '<button class="btn btn-ghost" style="visibility:hidden">‹ Prev</button>';
-    const next =
-      m.current_page < m.last_page
-        ? `<button class="btn btn-ghost" onclick="App.cocktails.load(${m.current_page + 1})">Next ›</button>`
-        : '<button class="btn btn-ghost" style="visibility:hidden">Next ›</button>';
-    bar.innerHTML = `${prev}<span>${m.current_page} / ${m.last_page}</span>${next}`;
-  },
-
-  async _maybeLoadMore() {
-    const m = this.lastMeta;
-    if (!m || m.current_page >= m.last_page || this._loadingMore) return;
-    this._loadingMore = true;
-    try {
-      const page = m.current_page + 1;
-      const params = this._buildParams(page, 30);
-      const d = await get('/api/cocktails', params);
-      const items = d.data || [];
-      this.lastMeta = d.meta;
-      if (items.length) {
-        el('cocktail-list').insertAdjacentHTML(
-          'beforeend',
-          items.map((c) => this._card(c)).join('')
-        );
-        this._enrichCards(items);
-      }
-    } catch (e) {
-      /* silent */
-    } finally {
-      this._loadingMore = false;
-    }
   },
 
   async open(id) {
@@ -1529,7 +1526,6 @@ const Favorites = {
   async load() {
     const grid = el('favorites-list');
     grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    if (!isMobile()) calcLayout('favorites-list');
     try {
       const d = await get('/api/favorites');
       this._allItems = (d.data || []).map((c) => ({ ...c, is_favorited: true }));
@@ -1596,28 +1592,25 @@ const Favorites = {
 // ── Ingredients ────────────────────────────────────────────────────────────
 
 const Ingredients = {
-  page: 1,
-  lastMeta: null,
   query: '',
   sortBy: 'name',
   sortDir: 'asc',
   _cache: new Map(),
   _shelfState: new Map(),
   _cartState: new Map(),
+  _seq: 0,
+  PER_PAGE: 500,
+  MAX_PAGES: 20,
 
   setSort(value) {
     const [field, dir] = value.split('-');
     this.sortBy = field;
     this.sortDir = dir;
-    this.load(1);
+    this.load();
   },
 
-  async load(page = 1) {
-    this.page = page;
-    const grid = el('ingredient-list');
-    const empty = el('ingredient-empty');
-    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
-    const params = { page, per_page: isMobile() ? 30 : calcLayout('ingredient-list') };
+  _buildParams(page) {
+    const params = { page, per_page: this.PER_PAGE };
     if (this.query) params['filter[name]'] = this.query;
     params['sort'] =
       this.sortBy === 'name'
@@ -1627,14 +1620,35 @@ const Ingredients = {
         : this.sortDir === 'desc'
           ? `-${this.sortBy},name`
           : `${this.sortBy},name`;
+    return params;
+  },
+
+  // Load every matching ingredient (walk all pages), then render at once.
+  async load() {
+    const seq = ++this._seq;
+    const grid = el('ingredient-list');
+    const empty = el('ingredient-empty');
+    grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+    this._updateCount(null);
     try {
-      const d = await get('/api/ingredients', params);
-      const items = d.data || [];
-      this.lastMeta = d.meta;
+      let items = [],
+        page = 1,
+        last = 1;
+      do {
+        const d = await get('/api/ingredients', this._buildParams(page));
+        if (seq !== this._seq) return; // a newer load replaced this one
+        items = items.concat(d.data || []);
+        last = d.meta?.last_page || 1;
+        page++;
+      } while (page <= last && page <= this.MAX_PAGES);
+
       if (!items.length) {
         grid.innerHTML = '';
         empty.classList.remove('hidden');
-        this._renderPagination();
+        empty.querySelector('p').textContent = this.query
+          ? 'No ingredients match your search.'
+          : 'No ingredients found.';
+        this._updateCount(0);
         return;
       }
       empty.classList.add('hidden');
@@ -1644,20 +1658,32 @@ const Ingredients = {
         if (i.in_bar_shelf) State.shelfIds.add(i.id);
       });
       grid.innerHTML = items.map((i) => this._card(i)).join('');
-      this._renderPagination();
-      this._enrichCards(items);
+      grid.scrollTop = 0;
+      this._updateCount(items.length);
     } catch (e) {
+      if (seq !== this._seq) return;
       grid.innerHTML = '';
       empty.classList.remove('hidden');
       empty.querySelector('p').textContent = e.message;
+      this._updateCount(null);
     }
+  },
+
+  _updateCount(n) {
+    const c = el('ingredient-count');
+    if (!c) return;
+    c.textContent = n == null ? '' : n === 1 ? '1 ingredient' : `${n} ingredients`;
   },
 
   _card(i) {
     const onShelf = this._shelfState.get(i.id);
     const inCart = this._cartState.get(i.id);
+    const img = i.images?.[0];
+    const thumb = img
+      ? `<img class="card-thumb" loading="lazy" alt="" src="${escHtml(img.thumb_url || `/api/images/${img.id}/thumb`)}">`
+      : '<div class="card-thumb-empty"></div>';
     return `<div class="card row-layout" onclick="if(!event.target.closest('.ing-actions')) App.ingredients.showEdit(${i.id})">
-      <div class="ing-thumb-wrap"><div class="card-thumb-slot" id="ithumb-${i.id}"></div></div>
+      <div class="ing-thumb-wrap">${thumb}</div>
       <div class="card-content">
         <div class="card-name">${escHtml(i.name)}</div>
         ${i.strength ? `<div class="card-sub">${i.strength}% ABV</div>` : ''}
@@ -1675,31 +1701,6 @@ const Ingredients = {
         </div>
       </div>
     </div>`;
-  },
-
-  async _enrichCards(items) {
-    await Promise.all(
-      items.map(async (i) => {
-        try {
-          const cached = this._cache.get(i.id);
-          const data = cached ?? (await get(`/api/ingredients/${i.id}`)).data;
-          if (!cached) this._cache.set(i.id, data);
-          const slot = el(`ithumb-${i.id}`);
-          if (!slot) return;
-          if (data.images?.[0]) {
-            const img = document.createElement('img');
-            img.src = `/api/images/${data.images[0].id}/thumb`;
-            img.className = 'card-thumb';
-            img.loading = 'lazy';
-            slot.replaceWith(img);
-          } else {
-            slot.className = 'card-thumb-empty';
-          }
-        } catch (e) {
-          /* silent */
-        }
-      })
-    );
   },
 
   async toggleShelf(id) {
@@ -1748,24 +1749,6 @@ const Ingredients = {
     } catch (e) {
       Toast.err(e.message);
     }
-  },
-
-  _renderPagination() {
-    const m = this.lastMeta;
-    const bar = el('ingredient-pagination');
-    if (!m || m.last_page <= 1) {
-      bar.innerHTML = '';
-      return;
-    }
-    const prev =
-      m.current_page > 1
-        ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page - 1})">‹ Prev</button>`
-        : '<button class="btn btn-ghost" style="visibility:hidden">‹ Prev</button>';
-    const next =
-      m.current_page < m.last_page
-        ? `<button class="btn btn-ghost" onclick="App.ingredients.load(${m.current_page + 1})">Next ›</button>`
-        : '<button class="btn btn-ghost" style="visibility:hidden">Next ›</button>';
-    bar.innerHTML = `${prev}<span>${m.current_page} / ${m.last_page}</span>${next}`;
   },
 
   showCreate() {
@@ -1911,7 +1894,7 @@ const Ingredients = {
         Toast.show('Ingredient created');
       }
       Modal.close();
-      this.load(this.page);
+      this.load();
       State.loadShelfIds();
     } catch (e) {
       Toast.err(e.message);
@@ -1925,7 +1908,7 @@ const Ingredients = {
       this._cache.delete(id);
       Toast.show('Deleted');
       Modal.close();
-      this.load(this.page);
+      this.load();
     } catch (e) {
       Toast.err(e.message);
     }
@@ -2639,7 +2622,7 @@ const App = {
         syncHeader(view);
         if (view === 'shelf' && !Shelf.items.length) Shelf.load();
         if (view === 'favorites') Favorites.load();
-        if (view === 'ingredients' && !Ingredients.lastMeta) Ingredients.load();
+        if (view === 'ingredients' && !Ingredients._seq) Ingredients.load();
         if (view === 'shopping-list') ShoppingList.load();
         if (view === 'tokens') Tokens.load();
         if (view === 'users') Users.load();
@@ -2660,14 +2643,14 @@ const App = {
         'input',
         debounce((e) => {
           Cocktails.query = e.target.value;
-          Cocktails.load(1);
+          Cocktails.load();
         }, 350)
       );
       el('ingredient-search').addEventListener(
         'input',
         debounce((e) => {
           Ingredients.query = e.target.value;
-          Ingredients.load(1);
+          Ingredients.load();
         }, 350)
       );
 
@@ -2756,23 +2739,6 @@ const App = {
         setTimeout(() => ingAutoList.classList.add('hidden'), 150);
       });
 
-      window.addEventListener(
-        'resize',
-        debounce(() => {
-          if (isMobile()) return;
-          const view = Nav.current;
-          if (view === 'cocktails') Cocktails.load(Cocktails.page);
-          else if (view === 'ingredients') Ingredients.load(Ingredients.page);
-          else if (view === 'favorites') Favorites.load();
-        }, 400)
-      );
-
-      el('cocktail-list').addEventListener('scroll', () => {
-        if (!isMobile()) return;
-        const g = el('cocktail-list');
-        if (g.scrollHeight - g.scrollTop - g.clientHeight < 300) Cocktails._maybeLoadMore();
-      });
-
       el('unit-toggle-btn').textContent = UnitPref.get();
     }
 
@@ -2793,6 +2759,8 @@ const App = {
       this._loggedIn = true;
       el('logout-btn').classList.remove('hidden');
 
+      // Shelf-only is the default mode; reflect it on the toggles before loading.
+      Cocktails._syncShelfToggles();
       await Cocktails.load();
       Nav.go('cocktails');
     } catch (e) {

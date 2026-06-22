@@ -1324,20 +1324,14 @@ hr {
 }
 
 /* ── Pagination ───────────────────────────────────────────── */
-.pagination-bar {
-  flex: 0 0 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  border-top: 1px solid var(--border);
-  font-size: 0.9rem;
+/* Result count — quiet tally that stands in for the old pagination readout. */
+.result-count {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   color: var(--text-dim);
-  background: var(--bg-glass);
-}
-.pagination-bar .btn {
-  padding: 6px 16px;
-  font-size: 0.85rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 /* ── Toast ────────────────────────────────────────────────── */
@@ -1396,54 +1390,25 @@ hr {
   grid-column: 1 / -1;
 }
 
-/* ── Favorites grid ───────────────────────────────────────── */
-#view-favorites .card-grid {
-  gap: 8px;
-  padding: 8px;
-  grid-template-columns: 1fr;
-}
-@media (min-width: 900px) {
-  #view-favorites .card-grid {
-    align-content: stretch;
-    overflow: hidden;
-  }
-  #view-favorites .cocktail-card {
-    min-height: 0;
-  }
-}
-
-/* ── Ingredient grid ──────────────────────────────────────── */
-#view-ingredients .card-grid {
-  gap: 8px;
-  padding: 8px;
-  grid-template-columns: 1fr;
-}
-@media (min-width: 900px) {
-  #view-ingredients .card-grid {
-    align-content: stretch;
-    overflow: hidden;
-  }
-  #view-ingredients .card.row-layout {
-    min-height: 0;
-  }
-}
-
-/* ── Cocktail grid ────────────────────────────────────────── */
-/* Base (mobile-first): scrollable, single column */
+/* ── List grids ───────────────────────────────────────────── */
+/* Mobile-first: a single scrolling column. Desktop: a dense, scrollable
+   multi-column grid holding the complete set — no pagination, no clipping. */
+#view-favorites .card-grid,
+#view-ingredients .card-grid,
 #view-cocktails .card-grid {
   gap: 8px;
   padding: 8px;
   grid-template-columns: 1fr;
+  align-content: start;
 }
 
-/* Desktop only: dynamic grid set by JS, no scroll */
 @media (min-width: 900px) {
-  #view-cocktails .card-grid {
-    align-content: stretch;
-    overflow: hidden;
+  #view-cocktails .card-grid,
+  #view-favorites .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   }
-  #view-cocktails .cocktail-card {
-    min-height: 0;
+  #view-ingredients .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   }
 }
 
@@ -1455,6 +1420,14 @@ hr {
   min-height: var(--card-min-h, 90px);
   max-height: var(--card-max-h, 130px);
   overflow: hidden;
+}
+
+/* Main Cocktails + Favorites lists: pin every card to the same roomy height
+   instead of the collapsing min/max range, so short ingredient lists don't
+   shrink cards. (Kiosk keeps the denser range via the base rule above.) */
+#view-cocktails .cocktail-card,
+#view-favorites .cocktail-card {
+  height: var(--card-max-h, 130px);
 }
 
 .cocktail-thumb-wrap {

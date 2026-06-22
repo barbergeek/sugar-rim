@@ -53,6 +53,7 @@
         </div>
         <div class="toolbar-cocktail-controls">
           <button class="shelf-toggle-btn" id="shelf-only-toggle" onclick="Cocktails.toggleShelf()">Shelf only</button>
+          <span id="cocktail-count" class="result-count"></span>
         </div>
         <select class="sort-select" id="cocktail-sort" onchange="Cocktails.setSort(this.value)">
           <option value="name-asc">A-Z</option>
@@ -64,7 +65,6 @@
       </div>
       <div id="cocktail-list" class="card-grid"></div>
       <div id="cocktail-empty" class="empty-state hidden"><p>No cocktails found.</p></div>
-      <div class="pagination-bar" id="cocktail-pagination"></div>
     </section>
 
     <!-- ── COCKTAIL DETAIL ──────────────────────────────────── -->
@@ -160,6 +160,7 @@
       <div class="view-toolbar">
         <button class="btn btn-ghost" onclick="App.nav.go('manage')">← Back</button>
         <input type="search" id="ingredient-search" placeholder="Search ingredients…" class="search-input">
+        <span id="ingredient-count" class="result-count"></span>
         <select class="sort-select" id="ingredient-sort" onchange="App.ingredients.setSort(this.value)">
           <option value="name-asc">A-Z</option>
           <option value="name-desc">Z-A</option>
@@ -169,7 +170,6 @@
       </div>
       <div id="ingredient-list" class="card-grid"></div>
       <div id="ingredient-empty" class="empty-state hidden"><p>No ingredients found.</p></div>
-      <div class="pagination-bar" id="ingredient-pagination"></div>
     </section>
 
     <!-- ── TOKENS LIST VIEW ────────────────────────────────── -->
