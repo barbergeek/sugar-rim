@@ -79,3 +79,14 @@ def test_string_ingredient_and_list_name():
     draft, _ = scrapers.scrape("https://example.com/x", html)
     assert draft["name"] == "Fizz, x"
     assert [i["name"] for i in draft["ingredients"]] == ["Gin"]
+
+
+def test_jsonld_tolerates_bad_blocks_and_odd_fields():
+    html = """<script type="application/ld+json">{not json</script>
+    <script type="application/ld+json">{"@type":"Recipe","name":"Y",
+    "recipeIngredient":["", "1 oz rum"],"keywords":["Rum","Tiki"]}</script>"""
+    draft, name = scrapers.scrape("https://example.com/y", html)
+    assert name == "jsonld"
+    assert [i["name"] for i in draft["ingredients"]] == ["Rum"]
+    assert draft["tags"] == ["Rum", "Tiki"]
+    assert draft["instructions"] == ""

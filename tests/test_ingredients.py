@@ -32,7 +32,14 @@ def p(text):
         ("2oz gin", (2, None, "oz", "Gin", None)),
         ("1.5oz rye", (1.5, None, "oz", "Rye", None)),
         ("Ice", (None, None, None, "Ice", None)),
+        ("Half of lime", (0.5, None, None, "Lime", None)),
+        ("2 oz of gin", (2, None, "oz", "Gin", None)),
     ],
 )
 def test_parse_line(line, expected):
     assert p(line) == expected
+
+
+def test_optional_flag_stripped():
+    r = parse_line("1 dash absinthe (optional)")
+    assert (r["optional"], r["name"], r["units"]) == (True, "Absinthe", "dash")
