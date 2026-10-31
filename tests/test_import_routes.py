@@ -171,3 +171,51 @@ def test_import_cocktail_location_and_errors(client, monkeypatch):
 def test_fetch_html_rejects_disallowed():
     with pytest.raises(UrlNotAllowed):
         fetch_html("http://private/x", lambda u: False)
+
+
+def test_missing_url_or_draft(client):
+    assert client.post("/api/import/scrape", json={}).status_code == 400
+    assert client.post("/api/import/cocktail", json={"draft": "x"}).status_code == 400
+
+
+def test_fetch_error_returns_502(client, monkeypatch):
+    monkeypatch.setattr(requests, "get", fake_get({URL: Resp(404)}))
+    r = client.post("/api/import/scrape", json={"url": URL})
+    assert r.status_code == 502 and "HTTP 404" in r.json["error"]
+
+
+def test_ba_unreachable_during_fallback(client, monkeypatch):
+    monkeypatch.setattr(requests, "get", fake_get({URL: Resp(403)}))
+
+    def post(*a, **k):
+        raise requests.ConnectionError("down")
+
+    monkeypatch.setattr(requests, "post", post)
+    r = client.post("/api/import/scrape", json={"url": URL})
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "exc,msg",
+    [
+        (requests.ConnectionError("down"), "Cannot reach Bar Assistant"),
+        (requests.Timeout("slow"), "slow"),
+    ],
+)
+def test_import_cocktail_ba_errors(client, monkeypatch, exc, msg):
+    def post(*a, **k):
+        raise exc
+
+    monkeypatch.setattr(requests, "post", post)
+    r = client.post("/api/import/cocktail", json={"draft": {}})
+    assert r.status_code == 502 and msg in r.json["error"]
+
+
+def test_import_cocktail_non_json_and_missing_id(client, monkeypatch):
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Resp(500, text="boom"))
+    r = client.post("/api/import/cocktail", json={"draft": {}})
+    assert (r.status_code, r.json) == (500, {"error": "boom"})
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Resp(201, text=""))
+    r = client.post("/api/import/cocktail", json={"draft": {}})
+    assert r.status_code == 502 and "no cocktail id" in r.json["error"]
