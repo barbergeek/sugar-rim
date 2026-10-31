@@ -170,6 +170,17 @@ chromium --kiosk \
 
 ---
 
+## Recipe import
+
+Backend only (no UI yet). Both routes require a logged-in session.
+
+- `POST /api/import/scrape` with `{url, html?}` returns `{data, scraper}`, where `data` is a Bar Assistant schema-v4 draft. Without `html`, sugar-rim fetches the page itself (honest `sugar-rim/<version>` User-Agent, robots.txt honored, 15s timeout, 5 MB cap, SSRF-checked on every redirect). If the fetch is blocked (403/429 or robots.txt), or the page has no recipe the local scrapers can read, it falls back to Bar Assistant's own scraper (`scraper: "bar-assistant"`).
+- `POST /api/import/cocktail` with `{draft}` saves the draft through Bar Assistant's import and returns `{id}`.
+
+**Adding a site scraper:** create `scrapers/<site>.py` with a subclass of `Scraper` (or `JsonLdScraper`, overriding `clean_ingredient_line` / `post_process`), set `name` and `domains`, decorate it with `@register`, and import the module in `scrapers/__init__.py`. Site scrapers are tried before the generic JSON-LD one. See `scrapers/foodnetwork.py`. Add a trimmed HTML fixture under `tests/fixtures/` and a test in `tests/test_scrapers.py`. Run tests with `pip install -r requirements-dev.txt && pytest -q tests`.
+
+---
+
 ## Configuration
 
 The Bar Assistant URL and active bar are set from the **Settings** tab in the UI (written to `.env` / the config volume, no restart needed). Authentication is done by **logging in** with your Bar Assistant account.

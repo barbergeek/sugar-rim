@@ -222,3 +222,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# BMad tooling and planning output
+_bmad/
+_bmad-output/

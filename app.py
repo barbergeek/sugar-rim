@@ -1,4 +1,5 @@
 import os
+import re
 import math
 import socket
 import secrets
@@ -9,6 +10,9 @@ from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
 from dotenv import load_dotenv, set_key
+
+import scrapers
+from scrapers.fetch import fetch_html, FetchBlocked, FetchError, UrlNotAllowed
 
 load_dotenv()
 
@@ -510,6 +514,93 @@ def delete_image(iid):
         return ("", 204) if resp.status_code in (200, 204) else (jsonify(resp.json()), resp.status_code)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+# ── Recipe import ─────────────────────────────────────────────────────────────
+
+def _ba_scrape(url, html=None):
+    """Ask Bar Assistant to scrape; returns a draft dict or None on any failure."""
+    payload = {"source": url}
+    if html is not None:
+        payload["html_content"] = html
+    try:
+        resp = http.post(ba_url("/import/scrape"), headers=ba_headers(), json=payload, timeout=10)
+        if not resp.ok:
+            return None
+        return resp.json()["data"]["schema"]
+    except (http.exceptions.RequestException, ValueError, KeyError, TypeError):
+        return None
+
+
+@app.route("/api/import/scrape", methods=["POST"])
+def import_scrape():
+    """Turn a URL (or pasted HTML) into a Bar Assistant schema-v4 draft."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    html = body.get("html")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    if not _is_public_http_url(url):
+        return jsonify({"error": "URL not allowed"}), 400
+
+    if not html:
+        try:
+            html = fetch_html(url, _is_public_http_url, user_agent=f"sugar-rim/{APP_VERSION}")
+        except UrlNotAllowed:
+            return jsonify({"error": "URL not allowed"}), 400
+        except FetchBlocked:
+            draft = _ba_scrape(url)
+            if draft:
+                return jsonify({"data": draft, "scraper": "bar-assistant"})
+            return jsonify({"error": "This site blocked the fetch. Try pasting the page HTML instead."}), 422
+        except FetchError as e:
+            return jsonify({"error": f"Could not fetch the page: {e}"}), 502
+
+    try:
+        draft, name = scrapers.scrape(url, html)
+        return jsonify({"data": draft, "scraper": name})
+    except scrapers.NoRecipeFound:
+        pass
+    draft = _ba_scrape(url, html=html)
+    if draft:
+        return jsonify({"data": draft, "scraper": "bar-assistant"})
+    return jsonify({"error": "No recipe found on this page"}), 422
+
+
+@app.route("/api/import/cocktail", methods=["POST"])
+def import_cocktail():
+    """Save a draft to Bar Assistant; returns the new cocktail id."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    draft = body.get("draft")
+    if not isinstance(draft, dict):
+        return jsonify({"error": "draft required"}), 400
+    try:
+        resp = http.post(ba_url("/import/cocktail"), headers=ba_headers(), timeout=25,
+                         json={"source": draft, "duplicate_actions": "none"},
+                         allow_redirects=False)
+    except http.exceptions.ConnectionError:
+        return jsonify({"error": "Cannot reach Bar Assistant API. Check your API URL in Settings."}), 502
+    except http.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 502
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {"error": resp.text}
+    if resp.status_code >= 400:
+        return jsonify(data), resp.status_code
+    new_id = None
+    m = re.search(r"/cocktails/(\d+)", resp.headers.get("Location", ""))
+    if m:
+        new_id = int(m.group(1))
+    elif isinstance(data, dict) and isinstance(data.get("data"), dict):
+        new_id = data["data"].get("id")
+    if new_id is None:
+        return jsonify({"error": "Import succeeded but no cocktail id was returned"}), 502
+    return jsonify({"id": new_id}), 201
 
 
 # ── Bar shelf ─────────────────────────────────────────────────────────────────
