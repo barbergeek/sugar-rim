@@ -2684,12 +2684,25 @@ const Importer = {
     );
   },
 
-  _ingRow(ing, idx) {
+  _matchSelect(matches) {
+    if (!matches || !matches.length) return '';
+    const pre = matches.findIndex((m) => m.score >= 0.8);
+    return `<select class="text-input imp-ing-match">
+      <option value="">Use name as typed</option>${matches
+        .map(
+          (m, i) =>
+            `<option value="${escHtml(m.name)}" ${i === pre ? 'selected' : ''}>${escHtml(m.name)}${m.on_shelf ? ' · on shelf' : ''}</option>`
+        )
+        .join('')}</select>`;
+  },
+
+  _ingRow(ing, idx, matches) {
     return `<div class="cf-ing-row" data-idx="${idx}">
       <div class="cf-ing-row-name">
-        <input class="text-input imp-ing-name" value="${escHtml(ing.name)}" placeholder="Ingredient">
+        <input class="text-input imp-ing-name" value="${escHtml(ing.name)}" placeholder="Ingredient" oninput="const m = this.closest('.cf-ing-row').querySelector('.imp-ing-match'); if (m) m.value = ''">
         <button class="cf-ing-remove" onclick="this.closest('.cf-ing-row').remove()" title="Remove">×</button>
       </div>
+      ${this._matchSelect(matches)}
       <div class="cf-ing-row-fields">
         <input class="text-input cf-ing-amount" value="${escHtml(ing.amount ?? '')}" placeholder="Amt">
         <input class="text-input cf-ing-unit" value="${escHtml(ing.units ?? '')}" placeholder="Unit" list="cf-units-list">
@@ -2709,6 +2722,15 @@ const Importer = {
     );
     const loading = el('imp-loading');
     await this._loadLists();
+    let matches = [];
+    const names = (draft.ingredients || []).map((i) => String(i.name ?? ''));
+    if (names.length) {
+      try {
+        matches = (await post('/api/import/match', { names })).matches || [];
+      } catch (e) {
+        Toast.err('Could not match ingredients: ' + e.message);
+      }
+    }
     if (!loading.isConnected || el('modal-overlay').classList.contains('hidden')) return;
     const d = draft;
     const img = (d.images || [])[0];
@@ -2746,7 +2768,7 @@ const Importer = {
         <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
       </datalist>
       <div class="form-group"><label class="form-label">Ingredients</label>
-        <div id="imp-ing-list">${(d.ingredients || []).map((i, n) => this._ingRow(i, n)).join('')}</div></div>`,
+        <div id="imp-ing-list">${(d.ingredients || []).map((i, n) => this._ingRow(i, n, matches[n])).join('')}</div></div>`,
       `<button class="btn btn-ghost" onclick="App.importer.show()">Back</button>
        <button class="btn btn-primary" id="imp-save" onclick="App.importer._save()">Save</button>`
     );
@@ -2758,7 +2780,8 @@ const Importer = {
     const rows = [...document.querySelectorAll('#imp-ing-list .cf-ing-row')];
     const ingredients = [];
     rows.forEach((row) => {
-      const name = qs('.imp-ing-name', row).value.trim();
+      const picked = qs('.imp-ing-match', row)?.value;
+      const name = picked || qs('.imp-ing-name', row).value.trim();
       if (!name) return;
       const base = orig.ingredients?.[parseInt(row.dataset.idx)] || {};
       const amtStr = qs('.cf-ing-amount', row).value.trim();
