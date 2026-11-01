@@ -102,11 +102,13 @@ def test_blocked_falls_back_to_ba(client, monkeypatch):
 
     def post(url, **kw):
         seen.update(url=url, json=kw["json"])
-        return Resp(200, json_data={"data": {"schema": {"name": "BA draft"}}})
+        schema = {"recipe": {"name": "BA draft"}, "ingredients": []}
+        return Resp(200, json_data={"data": {"schema": schema}})
 
     monkeypatch.setattr(requests, "post", post)
     r = client.post("/api/import/scrape", json={"url": URL})
-    assert r.json == {"data": {"name": "BA draft"}, "scraper": "bar-assistant"}
+    assert r.json["scraper"] == "bar-assistant"
+    assert r.json["data"]["name"] == "BA draft"
     assert seen["json"] == {"source": URL}
     assert seen["url"].endswith("/api/import/scrape")
 
@@ -130,7 +132,7 @@ def test_no_local_recipe_uses_ba_html_content(client, monkeypatch):
 
     def post(url, **kw):
         seen.update(kw["json"])
-        return Resp(200, json_data={"data": {"schema": {"name": "BA"}}})
+        return Resp(200, json_data={"data": {"schema": {"recipe": {"name": "BA"}}}})
 
     monkeypatch.setattr(requests, "post", post)
     r = client.post("/api/import/scrape", json={"url": page})
@@ -154,7 +156,8 @@ def test_import_cocktail_location_and_errors(client, monkeypatch):
     monkeypatch.setattr(requests, "post", post)
     r = client.post("/api/import/cocktail", json={"draft": {"name": "X"}})
     assert (r.status_code, r.json) == (201, {"id": 42})
-    assert seen["json"] == {"source": {"name": "X"}, "duplicate_actions": "none"}
+    assert seen["json"]["duplicate_actions"] == "none"
+    assert seen["json"]["source"]["recipe"]["name"] == "X"
 
     monkeypatch.setattr(
         requests, "post", lambda *a, **k: Resp(201, json_data={"data": {"id": 7}})

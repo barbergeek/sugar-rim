@@ -12,6 +12,7 @@ import requests as http
 from dotenv import load_dotenv, set_key
 
 import scrapers
+from scrapers.draft2 import from_draft2, to_draft2
 from scrapers.fetch import fetch_html, FetchBlocked, FetchError, UrlNotAllowed
 
 load_dotenv()
@@ -27,7 +28,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 app = Flask(__name__)
 app.secret_key = _secret
@@ -527,8 +528,8 @@ def _ba_scrape(url, html=None):
         resp = http.post(ba_url("/import/scrape"), headers=ba_headers(), json=payload, timeout=10)
         if not resp.ok:
             return None
-        return resp.json()["data"]["schema"]
-    except (http.exceptions.RequestException, ValueError, KeyError, TypeError):
+        return from_draft2(resp.json()["data"]["schema"])
+    except (http.exceptions.RequestException, ValueError, KeyError, TypeError, AttributeError):
         return None
 
 
@@ -580,7 +581,7 @@ def import_cocktail():
         return jsonify({"error": "draft required"}), 400
     try:
         resp = http.post(ba_url("/import/cocktail"), headers=ba_headers(), timeout=25,
-                         json={"source": draft, "duplicate_actions": "none"},
+                         json={"source": to_draft2(draft), "duplicate_actions": "none"},
                          allow_redirects=False)
     except http.exceptions.ConnectionError:
         return jsonify({"error": "Cannot reach Bar Assistant API. Check your API URL in Settings."}), 502
