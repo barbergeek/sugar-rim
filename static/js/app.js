@@ -2687,22 +2687,50 @@ const Importer = {
   _matchSelect(matches) {
     if (!matches || !matches.length) return '';
     const pre = matches.findIndex((m) => m.score >= 0.8);
-    return `<select class="text-input imp-ing-match">
+    return `<select class="text-input imp-ing-match" onchange="App.importer._mark(this.closest('.cf-ing-row'))">
       <option value="">Use name as typed</option>${matches
         .map(
           (m, i) =>
-            `<option value="${escHtml(m.name)}" ${i === pre ? 'selected' : ''}>${escHtml(m.name)}${m.on_shelf ? ' · on shelf' : ''}</option>`
+            `<option value="${escHtml(m.name)}" data-score="${m.score}" ${i === pre ? 'selected' : ''}>${escHtml(m.name)}${m.on_shelf ? ' · on shelf' : ''}</option>`
         )
         .join('')}</select>`;
+  },
+
+  // Flag each row as an exact match, a soft (fuzzy) match, or a new ingredient.
+  _mark(row) {
+    const sel = qs('.imp-ing-match', row);
+    const opt = sel && sel.value ? sel.selectedOptions[0] : null;
+    const score = opt ? parseFloat(opt.dataset.score) : null;
+    const typed = qs('.imp-ing-name', row).value.trim();
+    const state = !opt ? 'new' : score >= 1 ? 'exact' : 'soft';
+    row.classList.remove('imp-exact', 'imp-soft', 'imp-new');
+    row.classList.add(`imp-${state}`);
+    qs('.imp-ing-status', row).innerHTML =
+      state === 'exact'
+        ? '✓ Existing ingredient'
+        : state === 'soft'
+          ? `≈ Soft match (${Math.round(score * 100)}%): “${escHtml(typed)}” will be saved as “${escHtml(opt.value)}”`
+          : sel
+            ? '+ New ingredient — or pick a suggestion above'
+            : '+ New ingredient';
+    this._summary();
+  },
+
+  _summary() {
+    const soft = document.querySelectorAll('#imp-ing-list .imp-soft').length;
+    const sum = el('imp-match-summary');
+    sum.classList.toggle('hidden', !soft);
+    sum.textContent = `≈ ${soft} soft match${soft === 1 ? '' : 'es'} highlighted below. Check ${soft === 1 ? 'it' : 'them'} before saving.`;
   },
 
   _ingRow(ing, idx, matches) {
     return `<div class="cf-ing-row" data-idx="${idx}">
       <div class="cf-ing-row-name">
-        <input class="text-input imp-ing-name" value="${escHtml(ing.name)}" placeholder="Ingredient" oninput="const m = this.closest('.cf-ing-row').querySelector('.imp-ing-match'); if (m) m.value = ''">
-        <button class="cf-ing-remove" onclick="this.closest('.cf-ing-row').remove()" title="Remove">×</button>
+        <input class="text-input imp-ing-name" value="${escHtml(ing.name)}" placeholder="Ingredient" oninput="const r = this.closest('.cf-ing-row'), m = r.querySelector('.imp-ing-match'); if (m) m.value = ''; App.importer._mark(r)">
+        <button class="cf-ing-remove" onclick="this.closest('.cf-ing-row').remove(); App.importer._summary()" title="Remove">×</button>
       </div>
       ${this._matchSelect(matches)}
+      <div class="imp-ing-status"></div>
       <div class="cf-ing-row-fields">
         <input class="text-input cf-ing-amount" value="${escHtml(ing.amount ?? '')}" placeholder="Amt">
         <input class="text-input cf-ing-unit" value="${escHtml(ing.units ?? '')}" placeholder="Unit" list="cf-units-list">
@@ -2768,10 +2796,12 @@ const Importer = {
         <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
       </datalist>
       <div class="form-group"><label class="form-label">Ingredients</label>
+        <p class="imp-match-summary hidden" id="imp-match-summary"></p>
         <div id="imp-ing-list">${(d.ingredients || []).map((i, n) => this._ingRow(i, n, matches[n])).join('')}</div></div>`,
       `<button class="btn btn-ghost" onclick="App.importer.show()">Back</button>
        <button class="btn btn-primary" id="imp-save" onclick="App.importer._save()">Save</button>`
     );
+    document.querySelectorAll('#imp-ing-list .cf-ing-row').forEach((r) => this._mark(r));
   },
 
   _collect() {
