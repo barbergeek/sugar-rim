@@ -894,6 +894,32 @@ select.text-input option {
   font-size: 0.85em;
 }
 
+.imp-ing-status {
+  font-size: 0.8em;
+  margin: 2px 0 6px;
+  color: var(--text-dim);
+}
+
+.cf-ing-row.imp-exact .imp-ing-status {
+  color: #4caf50;
+}
+
+.cf-ing-row.imp-soft {
+  border-left: 4px solid var(--accent2);
+  padding-left: 8px;
+  background: rgba(249, 212, 35, 0.08);
+}
+
+.cf-ing-row.imp-soft .imp-ing-status,
+.imp-match-summary {
+  color: var(--accent2);
+  font-weight: 600;
+}
+
+.imp-match-summary {
+  margin: 0 0 8px;
+}
+
 .imp-image-row {
   display: flex;
   flex-direction: column;
