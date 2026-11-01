@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 
 def make_draft(**fields):
-    """Return a Bar Assistant schema-v4 draft with defaults filled in."""
+    """Return a flat recipe draft with defaults filled in (see draft2.py for BA's format)."""
     draft = {
         "name": "",
         "instructions": "",
