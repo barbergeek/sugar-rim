@@ -889,6 +889,11 @@ select.text-input option {
   min-width: 0;
 }
 
+.imp-ing-match {
+  margin: 4px 0;
+  font-size: 0.85em;
+}
+
 .imp-image-row {
   display: flex;
   flex-direction: column;

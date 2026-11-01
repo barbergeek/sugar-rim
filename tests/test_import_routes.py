@@ -222,3 +222,56 @@ def test_import_cocktail_non_json_and_missing_id(client, monkeypatch):
     monkeypatch.setattr(requests, "post", lambda *a, **k: Resp(201, text=""))
     r = client.post("/api/import/cocktail", json={"draft": {}})
     assert r.status_code == 502 and "no cocktail id" in r.json["error"]
+
+
+def _ing(id, name, shelf=False):
+    return {"id": id, "name": name, "in_shelf": shelf, "in_bar_shelf": False}
+
+
+def test_match_paginates(client, monkeypatch):
+    calls = []
+
+    def get(url, **kw):
+        calls.append(kw["params"]["page"])
+        if kw["params"]["page"] == 1:
+            return Resp(
+                json_data={"data": [_ing(1, "Rye Whiskey")], "meta": {"last_page": 2}}
+            )
+        return Resp(
+            json_data={
+                "data": [_ing(2, "Bourbon Whiskey", True)],
+                "meta": {"last_page": 2},
+            }
+        )
+
+    monkeypatch.setattr(requests, "get", get)
+    r = client.post("/api/import/match", json={"names": ["Bourbon", "Unicorn"]})
+    assert r.status_code == 200
+    assert calls == [1, 2]
+    m = r.json["matches"]
+    assert m[0][0]["name"] == "Bourbon Whiskey" and m[0][0]["on_shelf"]
+    assert m[1] == []
+
+
+def test_match_auth_and_bad_input(client):
+    assert (
+        app_module.app.test_client()
+        .post("/api/import/match", json={"names": []})
+        .status_code
+        == 401
+    )
+    for bad in ({}, {"names": "x"}, {"names": [1]}, {"names": ["a"] * 51}):
+        assert client.post("/api/import/match", json=bad).status_code == 400
+
+
+def test_match_ba_errors_502(client, monkeypatch):
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp(500))
+    r = client.post("/api/import/match", json={"names": ["a"]})
+    assert r.status_code == 502 and "error" in r.json
+
+    def boom(*a, **k):
+        raise requests.exceptions.ConnectionError("down")
+
+    monkeypatch.setattr(requests, "get", boom)
+    r = client.post("/api/import/match", json={"names": ["a"]})
+    assert r.status_code == 502 and "error" in r.json

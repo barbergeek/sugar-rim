@@ -13,6 +13,7 @@ from dotenv import load_dotenv, set_key
 
 import scrapers
 from scrapers.draft2 import from_draft2, to_draft2
+from scrapers.match import rank as rank_ingredients
 from scrapers.fetch import fetch_html, FetchBlocked, FetchError, UrlNotAllowed
 
 load_dotenv()
@@ -568,6 +569,39 @@ def import_scrape():
     if draft:
         return jsonify({"data": draft, "scraper": "bar-assistant"})
     return jsonify({"error": "No recipe found on this page"}), 422
+
+
+@app.route("/api/import/match", methods=["POST"])
+def import_match():
+    """Rank the bar's existing ingredients against each given name."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    names = body.get("names")
+    if (
+        not isinstance(names, list)
+        or len(names) > 50
+        or not all(isinstance(n, str) for n in names)
+    ):
+        return jsonify({"error": "names must be a list of up to 50 strings"}), 400
+    pool, page = [], 1
+    try:
+        while True:
+            resp = http.get(ba_url("/ingredients"), headers=ba_headers(), timeout=10,
+                            params={"per_page": 500, "page": page})
+            if not resp.ok:
+                return jsonify({"error": "Bar Assistant ingredient lookup failed"}), 502
+            payload = resp.json()
+            for i in payload.get("data") or []:
+                pool.append({"id": i.get("id"), "name": i.get("name"),
+                             "on_shelf": bool(i.get("in_shelf") or i.get("in_bar_shelf"))})
+            last = ((payload.get("meta") or {}).get("last_page")) or 1
+            if page >= last:
+                break
+            page += 1
+    except (http.exceptions.RequestException, ValueError, AttributeError, TypeError) as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify({"matches": [rank_ingredients(n, pool) for n in names]})
 
 
 @app.route("/api/import/cocktail", methods=["POST"])
