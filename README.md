@@ -90,6 +90,8 @@ docker compose pull
 docker compose up -d
 ```
 
+`latest` tracks `main`. Releases are tagged `vX.Y.Z` in git and published as `scotthoge/sugar-rim:X.Y.Z` and `:X.Y`. Pin one of those to stay on a release.
+
 ---
 
 ## Manual install

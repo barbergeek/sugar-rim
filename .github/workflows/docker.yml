@@ -3,12 +3,27 @@ name: Build and push Docker image
 on:
   push:
     branches: [main]
+    tags: ["v*"]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check tag matches APP_VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: grep -q "^APP_VERSION = \"${GITHUB_REF_NAME#v}\"$" app.py
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: scotthoge/sugar-rim
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -24,6 +39,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: scotthoge/sugar-rim:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
