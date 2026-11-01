@@ -884,6 +884,19 @@ select.text-input option {
   font-size: 0.9rem;
 }
 
+.imp-ing-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.imp-image-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 .cf-ing-remove {
   background: none;
   border: none;
