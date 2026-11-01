@@ -2580,6 +2580,238 @@ const Methods = {
   },
 };
 
+// ── Recipe import ──────────────────────────────────────────────────────────
+
+const Importer = {
+  _draft: null,
+  _scraper: '',
+  _url: '',
+  _html: '',
+  _pasteMode: false,
+
+  show() {
+    this._renderInput();
+  },
+
+  _renderInput() {
+    Modal.open(
+      'Import Recipe',
+      `<div class="form-group"><label class="form-label">Recipe URL *</label>
+        <input class="text-input" id="imp-url" type="url" placeholder="https://…"></div>
+      <label class="cf-ing-opt-label" style="margin-bottom:8px">
+        <input type="checkbox" id="imp-paste-toggle" ${this._pasteMode ? 'checked' : ''}
+          onchange="App.importer._togglePaste(this.checked)"> Paste HTML instead
+      </label>
+      <div class="form-group ${this._pasteMode ? '' : 'hidden'}" id="imp-html-wrap">
+        <label class="form-label">Page HTML</label>
+        <textarea class="text-input" id="imp-html" placeholder="Paste the page source here"></textarea>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" id="imp-go" onclick="App.importer._scrape()">Import</button>`
+    );
+    el('imp-url').value = this._url;
+    el('imp-html').value = this._html;
+    el('imp-url').focus();
+  },
+
+  _parseAmount(str) {
+    const t = str.trim();
+    let m;
+    if (/^\d+(\.\d+)?$/.test(t)) return parseFloat(t);
+    if ((m = t.match(/^(\d+)\/(\d+)$/))) return m[2] > 0 ? m[1] / m[2] : null;
+    if ((m = t.match(/^(\d+)\s+(\d+)\/(\d+)$/))) return m[3] > 0 ? +m[1] + m[2] / m[3] : null;
+    return null;
+  },
+
+  _togglePaste(on) {
+    this._pasteMode = on;
+    el('imp-html-wrap').classList.toggle('hidden', !on);
+  },
+
+  async _scrape() {
+    const url = el('imp-url').value.trim();
+    const html = this._pasteMode ? el('imp-html').value : '';
+    this._url = url;
+    this._html = html;
+    if (!url) return Toast.err('URL is required');
+    if (this._pasteMode && !html.trim()) return Toast.err('Paste the page HTML');
+    const btn = el('imp-go');
+    const live = () => btn.isConnected && !el('modal-overlay').classList.contains('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const body = { url };
+      if (this._pasteMode) body.html = html;
+      const d = await post('/api/import/scrape', body);
+      if (!live()) return;
+      await this._review(d.data, d.scraper);
+    } catch (e) {
+      if (!live()) return;
+      btn.disabled = false;
+      btn.textContent = 'Import';
+      Toast.err(e.message);
+    }
+  },
+
+  async _loadLists() {
+    if (!Cocktails._glasses) {
+      try {
+        Cocktails._glasses = (await get('/api/glasses')).data || [];
+      } catch {
+        Cocktails._glasses = [];
+      }
+    }
+    if (!Cocktails._methods) {
+      try {
+        Cocktails._methods = (await get('/api/methods')).data || [];
+      } catch {
+        Cocktails._methods = [];
+      }
+    }
+  },
+
+  _options(list, current) {
+    const names = list.map((x) => x.name);
+    if (current && !names.includes(current)) names.unshift(current);
+    return (
+      '<option value="">— none —</option>' +
+      names
+        .map(
+          (n) =>
+            `<option value="${escHtml(n)}" ${n === current ? 'selected' : ''}>${escHtml(n)}</option>`
+        )
+        .join('')
+    );
+  },
+
+  _ingRow(ing, idx) {
+    return `<div class="cf-ing-row" data-idx="${idx}">
+      <div class="cf-ing-row-name">
+        <input class="text-input imp-ing-name" value="${escHtml(ing.name)}" placeholder="Ingredient">
+        <button class="cf-ing-remove" onclick="this.closest('.cf-ing-row').remove()" title="Remove">×</button>
+      </div>
+      <div class="cf-ing-row-fields">
+        <input class="text-input cf-ing-amount" value="${escHtml(ing.amount ?? '')}" placeholder="Amt">
+        <input class="text-input cf-ing-unit" value="${escHtml(ing.units ?? '')}" placeholder="Unit" list="cf-units-list">
+        <input class="text-input cf-ing-note" value="${escHtml(ing.note ?? '')}" placeholder="Note">
+        <label class="cf-ing-opt-label"><input class="cf-ing-opt-check" type="checkbox" ${ing.optional ? 'checked' : ''}> Opt</label>
+      </div>
+    </div>`;
+  },
+
+  async _review(draft, scraper) {
+    this._draft = draft;
+    this._scraper = scraper || '';
+    Modal.open(
+      'Review Import',
+      '<div class="loading-row" id="imp-loading"><div class="spinner"></div></div>',
+      ''
+    );
+    const loading = el('imp-loading');
+    await this._loadLists();
+    if (!loading.isConnected || el('modal-overlay').classList.contains('hidden')) return;
+    const d = draft;
+    const img = (d.images || [])[0];
+    const imgUri = img && /^https?:\/\//i.test(String(img.uri || '')) ? String(img.uri) : '';
+    const tags = (d.tags || []).map((t) => t?.name ?? t).join(', ');
+    Modal.open(
+      'Review Import',
+      `<p class="cf-ing-empty" style="padding-top:0">Scraped by: <span class="tag-chip">${escHtml(this._scraper)}</span></p>
+      <div class="form-group"><label class="form-label">Name *</label>
+        <input class="text-input" id="imp-name" value="${escHtml(d.name)}"></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Glass</label>
+          <select class="text-input" id="imp-glass">${this._options(Cocktails._glasses, d.glass)}</select></div>
+        <div class="form-group"><label class="form-label">Method</label>
+          <select class="text-input" id="imp-method">${this._options(Cocktails._methods, d.method)}</select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Description</label>
+        <textarea class="text-input" id="imp-description">${escHtml(d.description)}</textarea></div>
+      <div class="form-group"><label class="form-label">Instructions</label>
+        <textarea class="text-input" id="imp-instructions">${escHtml(d.instructions)}</textarea></div>
+      <div class="form-group"><label class="form-label">Garnish</label>
+        <input class="text-input" id="imp-garnish" value="${escHtml(d.garnish)}"></div>
+      <div class="form-group"><label class="form-label">Tags (comma-separated)</label>
+        <input class="text-input" id="imp-tags" value="${escHtml(tags)}"></div>
+      ${
+        imgUri
+          ? `<div class="form-group imp-image-row">
+        <label class="cf-ing-opt-label"><input type="checkbox" id="imp-image" checked> Include image</label>
+        <a href="${escHtml(imgUri)}" target="_blank" rel="noopener noreferrer">${escHtml(imgUri)}</a></div>`
+          : ''
+      }
+      <datalist id="cf-units-list">
+        <option value="oz"></option><option value="ml"></option><option value="cl"></option>
+        <option value="dashes"></option><option value="barspoon"></option>
+        <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
+      </datalist>
+      <div class="form-group"><label class="form-label">Ingredients</label>
+        <div id="imp-ing-list">${(d.ingredients || []).map((i, n) => this._ingRow(i, n)).join('')}</div></div>`,
+      `<button class="btn btn-ghost" onclick="App.importer.show()">Back</button>
+       <button class="btn btn-primary" id="imp-save" onclick="App.importer._save()">Save</button>`
+    );
+  },
+
+  _collect() {
+    const orig = this._draft;
+    const val = (id) => el(id).value.trim();
+    const rows = [...document.querySelectorAll('#imp-ing-list .cf-ing-row')];
+    const ingredients = [];
+    rows.forEach((row) => {
+      const name = qs('.imp-ing-name', row).value.trim();
+      if (!name) return;
+      const base = orig.ingredients?.[parseInt(row.dataset.idx)] || {};
+      const amtStr = qs('.cf-ing-amount', row).value.trim();
+      const origStr = base.amount == null ? '' : String(base.amount);
+      const edited = amtStr !== origStr;
+      ingredients.push({
+        ...base,
+        name,
+        amount: edited ? this._parseAmount(amtStr) : base.amount,
+        ...(edited ? { amount_max: null } : {}),
+        units: qs('.cf-ing-unit', row).value.trim() || null,
+        note: qs('.cf-ing-note', row).value.trim() || null,
+        optional: qs('.cf-ing-opt-check', row).checked,
+        sort: ingredients.length + 1,
+      });
+    });
+    const imgBox = el('imp-image');
+    return {
+      ...orig,
+      name: val('imp-name'),
+      description: val('imp-description') || null,
+      instructions: val('imp-instructions'),
+      garnish: val('imp-garnish') || null,
+      glass: val('imp-glass') || null,
+      method: val('imp-method') || null,
+      tags: val('imp-tags')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
+      images: imgBox && imgBox.checked ? [orig.images[0]] : [],
+      ingredients,
+    };
+  },
+
+  async _save() {
+    const draft = this._collect();
+    if (!draft.name) return Toast.err('Name is required');
+    const btn = el('imp-save');
+    btn.disabled = true;
+    try {
+      const d = await post('/api/import/cocktail', { draft });
+      Toast.show('Cocktail imported');
+      Modal.close();
+      Nav.go('cocktails');
+      Cocktails.load();
+      Cocktails.open(d.id);
+    } catch (e) {
+      btn.disabled = false;
+      Toast.err(e.message);
+    }
+  },
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
 
 const App = {
@@ -2588,6 +2820,7 @@ const App = {
   auth: Auth,
   shelf: Shelf,
   cocktails: Cocktails,
+  importer: Importer,
   favorites: Favorites,
   ingredients: Ingredients,
   shoppingList: ShoppingList,
