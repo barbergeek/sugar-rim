@@ -1265,7 +1265,7 @@ const Cocktails = {
       ingredient_id: i.ingredient?.id,
       name: i.ingredient?.name || i.name || '',
       amount: i.amount != null ? String(i.amount) : '',
-      units: i.units || '',
+      units: i.units || (i.amount != null ? 'whole' : ''),
       note: i.note || '',
       optional: !!i.optional,
       sort: i.sort ?? idx + 1,
@@ -1298,6 +1298,7 @@ const Cocktails = {
         <option value="oz"></option><option value="ml"></option><option value="cl"></option>
         <option value="dashes"></option><option value="barspoon"></option>
         <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
+        <option value="whole"></option>
       </datalist>
       <div class="form-group">
         <label class="form-label">Ingredients</label>
@@ -1329,7 +1330,7 @@ const Cocktails = {
       <div class="cf-ing-row" data-ingid="${ing.ingredient_id}">
         <div class="cf-ing-row-name">
           <span class="cf-ing-handle material-symbols-rounded">drag_indicator</span>
-          <span class="cf-ing-name-text">${escHtml(ing.name)}</span>
+          <button type="button" class="cf-ing-name-text cf-ing-swap" onclick="App.cocktails._startSwap(this, ${ing.ingredient_id})" title="Swap ingredient">${escHtml(ing.name)}<span class="material-symbols-rounded">swap_horiz</span></button>
           <button class="cf-ing-remove" onclick="App.cocktails._removeFormIng(${ing.ingredient_id})" title="Remove">×</button>
         </div>
         <div class="cf-ing-row-fields">
@@ -1393,6 +1394,101 @@ const Cocktails = {
     this._renderFormIngredients();
   },
 
+  // Swap a row's ingredient in place, keeping amount/units/note/order.
+  // Empty query lists fuzzy matches for the current name, best first.
+  _startSwap(btn, ingId) {
+    this._collectFormIngData();
+    const ing = this._formIngredients.find((f) => f.ingredient_id === ingId);
+    if (!ing) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'cf-ing-swap-wrap';
+    wrap.innerHTML = `<input type="text" class="text-input" autocomplete="off" placeholder="Swap ${escHtml(ing.name)} for…">
+      <ul class="autocomplete-list hidden"></ul>`;
+    btn.replaceWith(wrap);
+    const input = qs('input', wrap);
+    const ac = qs('ul', wrap);
+    let items = [];
+    let active = 0;
+    let seq = 0;
+    const taken = (id) => this._formIngredients.some((f) => f.ingredient_id === id);
+
+    const paint = () => {
+      ac.innerHTML = '';
+      if (!items.length) {
+        ac.innerHTML =
+          '<li class="autocomplete-item cf-swap-none">No matches — type to search</li>';
+      }
+      items.forEach((m, i) => {
+        const li = document.createElement('li');
+        li.className = 'autocomplete-item' + (i === active ? ' ac-active' : '');
+        li.innerHTML = `<span class="cf-swap-name">${escHtml(m.name)}</span>
+          ${m.on_shelf ? '<span class="cf-swap-meta">on shelf</span>' : ''}
+          ${m.score != null ? `<span class="cf-swap-meta">${Math.round(m.score * 100)}%</span>` : ''}`;
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          pick(m);
+        });
+        ac.appendChild(li);
+      });
+      ac.classList.remove('hidden');
+      ac.scrollIntoView({ block: 'nearest' });
+    };
+
+    const load = async (q) => {
+      const mine = ++seq;
+      try {
+        let found;
+        if (q) {
+          const d = await get('/api/ingredients', {
+            per_page: 20,
+            sort: 'name',
+            'filter[name]': q,
+          });
+          found = (d.data || []).map((i) => ({ id: i.id, name: i.name }));
+        } else {
+          const d = await post('/api/import/match', { names: [ing.name] });
+          found = d.matches?.[0] || [];
+        }
+        if (mine !== seq) return;
+        items = found.filter((m) => !taken(m.id));
+        active = 0;
+        paint();
+      } catch (e) {
+        if (mine === seq) Toast.err('Could not load matches: ' + e.message);
+      }
+    };
+
+    const pick = (m) => {
+      ing.ingredient_id = m.id;
+      ing.name = m.name;
+      this._renderFormIngredients();
+    };
+    const cancel = () => this._renderFormIngredients();
+
+    input.addEventListener(
+      'input',
+      debounce(() => load(input.value.trim()), 250)
+    );
+    input.addEventListener('blur', () => setTimeout(() => wrap.isConnected && cancel(), 150));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!items.length) return;
+        active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        paint();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[active]) pick(items[active]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancel();
+      }
+    });
+    input.focus();
+    load('');
+  },
+
   _wireFormIngSearch() {
     const input = el('cf-ing-search');
     const ac = el('cf-ing-ac');
@@ -1448,6 +1544,11 @@ const Cocktails = {
       return;
     }
     this._collectFormIngData();
+    const noUnit = this._formIngredients.find((i) => !i.units);
+    if (noUnit) {
+      Toast.err(`${noUnit.name} needs a unit (e.g. whole)`);
+      return;
+    }
     const glassVal = el('cf-glass').value;
     const methodVal = el('cf-method').value;
     const body = {
@@ -2733,7 +2834,7 @@ const Importer = {
       <div class="imp-ing-status"></div>
       <div class="cf-ing-row-fields">
         <input class="text-input cf-ing-amount" value="${escHtml(ing.amount ?? '')}" placeholder="Amt">
-        <input class="text-input cf-ing-unit" value="${escHtml(ing.units ?? '')}" placeholder="Unit" list="cf-units-list">
+        <input class="text-input cf-ing-unit" value="${escHtml(ing.units || (ing.amount != null ? 'whole' : ''))}" placeholder="Unit" list="cf-units-list">
         <input class="text-input cf-ing-note" value="${escHtml(ing.note ?? '')}" placeholder="Note">
         <label class="cf-ing-opt-label"><input class="cf-ing-opt-check" type="checkbox" ${ing.optional ? 'checked' : ''}> Opt</label>
       </div>
@@ -2794,6 +2895,7 @@ const Importer = {
         <option value="oz"></option><option value="ml"></option><option value="cl"></option>
         <option value="dashes"></option><option value="barspoon"></option>
         <option value="drops"></option><option value="topup"></option><option value="leaves"></option>
+        <option value="whole"></option>
       </datalist>
       <div class="form-group"><label class="form-label">Ingredients</label>
         <p class="imp-match-summary hidden" id="imp-match-summary"></p>
