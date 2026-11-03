@@ -34,6 +34,12 @@ def p(text):
         ("Ice", (None, None, None, "Ice", None)),
         ("Half of lime", (0.5, None, None, "Lime", None)),
         ("2 oz of gin", (2, None, "oz", "Gin", None)),
+        (
+            "One 3- to 4-inch stalk fresh rosemary",
+            (1, None, "stalk", "Fresh rosemary", "3- to 4-inch"),
+        ),
+        ("6 to 8 stalks fresh rosemary", (6, 8, "stalk", "Fresh rosemary", None)),
+        ("2 sprigs mint, for garnish", (2, None, "sprig", "Mint", "for garnish")),
     ],
 )
 def test_parse_line(line, expected):

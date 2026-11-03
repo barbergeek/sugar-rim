@@ -23,6 +23,8 @@ _UNITS = {
     "dash": "dash", "drop": "drop",
     "barspoon": "barspoon", "bar spoon": "barspoon", "bsp": "barspoon",
     "part": "part", "splash": "splash",
+    "stalk": "stalk", "sprig": "sprig", "slice": "slice", "wedge": "wedge",
+    "wheel": "wheel", "leaf": "leaf", "leaves": "leaf",
 }  # fmt: skip
 
 _CONTAINERS = ("bottle", "can", "jar", "carton", "box")
@@ -35,6 +37,10 @@ _WORD_RE = re.compile(
 )
 _UNIT_RE = re.compile(
     r"^(fl\.?\s*oz|fluid\s+ounces?|bar\s+spoons?|[A-Za-z]+)\b\.?\s*", re.IGNORECASE
+)
+_INCH_RE = re.compile(
+    rf"^((?:{_NUM})(?:\s*-?\s*(?:-|–|to)\s*{_NUM})?\s*-?\s*inch(?:es)?)\b\s*",
+    re.IGNORECASE,
 )
 _SIZE_RE = re.compile(rf"^({_NUM})\s*-?\s*([a-zA-Z]+(?:\s?oz)?)\b\.?\s*")
 
@@ -96,7 +102,13 @@ def parse_line(text):
                 amount_max = _to_num(m.group(2))
             rest = s[m.end() :].lstrip()
 
+    size = None
     if amount is not None:
+        # "One 3- to 4-inch stalk rosemary": the size goes to the note
+        im = _INCH_RE.match(rest)
+        if im:
+            size = im.group(1)
+            rest = rest[im.end() :]
         # "<n> <size>-<unit> bottle": multiply count by size
         sm = _SIZE_RE.match(rest)
         if sm and amount_max is None and _unit(sm.group(2)):
@@ -118,7 +130,7 @@ def parse_line(text):
 
     name, _, note = rest.partition(",")
     name = name.strip()
-    note = note.strip() or None
+    note = ", ".join(x for x in (size, note.strip()) if x) or None
     if name:
         name = name[0].upper() + name[1:]
     return {
