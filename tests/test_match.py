@@ -50,7 +50,21 @@ def test_limit_and_empty():
 
 def test_candidate_contained_in_query_not_confident():
     assert rank("Lime juice", pool(("Lime", False)))[0]["score"] < 0.8
-    assert rank("Orange slices", pool(("Orange", False)))[0]["score"] < 0.8
+
+
+def test_cut_and_prep_words_ignored():
+    assert rank("Orange slices", pool(("Orange", False)))[0]["score"] == 0.95
+    p = pool(("Rosemary", False), ("Apple Juice", False), ("Apple", False))
+    assert rank("Stalks fresh rosemary", p)[0]["name"] == "Rosemary"
+    assert rank("Apple slices", p)[0]["name"] == "Apple"
+
+
+def test_candidate_in_longer_query_sharing_head_word():
+    p = pool(("Maple syrup", False), ("Syrups", False), ("Simple Syrup", False))
+    res = rank("Grade A dark amber maple syrup", p)
+    assert res[0]["name"] == "Maple syrup" and res[0]["score"] >= 0.8
+    # a one-word parent category is suggested but not confident
+    assert next(r for r in res if r["name"] == "Syrups")["score"] < 0.8
 
 
 def test_non_latin_and_non_decomposable_letters():

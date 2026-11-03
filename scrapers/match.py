@@ -10,7 +10,13 @@ from difflib import SequenceMatcher
 MIN_SCORE = 0.5
 SHELF_BONUS = 0.03  # breaks near-ties only
 SYNONYMS = {"nectar": "syrup"}
-FILLER = {"fresh", "freshly", "squeezed", "whole"}
+# Prep, cut and quality words that don't change which ingredient it is.
+FILLER = {
+    "fresh", "freshly", "squeezed", "whole", "slice", "wedge", "wheel", "sprig",
+    "stalk", "stem", "leaf", "leave", "chunk", "large", "small", "medium",
+    "grade", "quality", "good", "ripe", "chilled", "cold", "organic",
+    "a", "an", "of", "the", "inch",
+}  # fmt: skip
 
 
 def _singular(tok):
@@ -28,7 +34,7 @@ def normalize(name):
 
 def _canonical(tokens):
     """Map synonyms and drop filler words ("fresh", "whole")."""
-    out = [SYNONYMS.get(t, t) for t in tokens if t not in FILLER]
+    out = [SYNONYMS.get(t, t) for t in tokens if t not in FILLER and not t.isdigit()]
     return out or tokens
 
 
@@ -43,6 +49,8 @@ def _score(q, c):
     qs, cs = set(q), set(c)
     if qs <= cs:  # "bourbon" in "bourbon whiskey"
         return max(0.6, 0.95 - 0.05 * (len(c) - len(q)))
+    if cs <= qs and q[-1] == c[-1]:  # "maple syrup" in "dark amber maple syrup"
+        return {1: 0.7, 2: 0.85}.get(len(cs), 0.9)
     ratio = SequenceMatcher(None, " ".join(q), " ".join(c)).ratio()
     overlap = len(qs & cs) / len(qs | cs)
     return 0.6 * ratio + 0.4 * overlap
