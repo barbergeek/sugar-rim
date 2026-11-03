@@ -56,3 +56,15 @@ def test_candidate_contained_in_query_not_confident():
 def test_non_latin_and_non_decomposable_letters():
     assert rank("Øl", pool(("øl", False)))[0]["score"] == 1.0
     assert rank("Водка", pool(("водка", False)))[0]["score"] == 1.0
+
+
+def test_synonym_and_filler_are_soft_confident():
+    p = pool(("Agave Syrup", False), ("Lime Juice", True), ("Lime", False))
+    agave = rank("Agave nectar", p)[0]
+    assert agave["name"] == "Agave Syrup" and agave["score"] == 0.95
+    lime = rank("Fresh lime juice", p)[0]
+    assert lime["name"] == "Lime Juice" and lime["score"] == 0.95
+
+
+def test_filler_only_name_still_matches_itself():
+    assert rank("Fresh", pool(("Fresh", False)))[0]["score"] == 1.0
