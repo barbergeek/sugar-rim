@@ -542,9 +542,14 @@ def import_scrape():
     body = request.get_json(silent=True) or {}
     url = (body.get("url") or "").strip()
     html = body.get("html")
-    if not url:
+    if not url and html:
+        # Pasted source: the URL is optional; take it from the page if present.
+        url = scrapers.page_url(html) or ""
+        if url and not _is_public_http_url(url):
+            url = ""
+    elif not url:
         return jsonify({"error": "url required"}), 400
-    if not _is_public_http_url(url):
+    elif not _is_public_http_url(url):
         return jsonify({"error": "URL not allowed"}), 400
 
     if not html:

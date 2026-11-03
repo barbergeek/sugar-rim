@@ -689,6 +689,104 @@ const Shelf = {
   },
 };
 
+// ── Ingredient picker ──────────────────────────────────────────────────────
+
+// Inline search that temporarily replaces `anchor`. The empty query lists
+// fuzzy matches for `name`, best first; typing searches all ingredients.
+const IngredientPicker = {
+  open(anchor, { name, placeholder, exclude = () => false, onPick }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cf-ing-swap-wrap';
+    wrap.innerHTML = `<input type="text" class="text-input" autocomplete="off" placeholder="${escHtml(placeholder)}">
+      <ul class="autocomplete-list hidden"></ul>`;
+    anchor.style.display = 'none';
+    anchor.after(wrap);
+    const input = qs('input', wrap);
+    const ac = qs('ul', wrap);
+    let items = [];
+    let active = 0;
+    let seq = 0;
+    let done = false;
+
+    const finish = (m) => {
+      if (done) return;
+      done = true;
+      wrap.remove();
+      anchor.style.display = '';
+      if (m) onPick(m);
+    };
+
+    const paint = () => {
+      ac.innerHTML = '';
+      if (!items.length) {
+        ac.innerHTML =
+          '<li class="autocomplete-item cf-swap-none">No matches — type to search</li>';
+      }
+      items.forEach((m, i) => {
+        const li = document.createElement('li');
+        li.className = 'autocomplete-item' + (i === active ? ' ac-active' : '');
+        li.innerHTML = `<span class="cf-swap-name">${escHtml(m.name)}</span>
+          ${m.on_shelf ? '<span class="cf-swap-meta">on shelf</span>' : ''}
+          ${m.score != null ? `<span class="cf-swap-meta">${Math.round(m.score * 100)}%</span>` : ''}`;
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          finish(m);
+        });
+        ac.appendChild(li);
+      });
+      ac.classList.remove('hidden');
+      ac.scrollIntoView({ block: 'nearest' });
+    };
+
+    const load = async (q) => {
+      const mine = ++seq;
+      try {
+        let found;
+        if (q) {
+          const d = await get('/api/ingredients', {
+            per_page: 20,
+            sort: 'name',
+            'filter[name]': q,
+          });
+          found = (d.data || []).map((i) => ({ id: i.id, name: i.name }));
+        } else {
+          const d = await post('/api/import/match', { names: [name] });
+          found = d.matches?.[0] || [];
+        }
+        if (mine !== seq || done) return;
+        items = found.filter((m) => !exclude(m.id));
+        active = 0;
+        paint();
+      } catch (e) {
+        if (mine === seq) Toast.err('Could not load matches: ' + e.message);
+      }
+    };
+
+    input.addEventListener(
+      'input',
+      debounce(() => load(input.value.trim()), 250)
+    );
+    input.addEventListener('blur', () => setTimeout(() => finish(null), 150));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!items.length) return;
+        active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        paint();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[active]) finish(items[active]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(null);
+      }
+    });
+    input.focus();
+    load('');
+  },
+};
+
 // ── Cocktails ──────────────────────────────────────────────────────────────
 
 const Cocktails = {
@@ -1395,98 +1493,20 @@ const Cocktails = {
   },
 
   // Swap a row's ingredient in place, keeping amount/units/note/order.
-  // Empty query lists fuzzy matches for the current name, best first.
   _startSwap(btn, ingId) {
     this._collectFormIngData();
     const ing = this._formIngredients.find((f) => f.ingredient_id === ingId);
     if (!ing) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'cf-ing-swap-wrap';
-    wrap.innerHTML = `<input type="text" class="text-input" autocomplete="off" placeholder="Swap ${escHtml(ing.name)} for…">
-      <ul class="autocomplete-list hidden"></ul>`;
-    btn.replaceWith(wrap);
-    const input = qs('input', wrap);
-    const ac = qs('ul', wrap);
-    let items = [];
-    let active = 0;
-    let seq = 0;
-    const taken = (id) => this._formIngredients.some((f) => f.ingredient_id === id);
-
-    const paint = () => {
-      ac.innerHTML = '';
-      if (!items.length) {
-        ac.innerHTML =
-          '<li class="autocomplete-item cf-swap-none">No matches — type to search</li>';
-      }
-      items.forEach((m, i) => {
-        const li = document.createElement('li');
-        li.className = 'autocomplete-item' + (i === active ? ' ac-active' : '');
-        li.innerHTML = `<span class="cf-swap-name">${escHtml(m.name)}</span>
-          ${m.on_shelf ? '<span class="cf-swap-meta">on shelf</span>' : ''}
-          ${m.score != null ? `<span class="cf-swap-meta">${Math.round(m.score * 100)}%</span>` : ''}`;
-        li.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          pick(m);
-        });
-        ac.appendChild(li);
-      });
-      ac.classList.remove('hidden');
-      ac.scrollIntoView({ block: 'nearest' });
-    };
-
-    const load = async (q) => {
-      const mine = ++seq;
-      try {
-        let found;
-        if (q) {
-          const d = await get('/api/ingredients', {
-            per_page: 20,
-            sort: 'name',
-            'filter[name]': q,
-          });
-          found = (d.data || []).map((i) => ({ id: i.id, name: i.name }));
-        } else {
-          const d = await post('/api/import/match', { names: [ing.name] });
-          found = d.matches?.[0] || [];
-        }
-        if (mine !== seq) return;
-        items = found.filter((m) => !taken(m.id));
-        active = 0;
-        paint();
-      } catch (e) {
-        if (mine === seq) Toast.err('Could not load matches: ' + e.message);
-      }
-    };
-
-    const pick = (m) => {
-      ing.ingredient_id = m.id;
-      ing.name = m.name;
-      this._renderFormIngredients();
-    };
-    const cancel = () => this._renderFormIngredients();
-
-    input.addEventListener(
-      'input',
-      debounce(() => load(input.value.trim()), 250)
-    );
-    input.addEventListener('blur', () => setTimeout(() => wrap.isConnected && cancel(), 150));
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (!items.length) return;
-        active = (active + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
-        paint();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (items[active]) pick(items[active]);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        cancel();
-      }
+    IngredientPicker.open(btn, {
+      name: ing.name,
+      placeholder: `Swap ${ing.name} for…`,
+      exclude: (id) => this._formIngredients.some((f) => f.ingredient_id === id),
+      onPick: (m) => {
+        ing.ingredient_id = m.id;
+        ing.name = m.name;
+        this._renderFormIngredients();
+      },
     });
-    input.focus();
-    load('');
   },
 
   _wireFormIngSearch() {
@@ -2743,7 +2763,7 @@ const Importer = {
   _renderInput() {
     Modal.open(
       'Import Recipe',
-      `<div class="form-group"><label class="form-label">Recipe URL *</label>
+      `<div class="form-group"><label class="form-label">Recipe URL <span id="imp-url-opt" class="${this._pasteMode ? '' : 'hidden'}">(optional with pasted source)</span></label>
         <input class="text-input" id="imp-url" type="url" placeholder="https://…"></div>
       <label class="cf-ing-opt-label" style="margin-bottom:8px">
         <input type="checkbox" id="imp-paste-toggle" ${this._pasteMode ? 'checked' : ''}
@@ -2773,6 +2793,7 @@ const Importer = {
   _togglePaste(on) {
     this._pasteMode = on;
     el('imp-html-wrap').classList.toggle('hidden', !on);
+    el('imp-url-opt').classList.toggle('hidden', !on);
   },
 
   async _scrape() {
@@ -2780,7 +2801,7 @@ const Importer = {
     const html = this._pasteMode ? el('imp-html').value : '';
     this._url = url;
     this._html = html;
-    if (!url) return Toast.err('URL is required');
+    if (!url && !this._pasteMode) return Toast.err('URL is required');
     if (this._pasteMode && !html.trim()) return Toast.err('Paste the page HTML');
     const btn = el('imp-go');
     const live = () => btn.isConnected && !el('modal-overlay').classList.contains('hidden');
@@ -2831,35 +2852,57 @@ const Importer = {
     );
   },
 
-  _matchSelect(matches) {
-    if (!matches || !matches.length) return '';
+  _matchSelect(matches = []) {
     const pre = matches.findIndex((m) => m.score >= 0.8);
-    return `<select class="text-input imp-ing-match" onchange="App.importer._mark(this.closest('.cf-ing-row'))">
+    return `<select class="text-input imp-ing-match" onchange="App.importer._matchChanged(this)">
       <option value="">Use name as typed</option>${matches
         .map(
           (m, i) =>
             `<option value="${escHtml(m.name)}" data-score="${m.score}" ${i === pre ? 'selected' : ''}>${escHtml(m.name)}${m.on_shelf ? ' · on shelf' : ''}</option>`
         )
-        .join('')}</select>`;
+        .join('')}
+      <option value="__search">Search all ingredients…</option></select>`;
+  },
+
+  // "Search all ingredients…" opens the picker; the pick becomes a selected option.
+  _matchChanged(sel) {
+    const row = sel.closest('.cf-ing-row');
+    if (sel.value !== '__search') return this._mark(row);
+    sel.value = sel.dataset.prev || '';
+    IngredientPicker.open(sel, {
+      name: qs('.imp-ing-name', row).value.trim(),
+      placeholder: 'Search your ingredients…',
+      onPick: (m) => {
+        let opt = [...sel.options].find((o) => o.value === m.name);
+        if (!opt) {
+          opt = new Option(m.name, m.name);
+          sel.add(opt, sel.options[sel.options.length - 1]);
+        }
+        opt.dataset.picked = '1';
+        sel.value = m.name;
+        this._mark(row);
+      },
+    });
   },
 
   // Flag each row as an exact match, a soft (fuzzy) match, or a new ingredient.
   _mark(row) {
     const sel = qs('.imp-ing-match', row);
+    if (sel) sel.dataset.prev = sel.value;
     const opt = sel && sel.value ? sel.selectedOptions[0] : null;
     const score = opt ? parseFloat(opt.dataset.score) : null;
     const typed = qs('.imp-ing-name', row).value.trim();
-    const state = !opt ? 'new' : score >= 1 ? 'exact' : 'soft';
+    const state = !opt ? 'new' : opt.dataset.picked || score >= 1 ? 'exact' : 'soft';
     row.classList.remove('imp-exact', 'imp-soft', 'imp-new');
     row.classList.add(`imp-${state}`);
     qs('.imp-ing-status', row).innerHTML =
       state === 'exact'
-        ? '✓ Existing ingredient'
+        ? opt.dataset.picked
+          ? `✓ Your pick: “${escHtml(typed)}” will be saved as “${escHtml(opt.value)}”`
+          : '✓ Existing ingredient'
         : state === 'soft'
           ? `≈ Soft match (${Math.round(score * 100)}%): “${escHtml(typed)}” will be saved as “${escHtml(opt.value)}”`
-          : sel
-            ? '+ New ingredient — or pick a suggestion above'
-            : '+ New ingredient';
+          : '+ New ingredient — or choose an existing one above';
     this._summary();
   },
 

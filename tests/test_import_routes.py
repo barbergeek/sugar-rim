@@ -275,3 +275,18 @@ def test_match_ba_errors_502(client, monkeypatch):
     monkeypatch.setattr(requests, "get", boom)
     r = client.post("/api/import/match", json={"names": ["a"]})
     assert r.status_code == 502 and "error" in r.json
+
+
+def test_pasted_html_url_optional(client, monkeypatch):
+    monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("no fetch"))
+    canon = f'<link rel="canonical" href="{URL}">' + FIXTURE
+    r = client.post("/api/import/scrape", json={"html": canon})
+    assert r.json["scraper"] == "foodnetwork" and r.json["data"]["source"] == URL
+    # no canonical: generic scraper, no source
+    r = client.post("/api/import/scrape", json={"html": FIXTURE})
+    assert r.status_code == 200 and not r.json["data"]["source"]
+    # a private canonical URL is dropped, not used
+    bad = '<link rel="canonical" href="http://private/x">' + FIXTURE
+    r = client.post("/api/import/scrape", json={"html": bad})
+    assert r.status_code == 200 and not r.json["data"]["source"]
+    assert client.post("/api/import/scrape", json={}).status_code == 400
