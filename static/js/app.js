@@ -2003,6 +2003,31 @@ const Ingredients = {
   },
 
   async _delete(id) {
+    let used;
+    try {
+      used = await get(`/api/ingredients/${id}/cocktails`, { per_page: 10 });
+    } catch (e) {
+      Toast.err('Could not check which recipes use this ingredient: ' + e.message);
+      return;
+    }
+    const list = used.data || [];
+    if (list.length) {
+      const total = used.meta?.total ?? list.length;
+      const more = total - list.length;
+      Modal.open(
+        'Ingredient in use',
+        `<p>Used in ${total} recipe${total === 1 ? '' : 's'}. Swap or remove it there before deleting.</p>
+        <ul class="in-use-list">${list
+          .map(
+            (c) =>
+              `<li><a href="#" onclick="event.preventDefault();App.modal.close();App.cocktails.open(${parseInt(c.id)})">${escHtml(c.name)}</a></li>`
+          )
+          .join('')}</ul>
+        ${more > 0 ? `<p class="in-use-more">…and ${more} more</p>` : ''}`,
+        `<button class="btn btn-ghost" onclick="App.modal.close()">Close</button>`
+      );
+      return;
+    }
     if (!confirm('Delete this ingredient?')) return;
     try {
       await del(`/api/ingredients/${id}`);
