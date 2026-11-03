@@ -2003,27 +2003,48 @@ const Ingredients = {
   },
 
   async _delete(id) {
-    let used;
+    let used, children;
     try {
-      used = await get(`/api/ingredients/${id}/cocktails`, { per_page: 10 });
+      [used, children] = await Promise.all([
+        get(`/api/ingredients/${id}/cocktails`, { per_page: 10 }),
+        get('/api/ingredients', { 'filter[parent_ingredient_id]': id, per_page: 10, sort: 'name' }),
+      ]);
     } catch (e) {
-      Toast.err('Could not check which recipes use this ingredient: ' + e.message);
+      Toast.err('Could not check whether this ingredient is in use: ' + e.message);
       return;
     }
-    const list = used.data || [];
-    if (list.length) {
-      const total = used.meta?.total ?? list.length;
+    // One "Used in N …" block per blocker, each with a short linked list.
+    const section = (res, noun, fix, onclick) => {
+      const list = res.data || [];
+      if (!list.length) return '';
+      const total = res.meta?.total ?? list.length;
       const more = total - list.length;
-      Modal.open(
-        'Ingredient in use',
-        `<p>Used in ${total} recipe${total === 1 ? '' : 's'}. Swap or remove it there before deleting.</p>
+      return `<p>${noun(total)}. ${fix}</p>
         <ul class="in-use-list">${list
           .map(
-            (c) =>
-              `<li><a href="#" onclick="event.preventDefault();App.modal.close();App.cocktails.open(${parseInt(c.id)})">${escHtml(c.name)}</a></li>`
+            (x) =>
+              `<li><a href="#" onclick="event.preventDefault();${onclick(parseInt(x.id))}">${escHtml(x.name)}</a></li>`
           )
           .join('')}</ul>
-        ${more > 0 ? `<p class="in-use-more">…and ${more} more</p>` : ''}`,
+        ${more > 0 ? `<p class="in-use-more">…and ${more} more</p>` : ''}`;
+    };
+    const blockers =
+      section(
+        children,
+        (n) => `Parent of ${n} sub-ingredient${n === 1 ? '' : 's'}`,
+        'Delete them first.',
+        (cid) => `App.ingredients.showEdit(${cid})`
+      ) +
+      section(
+        used,
+        (n) => `Used in ${n} recipe${n === 1 ? '' : 's'}`,
+        'Swap or remove it there before deleting.',
+        (cid) => `App.modal.close();App.cocktails.open(${cid})`
+      );
+    if (blockers) {
+      Modal.open(
+        'Ingredient in use',
+        blockers,
         `<button class="btn btn-ghost" onclick="App.modal.close()">Close</button>`
       );
       return;
