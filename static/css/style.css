@@ -884,6 +884,19 @@ select.text-input option {
   font-size: 0.9rem;
 }
 
+.in-use-list {
+  margin: 10px 0;
+  padding-left: 20px;
+  line-height: 1.8;
+}
+.in-use-list a {
+  color: var(--accent);
+}
+.in-use-more {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
 .cf-ing-swap {
   display: flex;
   align-items: center;
