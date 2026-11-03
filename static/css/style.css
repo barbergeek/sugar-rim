@@ -884,6 +884,53 @@ select.text-input option {
   font-size: 0.9rem;
 }
 
+.cf-ing-swap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cf-ing-swap .material-symbols-rounded {
+  font-size: 1rem;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+.cf-ing-swap:hover,
+.cf-ing-swap:hover .material-symbols-rounded {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.cf-ing-swap-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.cf-ing-swap-wrap .text-input {
+  width: 100%;
+}
+
+.cf-swap-name {
+  flex: 1;
+}
+
+.cf-swap-meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.cf-swap-none {
+  color: var(--text-dim);
+  cursor: default;
+}
+
 .imp-ing-name {
   flex: 1;
   min-width: 0;
