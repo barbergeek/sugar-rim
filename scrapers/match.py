@@ -9,6 +9,8 @@ from difflib import SequenceMatcher
 
 MIN_SCORE = 0.5
 SHELF_BONUS = 0.03  # breaks near-ties only
+SYNONYMS = {"nectar": "syrup"}
+FILLER = {"fresh", "freshly", "squeezed", "whole"}
 
 
 def _singular(tok):
@@ -24,11 +26,20 @@ def normalize(name):
     return [_singular(t) for t in re.findall(r"[^\W_]+", text)]
 
 
+def _canonical(tokens):
+    """Map synonyms and drop filler words ("fresh", "whole")."""
+    out = [SYNONYMS.get(t, t) for t in tokens if t not in FILLER]
+    return out or tokens
+
+
 def _score(q, c):
     if not q or not c:
         return 0.0
     if q == c:
         return 1.0
+    q, c = _canonical(q), _canonical(c)
+    if q == c:  # "agave nectar" ~ "agave syrup": confident, but not exact
+        return 0.95
     qs, cs = set(q), set(c)
     if qs <= cs:  # "bourbon" in "bourbon whiskey"
         return max(0.6, 0.95 - 0.05 * (len(c) - len(q)))
