@@ -815,6 +815,16 @@ select.text-input option {
   gap: 10px;
   flex-wrap: wrap;
 }
+.ing-ai-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+}
+.ing-ai-row textarea {
+  flex: 1;
+  resize: vertical;
+}
 .ing-img-file-label {
   display: inline-flex;
   align-items: center;

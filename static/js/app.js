@@ -233,6 +233,19 @@ const Nav = {
   },
 };
 
+// ── AI image generation ────────────────────────────────────────────────────
+
+const AiImage = {
+  async generate(prompt) {
+    const d = await post('/api/ai/image', { prompt });
+    return d.image;
+  },
+
+  async toBlob(dataUrl) {
+    return (await fetch(dataUrl)).blob();
+  },
+};
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 const Settings = {
@@ -279,6 +292,31 @@ const Settings = {
           </div>
         </div>
         <hr>
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">AI Images</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Provider
+              <select id="cfg-ai-provider" class="text-input" onchange="App.settings._syncAi()">
+                <option value="">None</option>
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="compatible">OpenAI-compatible</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Model
+              <input type="text" id="cfg-ai-model" class="text-input">
+            </label>
+            <label id="cfg-ai-base-wrap" style="display:none;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Base URL
+              <input type="url" id="cfg-ai-base" class="text-input" placeholder="http://192.168.1.x:8080/v1">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">API key
+              <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off">
+            </label>
+          </div>
+          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.saveAi()">Save AI Settings</button>
+          <div id="cfg-ai-message" class="cfg-status" style="margin-top:6px"></div>
+        </div>
+        <hr>
         <div style="display:flex;flex-direction:column;gap:4px">
           <div id="server-version" class="header-subtitle">API Version: Loading…</div>
           <div id="app-version" class="header-subtitle">App Version: Loading…</div>
@@ -290,6 +328,11 @@ const Settings = {
     try {
       const cfg = await get('/config');
       el('cfg-url').value = cfg.api_url || '';
+      el('cfg-ai-provider').value = cfg.ai_provider || '';
+      el('cfg-ai-model').value = cfg.ai_model || '';
+      el('cfg-ai-base').value = cfg.ai_base_url || '';
+      el('cfg-ai-key').placeholder = cfg.ai_key_set ? '•••• (saved)' : '';
+      this._syncAi();
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
       }
@@ -336,6 +379,41 @@ const Settings = {
       v.textContent = `API Version: ${d.data?.version || 'Unknown'}`;
     } catch (e) {
       v.textContent = 'API Version: Error';
+    }
+  },
+
+  _syncAi() {
+    const p = el('cfg-ai-provider').value;
+    el('cfg-ai-base-wrap').style.display = p === 'compatible' ? 'flex' : 'none';
+    const defaults = { openai: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' };
+    el('cfg-ai-model').placeholder = defaults[p] || (p === 'compatible' ? 'required' : '');
+  },
+
+  async saveAi() {
+    const msg = el('cfg-ai-message');
+    const provider = el('cfg-ai-provider').value;
+    const model = el('cfg-ai-model').value.trim();
+    const base = el('cfg-ai-base').value.trim();
+    if (provider === 'compatible' && (!base || !model)) {
+      msg.textContent = '✗ Base URL and model are required';
+      msg.className = 'cfg-status err';
+      return;
+    }
+    const keyInput = el('cfg-ai-key');
+    try {
+      await post('/config', {
+        ai_provider: provider,
+        ai_model: model,
+        ai_base_url: base,
+        ai_api_key: keyInput.value,
+      });
+      if (keyInput.value) keyInput.placeholder = '•••• (saved)';
+      keyInput.value = '';
+      msg.textContent = '✓ Saved';
+      msg.className = 'cfg-status ok';
+    } catch (e) {
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
     }
   },
 
@@ -1918,7 +1996,14 @@ const Ingredients = {
           <input class="text-input ing-img-url" id="if-image-url" placeholder="Paste image URL…"
                  oninput="App.ingredients._previewUrl(this.value)">
         </div>
+        <div class="ing-ai-row">
+          <textarea class="text-input" id="if-ai-prompt" rows="2"
+                    placeholder="AI image prompt…">${i ? escHtml(this._defaultPrompt(i.name, i.description)) : ''}</textarea>
+          <button class="btn btn-ghost" id="if-ai-btn" onclick="App.ingredients._generate()">✨ Generate</button>
+        </div>
       </div>`;
+    this._aiReq = null;
+    this._aiImage = null;
     Modal.open(
       title,
       `<div class="form-group"><label class="form-label">Name *</label>
@@ -1937,11 +2022,61 @@ const Ingredients = {
     el('if-name').focus();
   },
 
+  _defaultPrompt(name, description) {
+    const first = (description || '').trim().split(/(?<=[.!?])\s/)[0];
+    const subject = [name || 'this ingredient', first].filter(Boolean).join(', ');
+    return `Product photograph of ${subject.replace(/[.!?]+$/, '')}. Isolated on a plain dark background, soft studio lighting, no text or labels.`;
+  },
+
+  // The empty placeholder is a div; swap it for an img so a preview can show.
+  _previewEl() {
+    let preview = el('if-img-preview');
+    if (preview && preview.tagName !== 'IMG') {
+      const img = document.createElement('img');
+      img.id = 'if-img-preview';
+      img.alt = '';
+      preview.replaceWith(img);
+      preview = img;
+    }
+    return preview;
+  },
+
+  async _generate() {
+    let prompt = el('if-ai-prompt').value.trim();
+    if (!prompt) {
+      prompt = this._defaultPrompt(el('if-name').value.trim(), el('if-desc').value);
+      el('if-ai-prompt').value = prompt;
+    }
+    const req = (this._aiReq = {});
+    const stale = () => this._aiReq !== req || !el('if-ai-prompt');
+    const btn = el('if-ai-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      const dataUrl = await AiImage.generate(prompt);
+      if (stale()) return;
+      el('if-image-file').value = '';
+      el('if-image-url').value = '';
+      this._aiImage = dataUrl;
+      const preview = this._previewEl();
+      preview.src = dataUrl;
+      preview.className = 'ing-form-img-preview';
+    } catch (e) {
+      if (!stale()) Toast.err(e.message);
+    } finally {
+      if (!stale()) {
+        btn.disabled = false;
+        btn.textContent = '✨ Generate';
+      }
+    }
+  },
+
   _previewFile(input) {
     const file = input.files?.[0];
     if (!file) return;
     el('if-image-url').value = '';
-    const preview = el('if-img-preview');
+    this._aiImage = null;
+    const preview = this._previewEl();
     if (preview) {
       preview.src = URL.createObjectURL(file);
       preview.className = 'ing-form-img-preview';
@@ -1951,8 +2086,10 @@ const Ingredients = {
   _previewUrl(url) {
     const fileInput = el('if-image-file');
     if (fileInput) fileInput.value = '';
-    const preview = el('if-img-preview');
-    if (!preview || !url.trim()) return;
+    if (!url.trim()) return;
+    this._aiImage = null;
+    const preview = this._previewEl();
+    if (!preview) return;
     preview.src = url.trim();
     preview.className = 'ing-form-img-preview';
   },
@@ -1968,9 +2105,16 @@ const Ingredients = {
     const fileInput = el('if-image-file');
     const urlInput = el('if-image-url');
 
-    if (fileInput?.files?.[0]) {
+    const upload =
+      fileInput?.files?.[0] || (this._aiImage && (await AiImage.toBlob(this._aiImage)));
+    if (upload) {
       const fd = new FormData();
-      fd.append('images[0][image]', fileInput.files[0]);
+      fd.append(
+        'images[0][image]',
+        upload,
+        upload.name ||
+          `ai-image.${(upload.type || '').split('/')[1]?.replace('jpeg', 'jpg') || 'png'}`
+      );
       fd.append('images[0][sort]', '1');
       try {
         const r = await fetch('/api/images', { method: 'POST', body: fd });
