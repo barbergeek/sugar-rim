@@ -236,13 +236,18 @@ const Nav = {
 // ── AI image generation ────────────────────────────────────────────────────
 
 const AiImage = {
-  async generate(prompt) {
-    const d = await post('/api/ai/image', { prompt });
+  async generate(prompt, transparent = false) {
+    const d = await post('/api/ai/image', { prompt, transparent });
     return d.image;
   },
 
-  async toBlob(dataUrl) {
-    return (await fetch(dataUrl)).blob();
+  // Decoded by hand: fetch(dataUrl) is blocked by the CSP's connect-src.
+  toBlob(dataUrl) {
+    const [head, b64] = dataUrl.split(',');
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: head.match(/^data:([^;,]+)/)?.[1] || 'image/png' });
   },
 };
 
@@ -296,22 +301,24 @@ const Settings = {
           <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">AI Images</div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Provider
-              <select id="cfg-ai-provider" class="text-input" onchange="App.settings._syncAi()">
+              <select id="cfg-ai-provider" class="text-input" onchange="App.settings._providerChanged()">
                 <option value="">None</option>
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="compatible">OpenAI-compatible</option>
               </select>
             </label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Model
-              <input type="text" id="cfg-ai-model" class="text-input">
-            </label>
             <label id="cfg-ai-base-wrap" style="display:none;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Base URL
-              <input type="url" id="cfg-ai-base" class="text-input" placeholder="http://192.168.1.x:8080/v1">
+              <input type="url" id="cfg-ai-base" class="text-input" placeholder="http://192.168.1.x:8080/v1" onchange="App.settings._loadModels()">
             </label>
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">API key
-              <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off">
+              <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off" onchange="App.settings._loadModels()">
             </label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Model
+              <select id="cfg-ai-model-select" class="text-input" style="display:none"></select>
+              <input type="text" id="cfg-ai-model" class="text-input">
+            </label>
+            <div id="cfg-ai-model-msg" class="cfg-status"></div>
           </div>
           <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.saveAi()">Save AI Settings</button>
           <div id="cfg-ai-message" class="cfg-status" style="margin-top:6px"></div>
@@ -333,6 +340,7 @@ const Settings = {
       el('cfg-ai-base').value = cfg.ai_base_url || '';
       el('cfg-ai-key').placeholder = cfg.ai_key_set ? '•••• (saved)' : '';
       this._syncAi();
+      if (cfg.ai_provider) this._loadModels();
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
       }
@@ -385,14 +393,71 @@ const Settings = {
   _syncAi() {
     const p = el('cfg-ai-provider').value;
     el('cfg-ai-base-wrap').style.display = p === 'compatible' ? 'flex' : 'none';
-    const defaults = { openai: 'gpt-image-1', gemini: 'gemini-2.5-flash-image' };
+    const defaults = { openai: 'gpt-image-2', gemini: 'gemini-2.5-flash-image' };
     el('cfg-ai-model').placeholder = defaults[p] || (p === 'compatible' ? 'required' : '');
+  },
+
+  _providerChanged() {
+    el('cfg-ai-model').value = '';
+    el('cfg-ai-model-select').style.display = 'none';
+    this._syncAi();
+    this._loadModels();
+  },
+
+  _aiModel() {
+    const sel = el('cfg-ai-model-select');
+    return sel.style.display === 'none' ? el('cfg-ai-model').value.trim() : sel.value;
+  },
+
+  // Fill the model dropdown with the provider's image models; fall back to the
+  // text box (with the reason) when the list can't be loaded.
+  async _loadModels() {
+    const provider = el('cfg-ai-provider').value;
+    const sel = el('cfg-ai-model-select');
+    const input = el('cfg-ai-model');
+    const msg = el('cfg-ai-model-msg');
+    const current = this._aiModel();
+    const req = (this._modelsReq = {});
+    const stale = () => req !== this._modelsReq || !el('cfg-ai-model-select');
+    const useInput = (text) => {
+      sel.style.display = 'none';
+      input.style.display = '';
+      input.value = current;
+      msg.textContent = text;
+      msg.className = 'cfg-status' + (text ? ' err' : '');
+    };
+    if (!provider) return useInput('');
+    msg.textContent = 'Loading models…';
+    msg.className = 'cfg-status';
+    try {
+      const d = await post('/api/ai/models', {
+        provider,
+        base_url: el('cfg-ai-base').value.trim(),
+        api_key: el('cfg-ai-key').value,
+      });
+      if (stale()) return;
+      const models = d.models || [];
+      const pick = current || d.default;
+      if (pick && !models.includes(pick)) models.unshift(pick);
+      if (!models.length) return useInput('No models found — type one.');
+      sel.innerHTML = models
+        .map(
+          (m) =>
+            `<option value="${escHtml(m)}" ${m === pick ? 'selected' : ''}>${escHtml(m)}</option>`
+        )
+        .join('');
+      sel.style.display = '';
+      input.style.display = 'none';
+      msg.textContent = '';
+    } catch (e) {
+      if (!stale()) useInput(e.message);
+    }
   },
 
   async saveAi() {
     const msg = el('cfg-ai-message');
     const provider = el('cfg-ai-provider').value;
-    const model = el('cfg-ai-model').value.trim();
+    const model = this._aiModel();
     const base = el('cfg-ai-base').value.trim();
     if (provider === 'compatible' && (!base || !model)) {
       msg.textContent = '✗ Base URL and model are required';
@@ -2025,7 +2090,7 @@ const Ingredients = {
   _defaultPrompt(name, description) {
     const first = (description || '').trim().split(/(?<=[.!?])\s/)[0];
     const subject = [name || 'this ingredient', first].filter(Boolean).join(', ');
-    return `Product photograph of ${subject.replace(/[.!?]+$/, '')}. Isolated on a plain dark background, soft studio lighting, no text or labels.`;
+    return `Product photograph of ${subject.replace(/[.!?]+$/, '')}, including its key ingredient or two. Isolated on a plain pure white background, no shadow, soft even lighting, no text or labels.`;
   },
 
   // The empty placeholder is a div; swap it for an img so a preview can show.
@@ -2053,7 +2118,7 @@ const Ingredients = {
     btn.disabled = true;
     btn.textContent = 'Generating…';
     try {
-      const dataUrl = await AiImage.generate(prompt);
+      const dataUrl = await AiImage.generate(prompt, true);
       if (stale()) return;
       el('if-image-file').value = '';
       el('if-image-url').value = '';
