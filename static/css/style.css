@@ -825,6 +825,31 @@ select.text-input option {
   flex: 1;
   resize: vertical;
 }
+.ai-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #3a1e1e;
+  border: 1px solid #7f1d1d;
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 0.85rem;
+}
+.ai-error span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.ai-error-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
 .ing-img-file-label {
   display: inline-flex;
   align-items: center;

@@ -239,13 +239,20 @@ const AiImage = {
   DEFAULTS: {
     ingredient:
       'Product photograph of {name}, {description}, including its key ingredient or two. Isolated on a plain pure white background, no shadow, soft even lighting, no text or labels.',
+    cocktail:
+      'Studio photograph of a {name} cocktail[ in a {glass}][, made with {ingredients}][, garnished with {garnish}]. Plain dark background, soft studio lighting, no text or labels.',
   },
   templates: {}, // saved overrides from /config; empty means the default
 
-  // Fill {placeholders}, then tidy the punctuation an empty one leaves behind.
+  // Drop [optional segments] whose placeholders are empty (else unwrap them),
+  // fill {placeholders}, then tidy the punctuation an empty one leaves behind.
   render(kind, vars) {
     const tpl = this.templates[kind] || this.DEFAULTS[kind];
+    const empty = (k) => !Object.hasOwn(vars, k) || !String(vars[k]).trim();
     return tpl
+      .replace(/\[([^[\]]*)\]/g, (m, seg) =>
+        [...seg.matchAll(/\{(\w+)\}/g)].some(([, k]) => empty(k)) ? '' : seg
+      )
       .replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? vars[k] : m))
       .replace(/,\s*(?=[,.])/g, '')
       .replace(/^[\s,]+/, '')
@@ -266,6 +273,169 @@ const AiImage = {
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return new Blob([bytes], { type: head.match(/^data:([^;,]+)/)?.[1] || 'image/png' });
+  },
+};
+
+// ── Form image field (file / URL / AI) ─────────────────────────────────────
+
+// Shared by the ingredient (`if`) and cocktail (`cf`) forms; state is per prefix.
+const ImageField = {
+  _state: {},
+
+  // Returns the markup and resets this prefix's state. buildPrompt() is used
+  // when Generate is pressed with an empty prompt.
+  html(p, { images, alt, prompt, transparent, buildPrompt }) {
+    this._state[p] = { aiImage: null, aiReq: null, transparent, buildPrompt };
+    const cur = images?.[0];
+    const preview = cur
+      ? `<img id="${p}-img-preview" src="${escHtml(cur.thumb_url || `/api/images/${cur.id}/thumb`)}"
+               class="ing-form-img-preview" alt="${escHtml(alt)}">`
+      : `<div id="${p}-img-preview" class="ing-form-img-empty"></div>`;
+    return `
+      <div class="form-group">
+        <label class="form-label">Image</label>
+        <input type="hidden" id="${p}-existing-img-ids"
+               value="${escHtml(JSON.stringify((images || []).map((im) => im.id)))}">
+        <div class="ing-form-img-wrap">${preview}</div>
+        <div class="ing-form-img-inputs">
+          <label class="ing-img-file-label">
+            <input type="file" id="${p}-image-file" accept="image/*" onchange="App.imageField.previewFile('${p}', this)">
+            Choose file
+          </label>
+          <span class="ing-img-or">or</span>
+          <input class="text-input ing-img-url" id="${p}-image-url" placeholder="Paste image URL…"
+                 oninput="App.imageField.previewUrl('${p}', this.value)">
+        </div>
+        <div class="ing-ai-row">
+          <textarea class="text-input" id="${p}-ai-prompt" rows="2"
+                    placeholder="AI image prompt…">${escHtml(prompt || '')}</textarea>
+          <button class="btn btn-ghost" id="${p}-ai-btn" onclick="App.imageField.generate('${p}')">✨ Generate</button>
+        </div>
+        <div class="ai-error hidden" id="${p}-ai-error">
+          <span id="${p}-ai-error-msg"></span>
+          <button type="button" class="ai-error-close" aria-label="Dismiss"
+                  onclick="App.imageField.clearError('${p}')">×</button>
+        </div>
+      </div>`;
+  },
+
+  existingIds(p) {
+    return JSON.parse(el(`${p}-existing-img-ids`)?.value || '[]');
+  },
+
+  // The empty placeholder is a div; swap it for an img so a preview can show.
+  _previewEl(p) {
+    let preview = el(`${p}-img-preview`);
+    if (preview && preview.tagName !== 'IMG') {
+      const img = document.createElement('img');
+      img.id = `${p}-img-preview`;
+      img.alt = '';
+      preview.replaceWith(img);
+      preview = img;
+    }
+    return preview;
+  },
+
+  clearError(p) {
+    el(`${p}-ai-error`)?.classList.add('hidden');
+  },
+
+  async generate(p) {
+    const st = this._state[p];
+    this.clearError(p);
+    let prompt = el(`${p}-ai-prompt`).value.trim();
+    if (!prompt) {
+      prompt = st.buildPrompt();
+      el(`${p}-ai-prompt`).value = prompt;
+    }
+    const req = (st.aiReq = {});
+    const stale = () => this._state[p].aiReq !== req || !el(`${p}-ai-prompt`);
+    const btn = el(`${p}-ai-btn`);
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      const dataUrl = await AiImage.generate(prompt, st.transparent);
+      if (stale()) return;
+      el(`${p}-image-file`).value = '';
+      el(`${p}-image-url`).value = '';
+      st.aiImage = dataUrl;
+      const preview = this._previewEl(p);
+      preview.src = dataUrl;
+      preview.className = 'ing-form-img-preview';
+    } catch (e) {
+      if (!stale()) {
+        el(`${p}-ai-error-msg`).textContent = e.message;
+        el(`${p}-ai-error`).classList.remove('hidden');
+      }
+    } finally {
+      if (!stale()) {
+        btn.disabled = false;
+        btn.textContent = '✨ Generate';
+      }
+    }
+  },
+
+  previewFile(p, input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    el(`${p}-image-url`).value = '';
+    this._state[p].aiImage = null;
+    const preview = this._previewEl(p);
+    if (preview) {
+      preview.src = URL.createObjectURL(file);
+      preview.className = 'ing-form-img-preview';
+    }
+  },
+
+  previewUrl(p, url) {
+    const fileInput = el(`${p}-image-file`);
+    if (fileInput) fileInput.value = '';
+    if (!url.trim()) return;
+    this._state[p].aiImage = null;
+    const preview = this._previewEl(p);
+    if (!preview) return;
+    preview.src = url.trim();
+    preview.className = 'ing-form-img-preview';
+  },
+
+  // Uploads the chosen image to BA. Returns its id, or null when none was
+  // chosen; throws with a user-facing message on failure.
+  async upload(p) {
+    const fileInput = el(`${p}-image-file`);
+    const urlInput = el(`${p}-image-url`);
+    const aiImage = this._state[p]?.aiImage;
+    const upload = fileInput?.files?.[0] || (aiImage && AiImage.toBlob(aiImage));
+    if (upload) {
+      const fd = new FormData();
+      fd.append(
+        'images[0][image]',
+        upload,
+        upload.name ||
+          `ai-image.${(upload.type || '').split('/')[1]?.replace('jpeg', 'jpg') || 'png'}`
+      );
+      fd.append('images[0][sort]', '1');
+      try {
+        const r = await fetch('/api/images', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || d.message || 'Image upload failed');
+        const id = d.data?.[0]?.id;
+        if (!id) throw new Error('No image ID returned from BA');
+        return id;
+      } catch (e) {
+        throw new Error('Image upload failed: ' + e.message);
+      }
+    }
+    if (urlInput?.value?.trim()) {
+      try {
+        const d = await post('/api/images/from-url', { url: urlInput.value.trim() });
+        const id = d.data?.[0]?.id;
+        if (!id) throw new Error('No image ID returned from BA');
+        return id;
+      } catch (e) {
+        throw new Error('Image URL failed: ' + e.message);
+      }
+    }
+    return null;
   },
 };
 
@@ -1566,14 +1736,36 @@ const Cocktails = {
           <input type="text" id="cf-ing-search" class="text-input" placeholder="Search to add ingredient…" autocomplete="off">
           <ul id="cf-ing-ac" class="autocomplete-list hidden"></ul>
         </div>
-      </div>`,
+      </div>
+      ${ImageField.html('cf', {
+        images: c?.images,
+        alt: c?.name || '',
+        transparent: false,
+        buildPrompt: () => this._imagePrompt(),
+      })}`,
       `${c ? `<button class="btn btn-ghost" style="color:var(--accent);margin-right:auto" onclick="App.modal.close();App.cocktails.deleteCurrent()">Delete</button>` : ''}
        <button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        <button class="btn btn-primary" onclick="App.cocktails._submitForm(${c?.id || 'null'})">${c ? 'Save' : 'Create'}</button>`
     );
     this._renderFormIngredients();
     this._wireFormIngSearch();
+    if (c) el('cf-ai-prompt').value = this._imagePrompt();
     el('cf-name').focus();
+  },
+
+  // The cocktail template filled from the form's current values.
+  _imagePrompt() {
+    this._collectFormIngData();
+    const glass = el('cf-glass');
+    return AiImage.render('cocktail', {
+      name: el('cf-name').value.trim(),
+      glass: glass.value ? glass.selectedOptions[0].text : '',
+      ingredients: this._formIngredients
+        .map((i) => i.name)
+        .filter(Boolean)
+        .join(', '),
+      garnish: el('cf-garnish').value.trim(),
+    });
   },
 
   _renderFormIngredients() {
@@ -1751,22 +1943,35 @@ const Cocktails = {
         sort: idx + 1,
       })),
     };
+    let imageId;
+    try {
+      imageId = await ImageField.upload('cf');
+    } catch (e) {
+      Toast.err(e.message);
+      return;
+    }
+    // Only send images when replacing, so ordinary edits keep the current one.
+    if (imageId) body.images = [imageId];
+    const oldIds = ImageField.existingIds('cf');
+    let newId = id;
     try {
       if (id) {
         await put(`/api/cocktails/${id}`, body);
-        Toast.show('Cocktail updated');
-        this._cache.delete(id);
-        this.open(id);
       } else {
-        const d = await post('/api/cocktails', body);
-        Toast.show('Cocktail created');
-        this.load();
-        if (d.data?.id) this.open(d.data.id);
+        newId = (await post('/api/cocktails', body)).data?.id;
       }
-      Modal.close();
     } catch (e) {
       Toast.err(e.message);
+      if (imageId) del(`/api/images/${imageId}`).catch(() => {}); // don't orphan the upload
+      return;
     }
+    // Old images go only after a successful save, so a failed one loses nothing.
+    if (imageId) await Promise.allSettled(oldIds.map((oid) => del(`/api/images/${oid}`)));
+    Toast.show(id ? 'Cocktail updated' : 'Cocktail created');
+    if (id) this._cache.delete(id);
+    if (!id || imageId) this.load();
+    if (newId) this.open(newId);
+    Modal.close();
   },
 
   async deleteCurrent() {
@@ -2056,37 +2261,13 @@ const Ingredients = {
 
   _showForm(i) {
     const title = i ? `Edit: ${i.name}` : 'New Ingredient';
-    const currentImg = i?.images?.[0];
-    const imgSection = `
-      <div class="form-group">
-        <label class="form-label">Image</label>
-        <input type="hidden" id="if-existing-img-ids"
-               value="${escHtml(JSON.stringify((i?.images || []).map((im) => im.id)))}">
-        ${
-          currentImg
-            ? `<div class="ing-form-img-wrap">
-                <img id="if-img-preview" src="${escHtml(currentImg.thumb_url || `/api/images/${currentImg.id}/thumb`)}"
-                     class="ing-form-img-preview" alt="${escHtml(i.name)}">
-               </div>`
-            : `<div class="ing-form-img-wrap"><div id="if-img-preview" class="ing-form-img-empty"></div></div>`
-        }
-        <div class="ing-form-img-inputs">
-          <label class="ing-img-file-label">
-            <input type="file" id="if-image-file" accept="image/*" onchange="App.ingredients._previewFile(this)">
-            Choose file
-          </label>
-          <span class="ing-img-or">or</span>
-          <input class="text-input ing-img-url" id="if-image-url" placeholder="Paste image URL…"
-                 oninput="App.ingredients._previewUrl(this.value)">
-        </div>
-        <div class="ing-ai-row">
-          <textarea class="text-input" id="if-ai-prompt" rows="2"
-                    placeholder="AI image prompt…">${i ? escHtml(this._defaultPrompt(i.name, i.description)) : ''}</textarea>
-          <button class="btn btn-ghost" id="if-ai-btn" onclick="App.ingredients._generate()">✨ Generate</button>
-        </div>
-      </div>`;
-    this._aiReq = null;
-    this._aiImage = null;
+    const imgSection = ImageField.html('if', {
+      images: i?.images,
+      alt: i?.name || '',
+      prompt: i ? this._defaultPrompt(i.name, i.description) : '',
+      transparent: true,
+      buildPrompt: () => this._defaultPrompt(el('if-name').value.trim(), el('if-desc').value),
+    });
     Modal.open(
       title,
       `<div class="form-group"><label class="form-label">Name *</label>
@@ -2113,72 +2294,6 @@ const Ingredients = {
     });
   },
 
-  // The empty placeholder is a div; swap it for an img so a preview can show.
-  _previewEl() {
-    let preview = el('if-img-preview');
-    if (preview && preview.tagName !== 'IMG') {
-      const img = document.createElement('img');
-      img.id = 'if-img-preview';
-      img.alt = '';
-      preview.replaceWith(img);
-      preview = img;
-    }
-    return preview;
-  },
-
-  async _generate() {
-    let prompt = el('if-ai-prompt').value.trim();
-    if (!prompt) {
-      prompt = this._defaultPrompt(el('if-name').value.trim(), el('if-desc').value);
-      el('if-ai-prompt').value = prompt;
-    }
-    const req = (this._aiReq = {});
-    const stale = () => this._aiReq !== req || !el('if-ai-prompt');
-    const btn = el('if-ai-btn');
-    btn.disabled = true;
-    btn.textContent = 'Generating…';
-    try {
-      const dataUrl = await AiImage.generate(prompt, true);
-      if (stale()) return;
-      el('if-image-file').value = '';
-      el('if-image-url').value = '';
-      this._aiImage = dataUrl;
-      const preview = this._previewEl();
-      preview.src = dataUrl;
-      preview.className = 'ing-form-img-preview';
-    } catch (e) {
-      if (!stale()) Toast.err(e.message);
-    } finally {
-      if (!stale()) {
-        btn.disabled = false;
-        btn.textContent = '✨ Generate';
-      }
-    }
-  },
-
-  _previewFile(input) {
-    const file = input.files?.[0];
-    if (!file) return;
-    el('if-image-url').value = '';
-    this._aiImage = null;
-    const preview = this._previewEl();
-    if (preview) {
-      preview.src = URL.createObjectURL(file);
-      preview.className = 'ing-form-img-preview';
-    }
-  },
-
-  _previewUrl(url) {
-    const fileInput = el('if-image-file');
-    if (fileInput) fileInput.value = '';
-    if (!url.trim()) return;
-    this._aiImage = null;
-    const preview = this._previewEl();
-    if (!preview) return;
-    preview.src = url.trim();
-    preview.className = 'ing-form-img-preview';
-  },
-
   async _submit(id) {
     const name = el('if-name').value.trim();
     if (!name) {
@@ -2186,44 +2301,17 @@ const Ingredients = {
       return;
     }
 
-    let imageId = null;
-    const fileInput = el('if-image-file');
-    const urlInput = el('if-image-url');
-
-    const upload =
-      fileInput?.files?.[0] || (this._aiImage && (await AiImage.toBlob(this._aiImage)));
-    if (upload) {
-      const fd = new FormData();
-      fd.append(
-        'images[0][image]',
-        upload,
-        upload.name ||
-          `ai-image.${(upload.type || '').split('/')[1]?.replace('jpeg', 'jpg') || 'png'}`
-      );
-      fd.append('images[0][sort]', '1');
-      try {
-        const r = await fetch('/api/images', { method: 'POST', body: fd });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || d.message || 'Image upload failed');
-        imageId = d.data?.[0]?.id;
-      } catch (e) {
-        Toast.err('Image upload failed: ' + e.message);
-        return;
-      }
-    } else if (urlInput?.value?.trim()) {
-      try {
-        const d = await post('/api/images/from-url', { url: urlInput.value.trim() });
-        imageId = d.data?.[0]?.id;
-        if (!imageId) throw new Error('No image ID returned from BA');
-      } catch (e) {
-        Toast.err('Image URL failed: ' + e.message);
-        return;
-      }
+    let imageId;
+    try {
+      imageId = await ImageField.upload('if');
+    } catch (e) {
+      Toast.err(e.message);
+      return;
     }
 
     // Delete old images so the new one replaces rather than appends.
     if (imageId) {
-      const oldIds = JSON.parse(el('if-existing-img-ids')?.value || '[]');
+      const oldIds = ImageField.existingIds('if');
       await Promise.allSettled(oldIds.map((oid) => del(`/api/images/${oid}`)));
     }
 
@@ -3288,12 +3376,17 @@ const Importer = {
 // ── AI prompt templates (Manage) ───────────────────────────────────────────
 
 const AiPrompts = {
-  // One section per template; add a cocktail entry when that form gets AI images.
+  // One section per template.
   SECTIONS: [
     {
       kind: 'ingredient',
       label: 'Ingredient image prompt',
-      hint: '{name} = ingredient name, {description} = first sentence of its description',
+      hint: '{name} = ingredient name, {description} = first sentence of its description. Text in [ ] is dropped when a placeholder inside it is empty.',
+    },
+    {
+      kind: 'cocktail',
+      label: 'Cocktail image prompt',
+      hint: '{name} = cocktail name, {glass} = glass, {ingredients} = ingredient names, {garnish} = garnish. Text in [ ] is dropped when a placeholder inside it is empty.',
     },
   ],
 
@@ -3349,6 +3442,7 @@ const App = {
   importer: Importer,
   favorites: Favorites,
   ingredients: Ingredients,
+  imageField: ImageField,
   shoppingList: ShoppingList,
   tokens: Tokens,
   users: Users,
@@ -3505,6 +3599,7 @@ const App = {
     try {
       const cfg = await get('/config');
       AiImage.templates.ingredient = cfg.ai_prompt_ingredient || '';
+      AiImage.templates.cocktail = cfg.ai_prompt_cocktail || '';
       if (!cfg.api_url) {
         this._loggedIn = false;
         SetupWizard.show();

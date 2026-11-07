@@ -200,6 +200,7 @@ def get_config():
         "ai_base_url":  os.getenv("AI_IMAGE_BASE_URL", ""),
         "ai_key_set":   bool(os.getenv("AI_IMAGE_API_KEY")),
         "ai_prompt_ingredient": os.getenv("AI_PROMPT_INGREDIENT", ""),
+        "ai_prompt_cocktail":   os.getenv("AI_PROMPT_COCKTAIL", ""),
     })
 
 
@@ -214,7 +215,7 @@ def set_config():
     body = request.get_json(force=True)
     if not _logged_in() and any(
             k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
-                                "ai_prompt_ingredient")):
+                                "ai_prompt_ingredient", "ai_prompt_cocktail")):
         return jsonify({"error": "unauthorized"}), 401
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
@@ -237,10 +238,12 @@ def set_config():
             val = str(body[field] or "").strip()
             set_key(ENV_PATH, env, val)
             os.environ[env] = val
-    if "ai_prompt_ingredient" in body:  # one line keeps .env simple; empty = default
-        val = " ".join(str(body["ai_prompt_ingredient"] or "").split())
-        set_key(ENV_PATH, "AI_PROMPT_INGREDIENT", val)
-        os.environ["AI_PROMPT_INGREDIENT"] = val
+    for kind in ("ingredient", "cocktail"):
+        field = f"ai_prompt_{kind}"
+        if field in body:  # one line keeps .env simple; empty = default
+            val = " ".join(str(body[field] or "").split())
+            set_key(ENV_PATH, f"AI_PROMPT_{kind.upper()}", val)
+            os.environ[f"AI_PROMPT_{kind.upper()}"] = val
     if body.get("ai_api_key"):  # write-only; blank keeps the existing key
         set_key(ENV_PATH, "AI_IMAGE_API_KEY", body["ai_api_key"])
         os.environ["AI_IMAGE_API_KEY"] = body["ai_api_key"]

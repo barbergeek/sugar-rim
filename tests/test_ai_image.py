@@ -9,7 +9,7 @@ from tests.test_import_routes import Resp
 
 PNG = base64.b64encode(b"imgbytes").decode()
 AI_ENV = ("AI_IMAGE_PROVIDER", "AI_IMAGE_MODEL", "AI_IMAGE_BASE_URL", "AI_IMAGE_API_KEY",
-          "AI_PROMPT_INGREDIENT")
+          "AI_PROMPT_INGREDIENT", "AI_PROMPT_COCKTAIL")
 
 
 @pytest.fixture
@@ -201,25 +201,28 @@ def test_ai_config_requires_login(monkeypatch, tmp_path):
     assert c.get("/config").get_json()["ai_provider"] == ""
 
 
-def test_prompt_template_round_trip(client, monkeypatch, tmp_path):
+@pytest.mark.parametrize("kind", ["ingredient", "cocktail"])
+def test_prompt_template_round_trip(client, monkeypatch, tmp_path, kind):
     env = tmp_path / ".env"
     monkeypatch.setattr(app_module, "ENV_PATH", str(env))
-    assert client.get("/config").get_json()["ai_prompt_ingredient"] == ""
-    r = client.post("/config", json={"ai_prompt_ingredient": "  Photo of {name},\n\n moody  light "})
+    field = f"ai_prompt_{kind}"
+    assert client.get("/config").get_json()[field] == ""
+    r = client.post("/config", json={field: "  Photo of {name},\n\n moody  light "})
     assert r.status_code == 200
     want = "Photo of {name}, moody light"
-    assert client.get("/config").get_json()["ai_prompt_ingredient"] == want
-    assert dotenv_values(env)["AI_PROMPT_INGREDIENT"] == want
-    client.post("/config", json={"ai_prompt_ingredient": ""})  # back to the default
-    assert client.get("/config").get_json()["ai_prompt_ingredient"] == ""
+    assert client.get("/config").get_json()[field] == want
+    assert dotenv_values(env)[f"AI_PROMPT_{kind.upper()}"] == want
+    client.post("/config", json={field: ""})  # back to the default
+    assert client.get("/config").get_json()[field] == ""
 
 
-def test_prompt_template_requires_login(monkeypatch, tmp_path):
+@pytest.mark.parametrize("kind", ["ingredient", "cocktail"])
+def test_prompt_template_requires_login(monkeypatch, tmp_path, kind):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     monkeypatch.delenv("BA_API_URL", raising=False)
     c = app_module.app.test_client()
-    assert c.post("/config", json={"ai_prompt_ingredient": "x"}).status_code == 401
-    assert c.get("/config").get_json()["ai_prompt_ingredient"] == ""
+    assert c.post("/config", json={f"ai_prompt_{kind}": "x"}).status_code == 401
+    assert c.get("/config").get_json()[f"ai_prompt_{kind}"] == ""
 
 
 def test_string_error_body(client, monkeypatch):
