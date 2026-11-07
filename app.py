@@ -1,5 +1,7 @@
 import os
 import re
+import base64
+import io
 import math
 import socket
 import secrets
@@ -10,6 +12,7 @@ from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
 from dotenv import load_dotenv, set_key
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 import scrapers
 from scrapers.draft2 import from_draft2, to_draft2
@@ -186,6 +189,10 @@ def get_config():
         "bar_id":       os.getenv("BA_BAR_ID", ""),
         "is_logged_in": "ba_token" in session,
         "app_version":  APP_VERSION,
+        "ai_provider":  os.getenv("AI_IMAGE_PROVIDER", ""),
+        "ai_model":     os.getenv("AI_IMAGE_MODEL", ""),
+        "ai_base_url":  os.getenv("AI_IMAGE_BASE_URL", ""),
+        "ai_key_set":   bool(os.getenv("AI_IMAGE_API_KEY")),
     })
 
 
@@ -198,6 +205,9 @@ def set_config():
     if _configured() and not _logged_in():
         return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(force=True)
+    if not _logged_in() and any(
+            k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key")):
+        return jsonify({"error": "unauthorized"}), 401
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
     if "api_url" in body:
@@ -209,6 +219,19 @@ def set_config():
     if "bar_id" in body:
         set_key(ENV_PATH, "BA_BAR_ID", str(body["bar_id"]))
         os.environ["BA_BAR_ID"] = str(body["bar_id"])
+    if ("ai_provider" in body and not body.get("ai_api_key")
+            and str(body["ai_provider"] or "").strip() != os.getenv("AI_IMAGE_PROVIDER", "")):
+        set_key(ENV_PATH, "AI_IMAGE_API_KEY", "")
+        os.environ["AI_IMAGE_API_KEY"] = ""
+    for field, env in (("ai_provider", "AI_IMAGE_PROVIDER"), ("ai_model", "AI_IMAGE_MODEL"),
+                       ("ai_base_url", "AI_IMAGE_BASE_URL")):
+        if field in body:
+            val = str(body[field] or "").strip()
+            set_key(ENV_PATH, env, val)
+            os.environ[env] = val
+    if body.get("ai_api_key"):  # write-only; blank keeps the existing key
+        set_key(ENV_PATH, "AI_IMAGE_API_KEY", body["ai_api_key"])
+        os.environ["AI_IMAGE_API_KEY"] = body["ai_api_key"]
     return jsonify({"ok": True})
 
 
@@ -516,6 +539,202 @@ def delete_image(iid):
         return ("", 204) if resp.status_code in (200, 204) else (jsonify(resp.json()), resp.status_code)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+# ── AI image generation ───────────────────────────────────────────────────────
+
+class AIImageError(Exception):
+    def __init__(self, message, status=502):
+        super().__init__(message)
+        self.status = status
+
+
+def _provider_error(resp):
+    try:
+        err = resp.json().get("error")
+        msg = err if isinstance(err, str) else (err or {}).get("message")
+    except (ValueError, AttributeError):
+        msg = None
+    return msg or f"HTTP {resp.status_code}"
+
+
+def _openai_style(url, prompt, model, key, b64_format, timeout, extra=None):
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    payload = {"model": model, "prompt": prompt, "size": "1024x1024", "n": 1, **(extra or {})}
+    if b64_format:
+        payload["response_format"] = "b64_json"
+    resp = http.post(url, headers=headers, json=payload, timeout=timeout)
+    if not resp.ok:
+        raise AIImageError(_provider_error(resp))
+    item = ((resp.json().get("data")) or [{}])[0]
+    if item.get("b64_json"):
+        return base64.b64decode(item["b64_json"]), "image/png"
+    if item.get("url"):
+        r = http.get(item["url"], timeout=60)
+        r.raise_for_status()
+        return r.content, r.headers.get("Content-Type", "image/png").split(";")[0].strip()
+    raise AIImageError("no image returned")
+
+
+def _gemini(prompt, model, key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    resp = http.post(url, headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                     json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120)
+    if not resp.ok:
+        raise AIImageError(_provider_error(resp))
+    for cand in resp.json().get("candidates") or []:
+        for part in (cand.get("content") or {}).get("parts") or []:
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
+                return base64.b64decode(inline["data"]), mime
+    raise AIImageError("no image returned")
+
+
+AI_DEFAULT_MODELS = {"openai": "gpt-image-2", "gemini": "gemini-2.5-flash-image"}
+
+
+def _generate_image(prompt, transparent=False):
+    """Dispatch to the configured provider; returns (bytes, mime)."""
+    provider = os.getenv("AI_IMAGE_PROVIDER", "")
+    model = os.getenv("AI_IMAGE_MODEL", "").strip()
+    key = os.getenv("AI_IMAGE_API_KEY", "")
+    base = os.getenv("AI_IMAGE_BASE_URL", "").strip()
+    not_configured = AIImageError(
+        "AI image provider not configured. Set it up in Settings.", 400)
+    try:
+        if provider == "openai":
+            if not key:
+                raise not_configured
+            model = model or AI_DEFAULT_MODELS["openai"]
+            url = "https://api.openai.com/v1/images/generations"
+            dalle = model.startswith("dall-e")
+            # Most gpt-image models can return real alpha; others fall back to the cut-out.
+            extra = ({"background": "transparent", "output_format": "png"}
+                     if transparent and model.startswith("gpt-image") else None)
+            try:
+                return _openai_style(url, prompt, model, key, dalle, 120, extra)
+            except AIImageError as e:
+                # Some gpt-image models reject transparency (e.g. gpt-image-2): retry
+                # opaque and let the cut-out remove the background.
+                if not extra or not re.search(r"background|transparen", str(e), re.IGNORECASE):
+                    raise
+                return _openai_style(url, prompt, model, key, dalle, 120)
+        if provider == "gemini":
+            if not key:
+                raise not_configured
+            return _gemini(prompt, model or AI_DEFAULT_MODELS["gemini"], key)
+        if provider == "compatible":
+            if not base or not model:
+                raise not_configured
+            return _openai_style(f"{base.rstrip('/')}/images/generations", prompt,
+                                 model, key, True, 120)
+    except http.exceptions.RequestException as e:
+        raise AIImageError(str(e))
+    raise not_configured
+
+
+def _cut_out_background(data, mime):
+    """Make the white background (and its grey shadow) that touches the image edges transparent,
+    for providers (e.g. Gemini) that can't return alpha. Images that already have
+    real transparency are returned unchanged."""
+    im = Image.open(io.BytesIO(data))
+    if im.convert("RGBA").getchannel("A").getextrema()[0] < 255:
+        return data, mime
+    rgb = im.convert("RGB")
+    # Background = near-grey pixels connected to the edge: the white backdrop plus
+    # the contact shadow Gemini draws even when told not to. Saturated subject
+    # pixels stop the fill.
+    r, g, b = rgb.split()
+    lo = ImageChops.darker(ImageChops.darker(r, g), b)
+    hi = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    grey = ImageChops.subtract(hi, lo).point(lambda v: 255 if v <= 32 else 0)
+    w, h = grey.size
+    edges = ([(x, y) for x in range(w) for y in (0, h - 1)]
+             + [(x, y) for y in range(h) for x in (0, w - 1)])
+    for xy in edges:
+        if grey.getpixel(xy) == 255:
+            ImageDraw.floodfill(grey, xy, 128)  # mark bg connected to the edge
+    bg = grey.point(lambda v: 255 if v == 128 else 0).filter(ImageFilter.GaussianBlur(1))
+    # In the background, white -> clear and grey -> translucent black, so the
+    # shadow fades out instead of leaving a pale ring.
+    shade = lo.point(lambda v: max(0, min(255, (245 - v) * 2)))
+    alpha = Image.composite(shade, Image.new("L", rgb.size, 255), bg)
+    rgb = Image.composite(Image.new("RGB", rgb.size), rgb, bg)
+    rgb.putalpha(alpha)
+    buf = io.BytesIO()
+    rgb.save(buf, "PNG")
+    return buf.getvalue(), "image/png"
+
+
+def _list_image_models(provider, key, base):
+    """Model ids the provider offers for image generation, sorted."""
+    if provider == "openai":
+        r = http.get("https://api.openai.com/v1/models",
+                     headers={"Authorization": f"Bearer {key}"}, timeout=20)
+        if not r.ok:
+            raise AIImageError(_provider_error(r))
+        ids = [m.get("id", "") for m in r.json().get("data") or []]
+        return sorted(i for i in ids if i.startswith(("gpt-image", "chatgpt-image", "dall-e")))
+    if provider == "gemini":
+        r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
+                     headers={"x-goog-api-key": key}, params={"pageSize": 1000}, timeout=20)
+        if not r.ok:
+            raise AIImageError(_provider_error(r))
+        return sorted(m["name"].removeprefix("models/") for m in r.json().get("models") or []
+                      if "image" in m.get("name", "")
+                      and "generateContent" in (m.get("supportedGenerationMethods") or []))
+    if provider == "compatible":  # no way to tell image models apart; list them all
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        r = http.get(f"{base.rstrip('/')}/models", headers=headers, timeout=20)
+        if not r.ok:
+            raise AIImageError(_provider_error(r))
+        return sorted(m.get("id", "") for m in r.json().get("data") or [] if m.get("id"))
+    raise AIImageError("Choose a provider first.", 400)
+
+
+@app.route("/api/ai/models", methods=["POST"])
+def ai_models():
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(force=True, silent=True) or {}
+    provider = str(body.get("provider") or "").strip()
+    base = str(body.get("base_url") or "").strip()
+    key = str(body.get("api_key") or "")
+    if not key and provider == os.getenv("AI_IMAGE_PROVIDER", ""):
+        key = os.getenv("AI_IMAGE_API_KEY", "")  # saved key never leaves the server
+    if provider in ("openai", "gemini") and not key:
+        return jsonify({"error": "Enter an API key to load models."}), 400
+    if provider == "compatible" and not base:
+        return jsonify({"error": "Enter a base URL to load models."}), 400
+    try:
+        models = _list_image_models(provider, key, base)
+    except AIImageError as e:
+        return jsonify({"error": str(e)}), e.status
+    except (http.exceptions.RequestException, ValueError, KeyError) as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify({"models": models, "default": AI_DEFAULT_MODELS.get(provider, "")})
+
+
+@app.route("/api/ai/image", methods=["POST"])
+def ai_image():
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(force=True, silent=True) or {}
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "prompt required"}), 400
+    transparent = bool(body.get("transparent"))
+    try:
+        data, mime = _generate_image(prompt, transparent)
+        if transparent:
+            data, mime = _cut_out_background(data, mime)
+    except AIImageError as e:
+        return jsonify({"error": str(e)}), e.status
+    b64 = base64.b64encode(data).decode()
+    return jsonify({"image": f"data:{mime};base64,{b64}"})
 
 
 # ── Recipe import ─────────────────────────────────────────────────────────────

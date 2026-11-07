@@ -224,5 +224,11 @@ __marimo__/
 .streamlit/secrets.toml
 
 # BMad tooling and planning output
-_bmad/
-_bmad-output/
+_bmad/config.user.toml
+_bmad/custom/config.user.toml
+_bmad/render/
+_bmad-output/implementation-artifacts/epic-*
+lcov.info
+coverage.xml
+.coverage
+
