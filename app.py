@@ -11,7 +11,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import requests as http
-from dotenv import load_dotenv, set_key
+from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 import scrapers
@@ -19,9 +19,18 @@ from scrapers.draft2 import from_draft2, to_draft2
 from scrapers.match import rank as rank_ingredients
 from scrapers.fetch import fetch_html, FetchBlocked, FetchError, UrlNotAllowed
 
-load_dotenv()
-
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+
+
+def _load_env(path):
+    # Like load_dotenv(), but a blank env var (docker-compose's ${VAR:-} passes
+    # unset vars as "") counts as unset, so it can't shadow values saved in .env.
+    for key, val in dotenv_values(path).items():
+        if val is not None and not os.environ.get(key):
+            os.environ[key] = val
+
+
+_load_env(ENV_PATH)
 
 # Persist secret key in .env so sessions survive server restarts
 _secret = os.getenv("SECRET_KEY")

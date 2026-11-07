@@ -53,3 +53,13 @@ def test_login_bad_credentials_passes_ba_error_through(anon, monkeypatch):
     r = anon.post("/api/auth/login", json={"email": "a@b.c", "password": "x"})
     assert r.status_code == 400
     assert r.get_json()["message"] == "Unable to authenticate."
+
+
+def test_blank_env_var_does_not_shadow_saved_value(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("BA_API_URL=http://saved.test\nBA_BAR_ID=3\n")
+    monkeypatch.setenv("BA_API_URL", "")
+    monkeypatch.setenv("BA_BAR_ID", "7")
+    app_module._load_env(str(env))
+    assert app_module.os.environ["BA_API_URL"] == "http://saved.test"
+    assert app_module.os.environ["BA_BAR_ID"] == "7"
