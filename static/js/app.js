@@ -236,6 +236,24 @@ const Nav = {
 // ── AI image generation ────────────────────────────────────────────────────
 
 const AiImage = {
+  DEFAULTS: {
+    ingredient:
+      'Product photograph of {name}, {description}, including its key ingredient or two. Isolated on a plain pure white background, no shadow, soft even lighting, no text or labels.',
+  },
+  templates: {}, // saved overrides from /config; empty means the default
+
+  // Fill {placeholders}, then tidy the punctuation an empty one leaves behind.
+  render(kind, vars) {
+    const tpl = this.templates[kind] || this.DEFAULTS[kind];
+    return tpl
+      .replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? vars[k] : m))
+      .replace(/,\s*(?=[,.])/g, '')
+      .replace(/^[\s,]+/, '')
+      .replace(/\s+([,.])/g, '$1')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  },
+
   async generate(prompt, transparent = false) {
     const d = await post('/api/ai/image', { prompt, transparent });
     return d.image;
@@ -2089,8 +2107,10 @@ const Ingredients = {
 
   _defaultPrompt(name, description) {
     const first = (description || '').trim().split(/(?<=[.!?])\s/)[0];
-    const subject = [name || 'this ingredient', first].filter(Boolean).join(', ');
-    return `Product photograph of ${subject.replace(/[.!?]+$/, '')}, including its key ingredient or two. Isolated on a plain pure white background, no shadow, soft even lighting, no text or labels.`;
+    return AiImage.render('ingredient', {
+      name: name || 'this ingredient',
+      description: first.replace(/[.!?]+$/, ''),
+    });
   },
 
   // The empty placeholder is a div; swap it for an img so a preview can show.
@@ -3265,6 +3285,59 @@ const Importer = {
   },
 };
 
+// ── AI prompt templates (Manage) ───────────────────────────────────────────
+
+const AiPrompts = {
+  // One section per template; add a cocktail entry when that form gets AI images.
+  SECTIONS: [
+    {
+      kind: 'ingredient',
+      label: 'Ingredient image prompt',
+      hint: '{name} = ingredient name, {description} = first sentence of its description',
+    },
+  ],
+
+  show() {
+    const sections = this.SECTIONS.map(
+      (s) => `<div class="form-group">
+        <label class="form-label">${escHtml(s.label)}</label>
+        <textarea class="text-input" id="aip-${s.kind}" rows="5">${escHtml(AiImage.templates[s.kind] || AiImage.DEFAULTS[s.kind])}</textarea>
+        <div class="cfg-status">${escHtml(s.hint)}</div>
+        <button class="btn btn-ghost" onclick="App.aiPrompts.reset('${s.kind}')">Reset to default</button>
+      </div>`
+    );
+    Modal.open(
+      'AI Prompts',
+      sections.join(''),
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
+       <button class="btn btn-primary" id="aip-save" onclick="App.aiPrompts.save()">Save</button>`
+    );
+  },
+
+  reset(kind) {
+    el(`aip-${kind}`).value = AiImage.DEFAULTS[kind];
+  },
+
+  async save() {
+    const body = {};
+    for (const { kind } of this.SECTIONS) {
+      const val = el(`aip-${kind}`).value.split(/\s+/).join(' ').trim();
+      // Saving the default text stores '' so later default changes still apply.
+      body[`ai_prompt_${kind}`] = val === AiImage.DEFAULTS[kind] ? '' : val;
+    }
+    el('aip-save').disabled = true;
+    try {
+      await post('/config', body);
+      for (const { kind } of this.SECTIONS) AiImage.templates[kind] = body[`ai_prompt_${kind}`];
+      Modal.close();
+      Toast.show('Prompts saved');
+    } catch (e) {
+      el('aip-save').disabled = false;
+      Toast.err(e.message);
+    }
+  },
+};
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
 
 const App = {
@@ -3283,6 +3356,7 @@ const App = {
   methods: Methods,
   settings: Settings,
   stats: Stats,
+  aiPrompts: AiPrompts,
 
   _loggedIn: false,
   _initialized: false,
@@ -3430,6 +3504,7 @@ const App = {
 
     try {
       const cfg = await get('/config');
+      AiImage.templates.ingredient = cfg.ai_prompt_ingredient || '';
       if (!cfg.api_url) {
         this._loggedIn = false;
         SetupWizard.show();
