@@ -54,6 +54,12 @@ def _configured():
     return bool(os.getenv("BA_API_URL"))
 
 
+# Shown when a wrong Bar Assistant URL blocks login: the URL can't be changed
+# from the UI without logging in (that would let anyone repoint it), so say how.
+URL_FIX_HINT = ("If the Bar Assistant URL is wrong, set BA_API_URL in sugar-rim's .env "
+                "(/config/.env in Docker) and restart sugar-rim.")
+
+
 def _is_public_http_url(url):
     """True only for http(s) URLs that resolve to a public IP — blocks SSRF to
     loopback/private/link-local hosts (e.g. internal docker services, the LAN)."""
@@ -203,7 +209,7 @@ def set_config():
     # repoint the API URL and intercept credentials — requires a logged-in
     # session. (In prod BA_API_URL is seeded via env, so this is always gated.)
     if _configured() and not _logged_in():
-        return jsonify({"error": "unauthorized"}), 401
+        return jsonify({"error": "Log in to change server settings. " + URL_FIX_HINT}), 401
     body = request.get_json(force=True)
     if not _logged_in() and any(
             k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key")):
@@ -250,6 +256,13 @@ def login():
             session.pop("ba_user_id", None)  # cleared so it's re-fetched fresh
             return jsonify({"ok": True})
         return jsonify(data), resp.status_code
+    # Before RequestException: requests' JSONDecodeError subclasses both.
+    except ValueError:  # non-JSON reply: something answered, but it isn't Bar Assistant
+        msg = f"{os.getenv('BA_API_URL')} didn't answer like Bar Assistant. {URL_FIX_HINT}"
+        return jsonify({"error": msg}), 502
+    except http.exceptions.RequestException:
+        msg = f"Can't reach Bar Assistant at {os.getenv('BA_API_URL')}. {URL_FIX_HINT}"
+        return jsonify({"error": msg}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
