@@ -102,6 +102,10 @@ npm run format        # write in place
 npm run format:check  # check only (CI)
 ```
 
+## Task tracking
+
+Work is tracked in Subroutine, project `sugar-rim` (workspace `projects`; this checkout is marked by `.subroutine`).
+
 ## Configuration
 
 API URL and token are set via the **Settings** tab in the UI, which writes them to `.env`. The token is stored only server-side and never sent to the browser. To bootstrap without the UI, edit `.env` directly.
