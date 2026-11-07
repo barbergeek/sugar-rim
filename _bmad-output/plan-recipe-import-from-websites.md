@@ -118,7 +118,7 @@ context: []
 | 10 | Unknown charset → LookupError; `<meta charset>` ignored | low | reject | A rare server misconfiguration, and the fix adds branches. |
 | 11 | 3xx without Location, or 300/304, returns an empty body | low | reject | The outcome is a "No recipe found" or BA fallback, which is acceptable. |
 | 12 | E402 in `scrapers/__init__.py` | low | patch | Shows only with `--select E402`. The default `ruff check` passes. The fix is a noqa, since the bottom import is needed to avoid a circular import. |
-| 13 | AC2 (live BA save with 7 ingredients) unverified | maybe-false | defer | Needs a manual run against the user's live Bar Assistant. Recorded for the user. |
+| 13 | AC2 (live BA save with 7 ingredients) unverified | maybe-false | resolved | Verified by the user against their live Bar Assistant on 2026-11-07. |
 | 14 | `.gitignore` change not in the plan | false | reject | The user explicitly chose to ignore `_bmad/` in this session (step 1). |
 | — | `app.py` F401 at baseline | false | reject | Exists at the baseline, so not caused by this change. |
 
