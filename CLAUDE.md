@@ -104,7 +104,7 @@ npm run format:check  # check only (CI)
 
 ## Task tracking
 
-Work is tracked in Subroutine, project `sugar-rim` (workspace `projects`; this checkout is marked by `.subroutine`).
+Work is tracked in Subroutine, project `sugar-rim` (workspace `projects`; this checkout is marked by `.subroutine`). The instance is self-hosted on gimli at `https://subroutine.scotthoge.com` (connection name `gimli`).
 
 ## Configuration
 

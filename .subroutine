@@ -1,7 +1,7 @@
 # Which Subroutine project the work in this directory belongs to.
 # Written by 'subroutine use --here'. Safe to delete: without it, new items go
 # wherever they went before, and nothing already recorded changes.
-connection = "local"
+connection = "gimli"
 workspace_id = "01a1b7b9-c444-7b75-927b-6b83de171899"  # projects
 workspace = "projects"
 project_id = "01a1b7bb-7310-73e9-bc99-a6ef7669bf8d"  # sugar-rim
