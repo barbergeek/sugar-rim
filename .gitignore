@@ -232,3 +232,4 @@ lcov.info
 coverage.xml
 .coverage
 
+.claude/settings.local.json
