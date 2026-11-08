@@ -2309,34 +2309,32 @@ const Ingredients = {
       return;
     }
 
-    // Delete old images so the new one replaces rather than appends.
-    if (imageId) {
-      const oldIds = ImageField.existingIds('if');
-      await Promise.allSettled(oldIds.map((oid) => del(`/api/images/${oid}`)));
-    }
-
     const body = {
       name,
       description: el('if-desc').value.trim(),
       color: el('if-color').value.trim(),
     };
     if (imageId) body.images = [imageId];
+    const oldIds = ImageField.existingIds('if');
 
     try {
       if (id) {
         await put(`/api/ingredients/${id}`, body);
-        this._cache.delete(id);
-        Toast.show('Ingredient updated');
       } else {
         await post('/api/ingredients', body);
-        Toast.show('Ingredient created');
       }
-      Modal.close();
-      this.load();
-      State.loadShelfIds();
     } catch (e) {
       Toast.err(e.message);
+      if (imageId) del(`/api/images/${imageId}`).catch(() => {}); // don't orphan the upload
+      return;
     }
+    // Old images go only after a successful save, so a failed one loses nothing.
+    if (imageId) await Promise.allSettled(oldIds.map((oid) => del(`/api/images/${oid}`)));
+    if (id) this._cache.delete(id);
+    Toast.show(id ? 'Ingredient updated' : 'Ingredient created');
+    Modal.close();
+    this.load();
+    State.loadShelfIds();
   },
 
   async _delete(id) {
