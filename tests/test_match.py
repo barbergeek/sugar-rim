@@ -82,3 +82,10 @@ def test_synonym_and_filler_are_soft_confident():
 
 def test_filler_only_name_still_matches_itself():
     assert rank("Fresh", pool(("Fresh", False)))[0]["score"] == 1.0
+
+
+def test_one_word_generic_not_confident_for_a_more_specific_kind():
+    # "Gin" is the head noun of "Sloe Gin", which is a different product
+    assert rank("Gin", pool(("Sloe Gin", False)))[0]["score"] < 0.8
+    # ...but a qualifier of the candidate's head is still confident
+    assert rank("Bourbon", pool(("Bourbon Whiskey", False)))[0]["score"] >= 0.8

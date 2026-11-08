@@ -48,6 +48,9 @@ def _score(q, c):
         return 0.95
     qs, cs = set(q), set(c)
     if qs <= cs:  # "bourbon" in "bourbon whiskey"
+        # "gin" in "sloe gin": a specific kind, not the thing itself
+        if len(q) == 1 and q[0] == c[-1]:
+            return 0.7
         return max(0.6, 0.95 - 0.05 * (len(c) - len(q)))
     if cs <= qs and q[-1] == c[-1]:  # "maple syrup" in "dark amber maple syrup"
         return {1: 0.7, 2: 0.85}.get(len(cs), 0.9)
