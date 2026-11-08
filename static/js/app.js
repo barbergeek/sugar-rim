@@ -766,6 +766,13 @@ const SetupWizard = {
     msg.className = 'cfg-status';
     try {
       await post('/config', { api_url: url });
+    } catch (e) {
+      // e.g. a 401 once a URL is already set — its message carries the recovery hint.
+      msg.textContent = `✗ ${e.message}`;
+      msg.className = 'cfg-status err';
+      return;
+    }
+    try {
       await get('/api/server/version');
       this._showStep2();
     } catch (e) {
