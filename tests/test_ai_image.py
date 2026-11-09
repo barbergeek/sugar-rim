@@ -216,6 +216,24 @@ def test_prompt_template_round_trip(client, monkeypatch, tmp_path, kind):
     assert client.get("/config").get_json()[field] == ""
 
 
+def test_config_writes_through_env_symlink(client, monkeypatch, tmp_path):
+    # Docker image links /app/.env -> /config/.env; saving must update the
+    # mounted file, not replace the link with a file inside the container.
+    target = tmp_path / "config" / ".env"
+    target.parent.mkdir()
+    target.touch()
+    link = tmp_path / ".env"
+    link.symlink_to(target)
+    monkeypatch.setattr(app_module, "ENV_PATH", str(link))
+    r = client.post("/config", json={"ai_provider": "openai", "ai_model": "m",
+                                     "ai_api_key": "k", "ai_prompt_cocktail": "p"})
+    assert r.status_code == 200
+    assert link.is_symlink()
+    saved = dotenv_values(target)
+    assert saved["AI_IMAGE_PROVIDER"] == "openai" and saved["AI_IMAGE_API_KEY"] == "k"
+    assert saved["AI_PROMPT_COCKTAIL"] == "p"
+
+
 @pytest.mark.parametrize("kind", ["ingredient", "cocktail"])
 def test_prompt_template_requires_login(monkeypatch, tmp_path, kind):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))

@@ -38,7 +38,7 @@ if not _secret:
     _secret = secrets.token_hex(32)
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
-    set_key(ENV_PATH, "SECRET_KEY", _secret)
+    set_key(ENV_PATH, "SECRET_KEY", _secret, follow_symlinks=True)
     os.environ["SECRET_KEY"] = _secret
 
 APP_VERSION = "1.13.1"
@@ -229,32 +229,32 @@ def set_config():
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
     if "api_url" in body:
-        set_key(ENV_PATH, "BA_API_URL", body["api_url"])
+        set_key(ENV_PATH, "BA_API_URL", body["api_url"], follow_symlinks=True)
         os.environ["BA_API_URL"] = body["api_url"]
     if "api_token" in body and body["api_token"]:
-        set_key(ENV_PATH, "BA_API_TOKEN", body["api_token"])
+        set_key(ENV_PATH, "BA_API_TOKEN", body["api_token"], follow_symlinks=True)
         os.environ["BA_API_TOKEN"] = body["api_token"]
     if "bar_id" in body:
-        set_key(ENV_PATH, "BA_BAR_ID", str(body["bar_id"]))
+        set_key(ENV_PATH, "BA_BAR_ID", str(body["bar_id"]), follow_symlinks=True)
         os.environ["BA_BAR_ID"] = str(body["bar_id"])
     if ("ai_provider" in body and not body.get("ai_api_key")
             and str(body["ai_provider"] or "").strip() != os.getenv("AI_IMAGE_PROVIDER", "")):
-        set_key(ENV_PATH, "AI_IMAGE_API_KEY", "")
+        set_key(ENV_PATH, "AI_IMAGE_API_KEY", "", follow_symlinks=True)
         os.environ["AI_IMAGE_API_KEY"] = ""
     for field, env in (("ai_provider", "AI_IMAGE_PROVIDER"), ("ai_model", "AI_IMAGE_MODEL"),
                        ("ai_base_url", "AI_IMAGE_BASE_URL")):
         if field in body:
             val = str(body[field] or "").strip()
-            set_key(ENV_PATH, env, val)
+            set_key(ENV_PATH, env, val, follow_symlinks=True)
             os.environ[env] = val
     for kind in ("ingredient", "cocktail"):
         field = f"ai_prompt_{kind}"
         if field in body:  # one line keeps .env simple; empty = default
             val = " ".join(str(body[field] or "").split())
-            set_key(ENV_PATH, f"AI_PROMPT_{kind.upper()}", val)
+            set_key(ENV_PATH, f"AI_PROMPT_{kind.upper()}", val, follow_symlinks=True)
             os.environ[f"AI_PROMPT_{kind.upper()}"] = val
     if body.get("ai_api_key"):  # write-only; blank keeps the existing key
-        set_key(ENV_PATH, "AI_IMAGE_API_KEY", body["ai_api_key"])
+        set_key(ENV_PATH, "AI_IMAGE_API_KEY", body["ai_api_key"], follow_symlinks=True)
         os.environ["AI_IMAGE_API_KEY"] = body["ai_api_key"]
     return jsonify({"ok": True})
 
