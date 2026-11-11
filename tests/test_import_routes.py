@@ -4,6 +4,7 @@ import pytest
 import requests
 
 import app as app_module
+from scrapers import fetch
 from scrapers.fetch import UrlNotAllowed, fetch_html
 
 FIXTURE = (
@@ -40,6 +41,10 @@ def client(monkeypatch):
     app_module.app.config["TESTING"] = True
     monkeypatch.setenv("BA_API_URL", "http://ba.test")
     monkeypatch.setattr(app_module, "_is_public_http_url", lambda u: "private" not in u)
+    # The browser-impersonating retry sees whatever each test fakes for requests.get.
+    monkeypatch.setattr(
+        fetch.browser_requests, "get", lambda url, **kw: requests.get(url, **kw)
+    )
     c = app_module.app.test_client()
     with c.session_transaction() as s:
         s["ba_token"] = "tok"

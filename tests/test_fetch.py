@@ -25,18 +25,27 @@ class Resp:
         pass
 
 
-def serve(monkeypatch, pages):
-    """pages: {url: Resp | Exception}; robots.txt defaults to 404."""
+def serve(monkeypatch, pages, browser_pages=None):
+    """pages: {url: Resp | Exception}; robots.txt defaults to 404.
+    browser_pages: what the Chrome-impersonating retry sees (default: pages)."""
 
-    def get(url, **kw):
-        r = pages.get(url, Resp(404) if url.endswith("/robots.txt") else None)
-        if r is None:
-            raise AssertionError(f"unexpected GET {url}")
-        if isinstance(r, Exception):
-            raise r
-        return r
+    def getter(table):
+        def get(url, **kw):
+            r = table.get(url, Resp(404) if url.endswith("/robots.txt") else None)
+            if r is None:
+                raise AssertionError(f"unexpected GET {url}")
+            if isinstance(r, Exception):
+                raise r
+            return r
 
-    monkeypatch.setattr(requests, "get", get)
+        return get
+
+    monkeypatch.setattr(requests, "get", getter(pages))
+    monkeypatch.setattr(
+        fetch.browser_requests,
+        "get",
+        getter(pages if browser_pages is None else browser_pages),
+    )
 
 
 def allow_all(url):
@@ -74,6 +83,42 @@ def test_too_many_redirects(monkeypatch):
 def test_blocked_status(monkeypatch, status):
     serve(monkeypatch, {PAGE: Resp(status)})
     with pytest.raises(FetchBlocked):
+        fetch_html(PAGE, allow_all)
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_blocked_status_retries_as_browser(monkeypatch, status):
+    serve(monkeypatch, {PAGE: Resp(status)}, {PAGE: Resp(chunks=(b"real page",))})
+    assert fetch_html(PAGE, allow_all) == "real page"
+
+
+def test_browser_retry_still_respects_robots(monkeypatch):
+    serve(
+        monkeypatch,
+        {ROBOTS: Resp(chunks=(b"User-agent: *\nDisallow: /recipe",))},
+        {PAGE: Resp(chunks=(b"should not be fetched",))},
+    )
+    with pytest.raises(FetchBlocked, match="robots.txt"):
+        fetch_html(PAGE, allow_all)
+
+
+def test_browser_retry_redirect_is_guarded(monkeypatch):
+    serve(
+        monkeypatch,
+        {PAGE: Resp(403)},
+        {PAGE: Resp(302, headers={"Location": "http://internal/x"})},
+    )
+    with pytest.raises(fetch.UrlNotAllowed):
+        fetch_html(PAGE, lambda u: "internal" not in u)
+
+
+def test_browser_retry_network_error(monkeypatch):
+    serve(
+        monkeypatch,
+        {PAGE: Resp(403)},
+        {PAGE: fetch.browser_requests.RequestsError("tls failure")},
+    )
+    with pytest.raises(FetchError):
         fetch_html(PAGE, allow_all)
 
 
