@@ -41,7 +41,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret, follow_symlinks=True)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.13.1"
+APP_VERSION = "1.14.0"
 
 app = Flask(__name__)
 app.secret_key = _secret
