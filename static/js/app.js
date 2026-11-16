@@ -724,6 +724,7 @@ const Settings = {
     }
     try {
       await post('/config', { bar_id });
+      App.loadBarName(bar_id);
       msg.textContent = '✓ Bar saved';
       msg.className = 'cfg-status ok';
       Toast.show('Active bar updated');
@@ -4029,6 +4030,7 @@ const App = {
 
       this._loggedIn = true;
       el('logout-btn').classList.remove('hidden');
+      this.loadBarName(cfg.bar_id);
 
       // Shelf-only is the default mode; reflect it on the toggles before loading.
       Cocktails._syncShelfToggles();
@@ -4036,6 +4038,17 @@ const App = {
       Nav.go('cocktails');
     } catch (e) {
       if (e.message !== 'Please login') console.error('Init error:', e);
+    }
+  },
+
+  // Show the active bar's name in the header; keep "Sugar Rim" if unknown.
+  async loadBarName(barId) {
+    try {
+      const d = await get('/api/bars');
+      const bar = (d.data || []).find((b) => String(b.id) === String(barId));
+      el('header-title').textContent = bar?.name || 'Sugar Rim';
+    } catch (e) {
+      /* keep current title */
     }
   },
 };
