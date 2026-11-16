@@ -3463,7 +3463,7 @@ const HolidayMenu = {
               <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
             </label>
           </div>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Seconds per page on the TV (when the drinks need more than one page)
+          <label id="cfg-menu-seconds-row" style="display:none;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Seconds per page on the TV (this menu has more drinks than fit on one screen)
             <div style="display:flex;gap:8px">
               <input type="number" id="cfg-menu-seconds" class="text-input" style="flex:1" min="3" max="600" step="1">
               <button class="btn btn-ghost" onclick="App.holidayMenu.saveSeconds()">Save</button>
@@ -3599,10 +3599,11 @@ const HolidayMenu = {
 
   _syncSuggestCount() {
     const n = document.querySelectorAll('.sg-pick:checked').length;
-    const ok = n >= 1 && n <= 6;
+    const max = App.cocktails._menu?.max_drinks || 12;
+    const ok = n >= 1 && n <= max;
     el('sg-save').disabled = !ok;
     el('sg-status').className = 'cfg-status' + (ok ? '' : ' err');
-    el('sg-status').textContent = ok ? `${n} drinks selected` : 'Choose 1 to 6 drinks';
+    el('sg-status').textContent = ok ? `${n} drinks selected` : `Choose 1 to ${max} drinks`;
   },
 
   async approveSuggestion() {
@@ -3695,6 +3696,9 @@ const HolidayMenu = {
     el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
     el('cfg-menu-url').value = state.url || '';
     if (state.page_seconds) el('cfg-menu-seconds').value = state.page_seconds;
+    // Only a menu longer than one screen pages, so only then is the speed worth setting.
+    const paged = (state.collection?.drinks.length || 0) > state.per_page;
+    el('cfg-menu-seconds-row').style.display = paged ? 'flex' : 'none';
     if (state.collection_error) {
       status.className = 'cfg-status err';
       status.textContent = `Couldn't load the menu collection: ${state.collection_error}`;

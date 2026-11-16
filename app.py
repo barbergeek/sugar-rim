@@ -45,7 +45,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret, follow_symlinks=True)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.14.0"
+APP_VERSION = "1.15.0"
 
 app = Flask(__name__)
 app.secret_key = _secret
@@ -519,7 +519,7 @@ def collection(cid):
 # Owner publishes a collection (logged in); display devices and guests' phones
 # read the published snapshot with the secret key. See menu.py.
 
-MENU_MAX = 6
+MENU_MAX = 12  # two full screens on the TV board (menu.PER_PAGE each)
 
 
 BA_ERRORS = (http.exceptions.RequestException, ValueError, AttributeError, TypeError)
@@ -574,7 +574,8 @@ def _collection_ids(cid):
 def _menu_state():
     snap = menu.load(menu.menu_dir(ENV_PATH))
     out = {"published": None, "url": None, "collection": None,
-           "page_seconds": menu.page_seconds(os.getenv("MENU_PAGE_SECONDS"))}
+           "page_seconds": menu.page_seconds(os.getenv("MENU_PAGE_SECONDS")),
+           "max_drinks": MENU_MAX, "per_page": menu.PER_PAGE}
     if snap:
         out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
         out["published"]["count"] = len(snap.get("cocktails", []))
@@ -623,6 +624,22 @@ def _public_base(body):
     return base
 
 
+def _menu_photo(img):
+    """The photo at full size: the TV board fills the screen with it, and BA's
+    thumbnail (about 400px) blurs. BA's web server hands out originals under
+    /uploads with no login; fall back to the thumbnail if that fails."""
+    base = os.getenv("BA_API_URL", "").rstrip("/").removesuffix("/api")
+    if img.get("file_path"):
+        try:
+            r = http.get(f"{base}/uploads/{img['file_path'].lstrip('/')}", timeout=30)
+            if r.ok and r.content:
+                return r.content
+        except http.exceptions.RequestException:
+            pass
+    r = http.get(ba_url(f"/images/{img['id']}/thumb"), headers=auth_headers(), timeout=15)
+    return r.content if r.ok and r.content else None
+
+
 def _publish(cid, base):
     """Copy one collection's cocktails and photos into the public snapshot."""
     directory = menu.menu_dir(ENV_PATH)
@@ -643,13 +660,11 @@ def _publish(cid, base):
     for c in raw:
         slim = menu.slim_cocktail(c)
         img = (c.get("images") or [None])[0]
-        if img and img.get("id"):
-            r = http.get(ba_url(f"/images/{img['id']}/thumb"), headers=auth_headers(),
-                         timeout=15)
-            if r.ok and r.content:
-                slim["image"] = menu.image_name(slim["slug"])
-                with open(os.path.join(directory, slim["image"]), "wb") as f:
-                    f.write(r.content)
+        content = _menu_photo(img) if img and img.get("id") else None
+        if content:
+            slim["image"] = menu.image_name(slim["slug"])
+            with open(os.path.join(directory, slim["image"]), "wb") as f:
+                f.write(content)
         cocktails.append(slim)
     menu.save(directory, {
         "collection_id": cid,
@@ -832,13 +847,14 @@ def _menu_public(fn):
 @app.route("/menu")
 @_menu_public
 def menu_board(snap):
-    cards = [{**c, "blurb": menu.blurb(c),
+    cards = [{**c, "tagline": menu.tagline(c), "ings": menu.key_ingredients(c),
               # Short /m/<n> links make coarser, easier-to-scan codes on a TV.
               "qr": menu.qr_svg(f"{snap['public_base']}/m/{n}")}
              for n, c in enumerate((snap or {}).get("cocktails", []), 1)]
     seconds = menu.page_seconds(request.args.get("seconds")
                                 or os.getenv("MENU_PAGE_SECONDS"))
-    return render_template("menu.html", snap=snap, cards=cards, seconds=seconds,
+    return render_template("menu.html", snap=snap, pages=menu.board_pages(cards),
+                           seconds=seconds,
                            inset=menu.inset(request.args.get("inset")))
 
 
