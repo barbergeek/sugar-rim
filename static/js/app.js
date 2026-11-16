@@ -3469,10 +3469,14 @@ const HolidayMenu = {
               <input type="text" id="cfg-menu-occasion" class="text-input" placeholder="e.g. Thanksgiving dinner">
             </label>
             <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.suggestMenu()">Suggest a Menu</button>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">TypeSafe API key (for suggestions)
+            <div id="hm-engine" class="cfg-status"></div>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">TypeSafe API key (optional; used first when set)
               <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
             </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.saveTypesafeKey()">Save Key</button>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Chat model when using the AI Images provider (blank = default)
+              <input type="text" id="cfg-suggest-model" class="text-input" autocomplete="off" placeholder="e.g. gpt-5.4-mini">
+            </label>
+            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.saveSuggestSettings()">Save</button>
           </div>
         </div>`;
   },
@@ -3483,7 +3487,9 @@ const HolidayMenu = {
       if (!el('cfg-menu-collection')) return;
       this._fillMenuCollections(cols.data || [], state.collection?.id);
       el('cfg-menu-occasion').value = state.suggest?.occasion || '';
-      el('cfg-typesafe-key').placeholder = state.suggest?.ready ? '•••• (saved)' : '';
+      el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
+      el('cfg-suggest-model').value = state.suggest?.model || '';
+      this._showEngine(state.suggest);
       this._showMenu(state);
     } catch (e) {
       el('cfg-menu-status').className = 'cfg-status err';
@@ -3491,20 +3497,29 @@ const HolidayMenu = {
     }
   },
 
-  async saveTypesafeKey() {
+  _showEngine(s) {
+    el('hm-engine').textContent = s?.ready
+      ? `Suggestions use ${s.engine}.`
+      : 'Suggestions need a TypeSafe key below, or an AI provider and key in Settings → AI Images.';
+  },
+
+  async saveSuggestSettings() {
     const key = el('cfg-typesafe-key').value.trim();
-    if (!key) return;
+    const body = { menu_suggest_model: el('cfg-suggest-model').value.trim() };
+    if (key) body.typesafe_api_key = key; // write-only; blank keeps the saved key
     try {
-      await post('/config', { typesafe_api_key: key });
+      await post('/config', body);
       el('cfg-typesafe-key').value = '';
-      el('cfg-typesafe-key').placeholder = '•••• (saved)';
-      Toast.show('TypeSafe key saved');
+      const state = await get('/api/menu');
+      el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
+      this._showEngine(state.suggest);
+      Toast.show('Saved');
     } catch (e) {
       Toast.err(e.message);
     }
   },
 
-  // ── Menu suggestions: Jev judges each drink, the server picks a set, you approve ──
+  // ── Menu suggestions: a model judges each drink, the server picks a set, you approve ──
   _suggestion: null,
 
   async suggestMenu() {
@@ -3541,7 +3556,7 @@ const HolidayMenu = {
     const name = this._menuName || `${s.occasion} ${year}`;
     const notes = s.unfilled.map((u) => `<div class="cfg-status">${escHtml(u)}</div>`).join('');
     const body = `
-      <div class="cfg-status" style="margin-bottom:8px">Judged ${s.considered} drinks you can make or are at most two ingredients away from.</div>
+      <div class="cfg-status" style="margin-bottom:8px">${escHtml(s.engine || '')} judged ${s.considered} drinks you can make or are at most two ingredients away from.</div>
       ${notes}
       <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Suggested</div>
       ${s.picks.map((d) => this._suggestRow(d, true)).join('') || '<div class="cfg-status">Nothing fits.</div>'}

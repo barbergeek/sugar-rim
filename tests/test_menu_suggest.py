@@ -134,6 +134,10 @@ def test_missing_ingredients_lower_the_rank():
 # ── Asking TypeSafe ───────────────────────────────────────────────────────────
 
 
+def TS(occasion, pool):
+    return ms.judge("k", occasion, pool)
+
+
 @pytest.fixture
 def jev(monkeypatch):
     calls = []
@@ -157,7 +161,7 @@ def test_suggest_asks_one_request_per_drink(jev):
     # Cider Sour is 2 purchases away (optional bitters don't count); Drink 3
     # lists no ingredients, so it isn't judged at all.
     cocktails = [CATALOG[1], CATALOG[3]]
-    out = ms.suggest("k", "Thanksgiving dinner", cocktails, set())
+    out = ms.suggest(TS, "Thanksgiving dinner", cocktails, set())
     assert out["considered"] == 1 and out["total"] == 2
     assert len(jev) == out["considered"]
     assert jev[0]["model"] == ms.MODEL
@@ -174,7 +178,7 @@ def test_suggest_asks_one_request_per_drink(jev):
 def test_a_failed_call_fails_the_suggestion(monkeypatch):
     monkeypatch.setattr(ms.requests, "post", lambda *a, **k: Resp(500, text="boom"))
     with pytest.raises(ms.SuggestError, match="500"):
-        ms.suggest("k", "x", [CATALOG[1]], set())
+        ms.suggest(TS, "x", [CATALOG[1]], set())
 
 
 def test_rate_limit_is_retried(monkeypatch):
@@ -195,9 +199,117 @@ def test_bad_key_is_named(monkeypatch):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
-def test_suggest_needs_a_key(owner):
+@pytest.fixture
+def no_engines(monkeypatch):
+    for var in (
+        "TYPESAFE_API_KEY",
+        "AI_IMAGE_PROVIDER",
+        "AI_IMAGE_API_KEY",
+        "AI_IMAGE_BASE_URL",
+        "MENU_SUGGEST_MODEL",
+    ):
+        monkeypatch.setenv(var, "")
+
+
+def test_suggest_needs_a_key(owner, no_engines):
     r = owner.post("/api/menu/suggest", json={"occasion": "Thanksgiving dinner"})
-    assert r.status_code == 400 and "TypeSafe API key" in r.get_json()["error"]
+    assert r.status_code == 400 and "Suggestions need" in r.get_json()["error"]
+
+
+def test_engine_prefers_typesafe_then_the_image_provider(no_engines, monkeypatch):
+    assert app_module._suggest_engine() is None
+    monkeypatch.setenv("AI_IMAGE_PROVIDER", "openai")
+    assert app_module._suggest_engine() is None  # no key yet
+    monkeypatch.setenv("AI_IMAGE_API_KEY", "sk")
+    assert app_module._suggest_engine()[0] == "OpenAI gpt-5.4-mini"
+    monkeypatch.setenv("MENU_SUGGEST_MODEL", "gpt-4.1-mini")
+    assert app_module._suggest_engine()[0] == "OpenAI gpt-4.1-mini"
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    assert app_module._suggest_engine()[0] == "TypeSafe Jev"
+
+
+def test_compatible_provider_needs_a_base_and_model(no_engines, monkeypatch):
+    monkeypatch.setenv("AI_IMAGE_PROVIDER", "compatible")
+    monkeypatch.setenv("AI_IMAGE_BASE_URL", "http://llm.lan/v1")
+    assert app_module._suggest_engine() is None  # no default model to guess
+    monkeypatch.setenv("MENU_SUGGEST_MODEL", "llama3")
+    assert app_module._suggest_engine()[0] == "AI provider llama3"
+
+
+# ── Asking a chat model ───────────────────────────────────────────────────────
+
+LLM = {
+    "base_url": "https://llm.test/v1",
+    "api_key": "sk",
+    "model": "gpt-5.4-mini",
+    "label": "OpenAI gpt-5.4-mini",
+}
+
+
+def chat(reply):
+    import json as _json
+
+    return Resp(json_data={"choices": [{"message": {"content": _json.dumps(reply)}}]})
+
+
+def entry(i, fit=2, base="whiskey", **kw):
+    return {
+        "id": i,
+        "fit": fit,
+        "batchable": False,
+        "approachable": True,
+        "alcoholic": True,
+        "base": base,
+        **kw,
+    }
+
+
+def test_llm_prompt_asks_the_same_questions():
+    p = ms.llm_prompt()
+    for q in ms.QUESTIONS.values():
+        assert q["instructions"] in p
+    assert "Tequila or mezcal" in p and '"drinks"' in p
+
+
+def test_llm_answers_read_like_typesafe_answers():
+    a = ms.llm_answers(entry(1, fit=0, base="none", alcoholic=False))
+    d = ms.assess({"id": 1, "abv": None}, [], a)
+    assert d["clash"] and d["zero_proof"] and d["base"] is None
+    d = ms.assess({"id": 2, "abv": 20}, [], ms.llm_answers(entry(2)))
+    assert d["base"] == "whiskey" and not d["clash"] and "Seasonal" in d["tags"]
+    with pytest.raises(ValueError):
+        ms.llm_answers(entry(3, fit=5))
+
+
+def test_judge_llm_batches_and_sends_the_drinks(monkeypatch):
+    sent = []
+
+    def post(url, json=None, headers=None, timeout=None):
+        assert url == "https://llm.test/v1/chat/completions"
+        assert (
+            headers["Authorization"] == "Bearer sk"
+            and json["reasoning_effort"] == "low"
+        )
+        sent.append(json)
+        import json as _json
+
+        drinks = _json.loads(json["messages"][1]["content"])["drinks"]
+        return chat({"drinks": [entry(d["id"]) for d in drinks]})
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "LLM_BATCH", 2)
+    pool = [({**CATALOG[1], "id": i}, []) for i in range(5)]
+    out = ms.judge_llm(LLM, "Thanksgiving dinner", pool)
+    assert sorted(out) == [0, 1, 2, 3, 4] and len(sent) == 3
+
+
+def test_judge_llm_retries_then_fails_on_skipped_drinks(monkeypatch):
+    replies = [chat({"drinks": [entry(0)]}), chat({"drinks": [entry(0)]})]
+    monkeypatch.setattr(ms.requests, "post", lambda *a, **k: replies.pop(0))
+    pool = [({**CATALOG[1], "id": i}, []) for i in range(2)]
+    with pytest.raises(ms.SuggestError, match="every drink"):
+        ms.judge_llm(LLM, "x", pool)
+    assert replies == []  # it tried twice
 
 
 def test_suggest_route_uses_shelf_and_library(owner, ba, monkeypatch, jev):

@@ -230,7 +230,7 @@ def set_config():
     if not _logged_in() and any(
             k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
                                 "ai_prompt_ingredient", "ai_prompt_cocktail",
-                                "typesafe_api_key")):
+                                "typesafe_api_key", "menu_suggest_model")):
         return jsonify({"error": "unauthorized"}), 401
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
@@ -266,6 +266,10 @@ def set_config():
         key = str(body["typesafe_api_key"]).strip()
         set_key(ENV_PATH, "TYPESAFE_API_KEY", key, follow_symlinks=True)
         os.environ["TYPESAFE_API_KEY"] = key
+    if "menu_suggest_model" in body:  # chat model for suggestions; blank = provider default
+        val = str(body["menu_suggest_model"] or "").strip()
+        set_key(ENV_PATH, "MENU_SUGGEST_MODEL", val, follow_symlinks=True)
+        os.environ["MENU_SUGGEST_MODEL"] = val
     return jsonify({"ok": True})
 
 
@@ -581,9 +585,31 @@ def _menu_state():
         except (MenuError, *BA_ERRORS) as e:
             # Say so rather than look unset: a silent failure hides the menu buttons.
             out["collection_error"] = str(e)
-    out["suggest"] = {"ready": bool(os.getenv("TYPESAFE_API_KEY")),
+    engine = _suggest_engine()
+    out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None,
+                      "typesafe_key_set": bool(os.getenv("TYPESAFE_API_KEY")),
+                      "model": os.getenv("MENU_SUGGEST_MODEL", ""),
                       "occasion": menu_suggest.default_occasion()}
     return out
+
+
+def _suggest_engine():
+    """(label, judge_fn) for menu suggestions, or None. TypeSafe when its key
+    is set; otherwise the chat model of the AI provider set up for images."""
+    key = os.getenv("TYPESAFE_API_KEY", "")
+    if key:
+        return "TypeSafe Jev", lambda occasion, pool: menu_suggest.judge(key, occasion, pool)
+    provider = os.getenv("AI_IMAGE_PROVIDER", "")
+    ai_key = os.getenv("AI_IMAGE_API_KEY", "")
+    base = (os.getenv("AI_IMAGE_BASE_URL", "") if provider == "compatible"
+            else menu_suggest.LLM_BASE_URLS.get(provider, ""))
+    model = (os.getenv("MENU_SUGGEST_MODEL", "")
+             or menu_suggest.LLM_DEFAULT_MODELS.get(provider, ""))
+    if not base or not model or (provider != "compatible" and not ai_key):
+        return None
+    name = {"openai": "OpenAI", "gemini": "Gemini"}.get(provider, "AI provider")
+    llm = {"base_url": base, "api_key": ai_key, "model": model, "label": f"{name} {model}"}
+    return llm["label"], lambda occasion, pool: menu_suggest.judge_llm(llm, occasion, pool)
 
 
 def _public_base(body):
@@ -775,10 +801,11 @@ def _ba_all(path, headers, params=None):
 @app.route("/api/menu/suggest", methods=["POST"])
 @_menu_route
 def menu_suggest_route(body):
-    """Ask Jev about every nearly-makeable drink; code picks a menu to approve."""
-    key = os.getenv("TYPESAFE_API_KEY", "")
-    if not key:
-        raise MenuError("Add a TypeSafe API key in Manage → Holiday Menu first")
+    """Ask a model about every nearly-makeable drink; code picks a menu to approve."""
+    engine = _suggest_engine()
+    if not engine:
+        raise MenuError("Suggestions need a TypeSafe key (Manage → Holiday Menu) or an "
+                        "AI provider and key (Settings → AI Images)")
     occasion = " ".join(str(body.get("occasion") or "").split())[:120]
     if not occasion:
         raise MenuError("Say what the occasion is, e.g. Thanksgiving dinner")
@@ -789,7 +816,8 @@ def menu_suggest_route(body):
     cocktails = _ba_all("/cocktails", ba_headers(),
                         {"include": "ingredients.ingredient,glass,method"})
     try:
-        return jsonify(menu_suggest.suggest(key, occasion, cocktails, shelf))
+        return jsonify({**menu_suggest.suggest(engine[1], occasion, cocktails, shelf),
+                        "engine": engine[0]})
     except menu_suggest.SuggestError as e:
         raise MenuError(str(e), 502) from e
 

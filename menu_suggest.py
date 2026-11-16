@@ -1,4 +1,4 @@
-"""Suggest a holiday menu: Jev judges each drink, code picks the set.
+"""Suggest a holiday menu: a model judges each drink, code picks the set.
 
 Everything an owner might want to audit or tune lives here: the questions
 sent to TypeSafe's Jev model, the thresholds that read its answers, and the
@@ -11,11 +11,15 @@ Per drink, one TypeSafe request with state {occasion, drink} asks:
   alcoholic     Noul   does it contain alcohol (companion for `base`)
   base          Choice which spirit it is built on (read only when alcoholic)
 
+Without a TypeSafe key, the same questions go to the chat model configured
+for AI images (OpenAI, Gemini or OpenAI-compatible); see judge_llm().
+
 Code then decides (see pick()): drop drinks that clash with the occasion,
 rank the rest, reserve a zero-proof and a batchable slot, and avoid repeating
 a base spirit.
 """
 
+import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -219,18 +223,164 @@ def judge(api_key, occasion, pool):
             "state": {"occasion": occasion, "drink": drink_state(c)},
             "questions": QUESTIONS,
         }
-        return c["id"], _ask(api_key, payload)
+        return {c["id"]: _ask(api_key, payload)}
 
-    # Stop at the first failure or the deadline and drop what's still queued,
-    # so a stuck API can't hold a web worker (the same one serving the TV board).
-    ex = ThreadPoolExecutor(WORKERS)
-    futures = [ex.submit(one, c) for c, _ in pool]
+    return _parallel(
+        [lambda c=c: one(c) for c, _ in pool], WORKERS, DEADLINE, "TypeSafe"
+    )
+
+
+def _parallel(jobs, workers, deadline, who):
+    """Run jobs (each returns {id: answers}) and merge them. Stop at the first
+    failure or the deadline and drop what's still queued, so a stuck API can't
+    hold a web worker (the same one serving the TV board)."""
+    ex = ThreadPoolExecutor(workers)
+    futures = [ex.submit(job) for job in jobs]
+    out = {}
     try:
-        return dict(f.result() for f in as_completed(futures, timeout=DEADLINE))
+        for f in as_completed(futures, timeout=deadline):
+            out.update(f.result())
+        return out
     except TimeoutError as e:
-        raise SuggestError("TypeSafe took too long; try again in a minute") from e
+        raise SuggestError(f"{who} took too long; try again in a minute") from e
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+
+
+# ── Asking a chat model instead (OpenAI, Gemini or OpenAI-compatible) ────────
+# Used when there's no TypeSafe key but Settings → AI Images has a provider.
+# The same QUESTIONS are put to the model, several drinks per request, and its
+# answers are turned into the shape assess() reads, so pick() is unchanged.
+
+LLM_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+}
+LLM_DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "gemini": "gemini-2.5-flash"}
+LLM_BATCH = 20  # drinks per request
+LLM_WORKERS = 8
+LLM_DEADLINE = 85  # chat models are slower; Cloudflare gives up near 100 s
+LLM_SURE, LLM_UNSURE = 0.9, 0.1  # a yes/no answer read as a probability
+
+
+def llm_prompt():
+    """System prompt spelling out QUESTIONS, so both engines ask the same things."""
+    fit, base = QUESTIONS["fit"], QUESTIONS["base"]
+    lines = [
+        "You judge cocktails for a holiday drinks menu. `occasion` names the "
+        "occasion; answer every question below for each drink in `drinks`.",
+        "",
+        f"fit: {fit['instructions']} Answer 0, 1 or 2:",
+        *(f"  {i}: {level}" for i, level in enumerate(fit["criteria"])),
+    ]
+    for key in ("batchable", "approachable", "alcoholic"):
+        q = QUESTIONS[key]
+        lines += [
+            f"{key}: {q['instructions']} Answer true or false.",
+            f"  true: {q['criteria']['true']}",
+            f"  false: {q['criteria']['false']}",
+        ]
+    lines += [f"base: {base['instructions']} Answer one of:"]
+    lines += [f"  {k}: {v}" for k, v in base["criteria"].items()]
+    lines += [
+        "  none: the drink has no alcohol",
+        "",
+        'Reply with JSON only: {"drinks": [{"id": <id>, "fit": 0|1|2, '
+        '"batchable": bool, "approachable": bool, "alcoholic": bool, '
+        '"base": "<option>"}]}, one entry for every drink.',
+    ]
+    return "\n".join(lines)
+
+
+def llm_answers(d):
+    """One model reply for a drink → the answers shape TypeSafe returns."""
+    fit = d.get("fit")
+    flags = [d.get(k) for k in ("batchable", "approachable", "alcoholic")]
+    options = list(QUESTIONS["base"]["criteria"])
+    base = d.get("base")
+    if fit not in (0, 1, 2) or not all(isinstance(f, bool) for f in flags):
+        raise ValueError(f"unusable answer: {d}")
+    if base not in options:
+        base = None  # "none", or something off-list: no base for variety
+
+    def noul(v):
+        return {"type": "noul", "noul": LLM_SURE if v else LLM_UNSURE}
+
+    rest = (1 - LLM_SURE) / 2
+    other = (1 - LLM_SURE) / (len(options) - 1)
+    return {
+        "fit": {
+            "type": "score",
+            "probabilities": {str(i): LLM_SURE if i == fit else rest for i in range(3)},
+        },
+        "batchable": noul(flags[0]),
+        "approachable": noul(flags[1]),
+        "alcoholic": noul(flags[2]),
+        "base": {
+            "type": "choice",
+            "probabilities": {
+                k: (LLM_SURE if k == base else (other if base else 1 / len(options)))
+                for k in options
+            },
+        },
+    }
+
+
+def _ask_llm(llm, occasion, drinks):
+    """One chat request for a batch; retried once if the reply is unusable."""
+    body = {
+        "model": llm["model"],
+        "messages": [
+            {"role": "system", "content": llm_prompt()},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "occasion": occasion,
+                        "drinks": [{"id": c["id"], **drink_state(c)} for c in drinks],
+                    }
+                ),
+            },
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    if llm["model"].startswith(("gpt-5", "o3", "o4")):
+        body["reasoning_effort"] = "low"  # a quick judgment, not a long think
+    url = llm["base_url"].rstrip("/") + "/chat/completions"
+    want = {c["id"] for c in drinks}
+    for attempt in range(2):
+        log.debug("LLM request: %s", body)
+        try:
+            r = requests.post(
+                url,
+                json=body,
+                timeout=LLM_DEADLINE,
+                headers={"Authorization": f"Bearer {llm['api_key']}"},
+            )
+        except requests.RequestException as e:
+            raise SuggestError(f"Couldn't reach {llm['label']}: {e}") from e
+        if r.status_code in (401, 403):
+            raise SuggestError(f"{llm['label']} rejected the API key")
+        if not r.ok:
+            raise SuggestError(f"{llm['label']} error {r.status_code}: {r.text[:200]}")
+        log.debug("LLM answer: %s", r.text)
+        try:
+            reply = json.loads(r.json()["choices"][0]["message"]["content"])
+            got = {
+                d["id"]: llm_answers(d) for d in reply["drinks"] if d.get("id") in want
+            }
+            if set(got) == want:
+                return got
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            log.debug("Unusable LLM reply: %s", e)
+    raise SuggestError(f"{llm['label']} didn't answer for every drink; try again")
+
+
+def judge_llm(llm, occasion, pool):
+    drinks = [c for c, _ in pool]
+    batches = [drinks[i : i + LLM_BATCH] for i in range(0, len(drinks), LLM_BATCH)]
+    jobs = [lambda b=b: _ask_llm(llm, occasion, b) for b in batches]
+    return _parallel(jobs, LLM_WORKERS, LLM_DEADLINE, llm["label"])
 
 
 # ── Deciding (code) ───────────────────────────────────────────────────────────
@@ -317,10 +467,11 @@ def pick(assessed, size=MENU_SIZE):
     return picks, ranked[:ALTERNATES], unfilled
 
 
-def suggest(api_key, occasion, cocktails, shelf_ids):
+def suggest(judge_fn, occasion, cocktails, shelf_ids):
+    """judge_fn(occasion, pool) -> {id: answers}: TypeSafe or a chat model."""
     pool = candidates(cocktails, shelf_ids)
     considered = pool[:MAX_POOL]
-    answers = judge(api_key, occasion, considered) if considered else {}
+    answers = judge_fn(occasion, considered) if considered else {}
     assessed = [assess(c, missing, answers[c["id"]]) for c, missing in considered]
     picks, alternates, unfilled = pick(assessed)
     return {
