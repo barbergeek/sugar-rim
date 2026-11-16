@@ -3571,78 +3571,338 @@ const HolidayMenu = {
   },
 
   // ── Menu suggestions: a model judges each drink, the server picks a set, you approve ──
-  _suggestion: null,
+  // The popup opens at once and fills in as the server streams each judgment.
+  _sg: null,
+  _MORE_PAGE: 10,
 
   async suggestMenu() {
     const occasion = el('cfg-menu-occasion').value.trim();
-    const status = el('cfg-menu-status');
     if (!occasion) return;
-    status.className = 'cfg-status';
-    status.textContent = 'Asking about your drinks… this can take a little while.';
+    this._menuName = App.cocktails._menu?.menu?.title || '';
+    const sg = (this._sg = {
+      occasion,
+      engine: '',
+      considered: null,
+      judged: 0,
+      latest: '',
+      drinks: new Map(), // id → assessed drink, as judged
+      pickIds: new Map(), // id → why it was picked (role), for the menu so far
+      choice: new Map(), // id → checked, where you've changed the default
+      open: new Set(), // ids with their recipe shown
+      recipeErr: new Map(), // id → why its recipe didn't load
+      moreShown: this._MORE_PAGE,
+      unfilled: [],
+      state: 'running', // running | done | cancelled | error
+      error: '',
+      ctrl: new AbortController(),
+    });
+    this._openSuggestion();
     try {
-      this._suggestion = await post('/api/menu/suggest', { occasion });
-      this._menuName = App.cocktails._menu?.menu?.title || '';
-      this._renderSuggestion();
+      const resp = await fetch('/api/menu/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ occasion }),
+        signal: sg.ctrl.signal,
+      });
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${resp.status}`);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        // Closed or navigated away: stop asking.
+        if (!el('sg-list') || el('modal-overlay').classList.contains('hidden')) {
+          sg.ctrl.abort();
+          return;
+        }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        lines.filter(Boolean).forEach((line) => this._onSuggestEvent(sg, JSON.parse(line)));
+      }
+      if (sg.state === 'running') {
+        sg.state = 'error';
+        sg.error = 'The connection closed before the suggestion finished; try again.';
+      }
     } catch (e) {
-      status.className = 'cfg-status err';
-      status.textContent = e.message;
+      if (sg.state !== 'running') return; // cancelled
+      sg.state = 'error';
+      sg.error = e.message;
     }
+    this._queueSuggestRender();
   },
 
-  _suggestRow(d, checked) {
-    const tags = d.tags.map((t) => `<span class="tag">${escHtml(t)}</span>`).join(' ');
-    const needs = d.missing.length
+  _onSuggestEvent(sg, ev) {
+    if (sg !== this._sg || sg.state !== 'running') return;
+    if (ev.type === 'start') {
+      sg.engine = ev.engine || '';
+      sg.considered = ev.considered;
+    } else if (ev.type === 'judged') {
+      ev.drinks.forEach((d) => sg.drinks.set(d.id, d));
+      sg.judged = ev.judged;
+      sg.pickIds = new Map(ev.picks.map((p) => [p.id, p.role]));
+      sg.latest = ev.drinks[ev.drinks.length - 1]?.name || '';
+    } else if (ev.type === 'done') {
+      [...ev.picks, ...ev.alternates].forEach((d) => sg.drinks.set(d.id, d));
+      sg.pickIds = new Map(ev.picks.map((p) => [p.id, p.role]));
+      sg.unfilled = ev.unfilled;
+      sg.state = 'done';
+    } else if (ev.type === 'error') {
+      sg.state = 'error';
+      sg.error = ev.error;
+    }
+    this._queueSuggestRender();
+  },
+
+  cancelSuggestion() {
+    const sg = this._sg;
+    if (!sg || sg.state !== 'running') return;
+    sg.state = 'cancelled';
+    sg.ctrl.abort();
+    this._renderSuggestion();
+  },
+
+  backFromSuggestion() {
+    this.cancelSuggestion();
+    this.show();
+  },
+
+  _suggestRow(d, checked, note = '') {
+    const tags = [
+      ...(note ? [`<span class="tag">${note}</span>`] : []),
+      ...(d.tags || []).map((t) => `<span class="tag">${escHtml(t)}</span>`),
+    ].join(' ');
+    const needs = d.missing?.length
       ? `<div class="cfg-status">Needs: ${d.missing.map((m) => escHtml(m.name)).join(', ')}</div>`
       : '';
-    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-      <input type="checkbox" class="sg-pick" value="${d.id}" ${checked ? 'checked' : ''} onchange="App.holidayMenu._syncSuggestCount()" style="margin-top:4px">
-      <div style="flex:1"><div style="font-weight:600">${escHtml(d.name)}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${tags}</div>${needs}</div>
-    </label>`;
+    const score =
+      d.value == null
+        ? ''
+        : `<span class="cfg-status" title="10 made for the occasion · 5 suits it like any other time · below 0 out of place. Less up to 2 for an acquired taste and 1 per ingredient to buy.">Score ${d.value.toFixed(1)}</span>`;
+    const open = this._sg?.open.has(d.id);
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <label style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0;cursor:pointer">
+          <input type="checkbox" class="sg-pick" value="${d.id}" ${checked ? 'checked' : ''} onchange="App.holidayMenu._choose(this)" style="margin-top:4px">
+          <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-weight:600">${escHtml(d.name)}</span>${score}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${tags}</div>${needs}</div>
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 10px;font-size:0.8rem" onclick="App.holidayMenu.toggleRecipe(${d.id})">Recipe ${open ? '▴' : '▾'}</button>
+      </div>
+      ${open ? this._recipeHtml(d.id) : ''}
+    </div>`;
+  },
+
+  // Show or hide a drink's full recipe under its row, fetching it the first time.
+  async toggleRecipe(id) {
+    const sg = this._sg;
+    if (sg.open.has(id)) sg.open.delete(id);
+    else sg.open.add(id);
+    this._renderSuggestion();
+    if (!sg.open.has(id) || App.cocktails._cache.has(id)) return;
+    try {
+      App.cocktails._cache.set(id, (await get(`/api/cocktails/${id}`)).data);
+      sg.recipeErr.delete(id);
+    } catch (e) {
+      sg.recipeErr.set(id, e.message);
+    }
+    if (sg === this._sg) this._renderSuggestion();
+  },
+
+  _recipeHtml(id) {
+    const c = App.cocktails._cache.get(id);
+    const err = this._sg.recipeErr.get(id);
+    if (!c)
+      return `<div class="cfg-status${err ? ' err' : ''}" style="margin:8px 0 0 28px">${err ? escHtml(err) : 'Loading recipe…'}</div>`;
+    const ings = (c.ingredients || [])
+      .map((i) => {
+        const ingId = i.ingredient_id ?? i.ingredient?.id;
+        const onShelf = isOnShelf(ingId, i.ingredient);
+        const { amount, unit } = UnitPref.convert(i.amount, i.units);
+        const amt = i.amount ? `${amount} ${unit}`.trim() : '';
+        const note = i.note ? `<span class="ing-note">${escHtml(i.note)}</span>` : '';
+        return `<div class="ingredient-row">
+          <span class="ing-dot ${onShelf ? 'ing-dot-on' : 'ing-dot-off'}" title="${onShelf ? 'On shelf' : 'Not on shelf'}"></span>
+          <span class="ing-amount">${escHtml(amt)}</span>
+          <span class="ing-name">${escHtml(i.name || i.ingredient?.name || '')}${i.optional ? ' <span class="ing-note">optional</span>' : ''}${note}</span>
+        </div>`;
+      })
+      .join('');
+    const meta = [
+      c.glass && `<span><strong>Glass:</strong> ${escHtml(c.glass.name || c.glass)}</span>`,
+      c.method && `<span><strong>Method:</strong> ${escHtml(c.method.name || c.method)}</span>`,
+      c.abv && `<span><strong>ABV:</strong> ${escHtml(c.abv)}%</span>`,
+    ].filter(Boolean);
+    const img = c.images?.[0]
+      ? `<img src="/api/images/${c.images[0].id}/thumb" alt="${escHtml(c.name)}" style="width:96px;height:96px;object-fit:cover;border-radius:12px;flex-shrink:0">`
+      : '';
+    return `<div style="margin:10px 0 4px 28px;padding:12px;border-radius:12px;background:var(--bg-glass-heavy);display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        ${img}
+        <div style="flex:1;min-width:0">
+          ${meta.length ? `<div class="detail-meta">${meta.join('')}</div>` : ''}
+          ${c.description ? `<p class="detail-instructions" style="margin-top:6px">${escHtml(c.description)}</p>` : ''}
+        </div>
+      </div>
+      <div>${ings || '<p class="cfg-status">No ingredients listed</p>'}</div>
+      ${c.instructions ? `<div><strong>Instructions</strong><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
+      ${c.garnish ? `<div><strong>Garnish</strong><p class="detail-instructions">${escHtml(c.garnish)}</p></div>` : ''}
+    </div>`;
+  },
+
+  _choose(box) {
+    this._sg.choice.set(parseInt(box.value, 10), box.checked);
+    this._syncSuggestCount();
+  },
+
+  _isChosen(id) {
+    const sg = this._sg;
+    return sg.choice.has(id) ? sg.choice.get(id) : sg.pickIds.has(id);
+  },
+
+  // Everything ticked: the current menu, then every drink judged so far.
+  _chosenIds() {
+    const current = (App.cocktails._menu?.menu?.drinks || []).map((d) => d.id);
+    const ids = [...new Set([...current, ...this._sg.drinks.keys()])];
+    return ids.filter((id) => this._isChosen(id));
+  },
+
+  _showMoreSuggestions() {
+    this._sg.moreShown += this._MORE_PAGE;
+    this._renderSuggestion();
+  },
+
+  _openSuggestion() {
+    const sg = this._sg;
+    const year = new Date().getFullYear();
+    const name = this._menuName || `${sg.occasion} ${year}`;
+    const body = `
+      <div id="sg-working" class="sg-working"></div>
+      <div id="sg-list"></div>
+      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Menu title
+        <input type="text" id="sg-name" class="text-input" value="${escHtml(name)}">
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim)">
+        <input type="checkbox" id="sg-shop" checked> Add missing ingredients to the shopping list
+      </label>
+      <div id="sg-status" class="cfg-status"></div>`;
+    const footer = `<button class="btn btn-ghost" onclick="App.holidayMenu.backFromSuggestion()">Back</button>
+      <button class="btn btn-ghost" id="sg-cancel" onclick="App.holidayMenu.cancelSuggestion()">Cancel</button>
+      <button class="btn btn-primary" id="sg-save" onclick="App.holidayMenu.approveSuggestion()">Save &amp; Publish</button>`;
+    Modal.open(`Menu for ${sg.occasion}`, body, footer);
+    this._renderSuggestion();
+  },
+
+  // Judgments can arrive many per second; draw at most once a frame.
+  _queueSuggestRender() {
+    if (this._renderQueued) return;
+    this._renderQueued = true;
+    requestAnimationFrame(() => {
+      this._renderQueued = false;
+      this._renderSuggestion();
+    });
   },
 
   _renderSuggestion() {
-    const s = this._suggestion;
-    const year = new Date().getFullYear();
-    const name = this._menuName || `${s.occasion} ${year}`;
-    const notes = s.unfilled.map((u) => `<div class="cfg-status">${escHtml(u)}</div>`).join('');
-    const body = `
-      <div class="cfg-status" style="margin-bottom:8px">${escHtml(s.engine || '')} judged ${s.considered} drinks you can make or are at most two ingredients away from.</div>
-      ${notes}
-      <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Suggested</div>
-      ${s.picks.map((d) => this._suggestRow(d, true)).join('') || '<div class="cfg-status">Nothing fits.</div>'}
+    const sg = this._sg;
+    if (!el('sg-list')) return;
+    const running = sg.state === 'running';
+    const of = sg.considered == null ? '' : ` of ${sg.considered}`;
+
+    // The working banner: what's happening now, and how far along.
+    const pct = sg.considered ? Math.round((100 * sg.judged) / sg.considered) : 0;
+    let line, sub;
+    if (running) {
+      line =
+        sg.considered == null
+          ? 'Looking over your shelf and recipes…'
+          : `Asking ${escHtml(sg.engine || 'the model')} about your drinks: ${sg.judged}${of} judged`;
+      sub = sg.latest
+        ? `Just judged: ${escHtml(sg.latest)}`
+        : 'The menu fills in below as drinks are judged.';
+    } else if (sg.state === 'done') {
+      line = `Judged ${sg.judged} drinks you can make or are at most two ingredients away from.`;
+      sub = sg.unfilled.map(escHtml).join(' · ');
+    } else if (sg.state === 'cancelled') {
+      line = `Stopped after judging ${sg.judged}${of} drinks.`;
+      sub = 'Pick from what was judged, or go back and suggest again.';
+    } else {
+      line = escHtml(sg.error);
+      sub = sg.judged ? `${sg.judged}${of} drinks were judged before it failed.` : '';
+    }
+    el('sg-working').className =
+      `sg-working${running ? ' running' : ''}${sg.state === 'error' ? ' err' : ''}`;
+    el('sg-working').innerHTML = `
+      <span class="material-symbols-rounded sg-working-icon">${running ? 'local_bar' : sg.state === 'done' ? 'check_circle' : sg.state === 'error' ? 'error' : 'pause_circle'}</span>
+      <div style="flex:1;min-width:0">
+        <div>${line}</div>
+        ${sub ? `<div class="cfg-status">${sub}</div>` : ''}
+        ${running ? `<div class="sg-progress"><div style="width:${pct}%"></div></div>` : ''}
+      </div>`;
+
+    // Current menu first, then the picks, then every other drink by score.
+    const heading = (text) =>
+      `<div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em">${text}</div>`;
+    const current = App.cocktails._menu?.menu?.drinks || [];
+    const currentIds = new Set(current.map((d) => d.id));
+    const fresh = [...sg.drinks.values()].filter((d) => !currentIds.has(d.id));
+    const picks = fresh.filter((d) => sg.pickIds.has(d.id)).sort((x, y) => y.value - x.value);
+    // Why a pick is there when a higher score was passed over.
+    const why = {
+      zero_proof: 'zero-proof slot',
+      batchable: 'batch-ahead slot',
+      variety: 'different spirit',
+    };
+    const more = fresh.filter((d) => !sg.pickIds.has(d.id)).sort((x, y) => y.value - x.value);
+    const shown = more.slice(0, sg.moreShown);
+    const left = more.length - shown.length;
+    const waiting = running ? 'Waiting for the first drinks…' : 'Nothing fits.';
+    el('sg-list').innerHTML = `
       ${
-        s.alternates.length
-          ? `<div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em">Alternatives</div>
-             ${s.alternates.map((d) => this._suggestRow(d, false)).join('')}`
+        current.length
+          ? heading('Current menu') +
+            current
+              .map((d) =>
+                this._suggestRow(
+                  sg.drinks.get(d.id) || d,
+                  this._isChosen(d.id),
+                  sg.pickIds.has(d.id) ? 'suggested' : ''
+                )
+              )
+              .join('')
           : ''
       }
-      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">Menu title
-        <input type="text" id="sg-name" class="text-input" value="${escHtml(name)}">
-      </label>
-      <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim);margin-top:10px">
-        <input type="checkbox" id="sg-shop" checked> Add missing ingredients to the shopping list
-      </label>
-      <div id="sg-status" class="cfg-status" style="margin-top:8px"></div>`;
-    const footer = `<button class="btn btn-ghost" onclick="App.holidayMenu.show()">Back</button>
-      <button class="btn btn-primary" id="sg-save" onclick="App.holidayMenu.approveSuggestion()">Save &amp; Publish</button>`;
-    Modal.open(`Menu for ${s.occasion}`, body, footer);
+      ${heading(running ? 'Suggested so far' : 'Suggested')}
+      ${picks.map((d) => this._suggestRow(d, this._isChosen(d.id), why[sg.pickIds.get(d.id)] || '')).join('') || `<div class="cfg-status">${sg.pickIds.size ? 'All on the current menu.' : waiting}</div>`}
+      ${
+        more.length
+          ? `${heading('More drinks, best first')}
+             ${shown.map((d) => this._suggestRow(d, this._isChosen(d.id))).join('')}
+             ${left > 0 ? `<button class="btn btn-ghost btn-wide" style="margin-top:8px" onclick="App.holidayMenu._showMoreSuggestions()">Show ${Math.min(left, this._MORE_PAGE)} more (${left} left)</button>` : ''}`
+          : ''
+      }`;
+    el('sg-cancel').style.display = running ? '' : 'none';
     this._syncSuggestCount();
   },
 
   _syncSuggestCount() {
-    const n = document.querySelectorAll('.sg-pick:checked').length;
+    const running = this._sg.state === 'running';
+    const n = this._chosenIds().length;
     const max = App.cocktails._menu?.max_drinks || 12;
     const ok = n >= 1 && n <= max;
-    el('sg-save').disabled = !ok;
+    el('sg-save').disabled = running || !ok;
     el('sg-status').className = 'cfg-status' + (ok ? '' : ' err');
-    el('sg-status').textContent = ok ? `${n} drinks selected` : `Choose 1 to ${max} drinks`;
+    el('sg-status').textContent = ok
+      ? `${n} drinks selected${running ? ' (Save unlocks when judging finishes or you cancel)' : ''}`
+      : `Choose 1 to ${max} drinks`;
   },
 
   async approveSuggestion() {
-    const ids = [...document.querySelectorAll('.sg-pick:checked')].map((c) =>
-      parseInt(c.value, 10)
-    );
+    const ids = this._chosenIds();
     const name = el('sg-name').value.trim();
     const status = el('sg-status');
     if (!ids.length || !name) return;
@@ -3661,11 +3921,10 @@ const HolidayMenu = {
       });
       App.cocktails._menu = state;
       if (el('sg-shop').checked) {
-        const all = [...this._suggestion.picks, ...this._suggestion.alternates];
         const missing = new Map();
-        all
-          .filter((d) => ids.includes(d.id))
-          .forEach((d) => d.missing.forEach((m) => m.id && missing.set(m.id, m)));
+        ids
+          .map((id) => this._sg.drinks.get(id))
+          .forEach((d) => d?.missing.forEach((m) => m.id && missing.set(m.id, m)));
         if (missing.size)
           await post('/api/shopping-list/batch', {
             ingredients: [...missing.keys()].map((id) => ({ id, quantity: 1 })),
