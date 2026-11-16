@@ -75,8 +75,11 @@
     .hero .name { font-size: 6.8vh; }
     .narrow .name { font-size: 4.4vh; }
     .tag { font-size: 2.2vh; line-height: 1.4; color: rgba(255, 255, 255, .8);
-      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
     .hero .tag { font-size: 2.5vh; }
+    /* A sentence that runs past two lines at full size steps down a little. */
+    .tag.long { font-size: 1.9vh; }
+    .hero .tag.long { font-size: 2.15vh; }
     .narrow .tag { display: none; }
     .facts { margin-top: .8vh; font-size: 1.9vh; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgba(255, 255, 255, .7); }
     .facts .zero { color: #a7dcaa; }
@@ -167,6 +170,13 @@
     // screens take turns.
     const PAGE_SECONDS = {{ seconds }}; // Manage → Holiday Menu, or ?seconds= in the link
     const pages = [...document.querySelectorAll('.page')];
+    // Measured once the web fonts are in, since they change where lines wrap.
+    document.fonts.ready.then(() => {
+      for (const tag of document.querySelectorAll('.tag')) {
+        const lines = tag.scrollHeight / parseFloat(getComputedStyle(tag).lineHeight);
+        if (lines > 2.5) tag.classList.add('long');
+      }
+    });
     if (pages.length > 1) {
       void pages[0].offsetHeight; // the first screen shows at once; later ones fade in
       document.querySelector('.board').classList.add('fading');
