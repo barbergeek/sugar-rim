@@ -6,6 +6,7 @@ from tests.test_import_routes import Resp
 
 BA = "http://ba.test"
 BASE = "https://sugar.example"
+DENIED = "Only bar admins and moderators can manage the holiday menu"
 
 COCKTAILS = [
     {
@@ -62,30 +63,39 @@ CATALOG = {c["id"]: c for c in COCKTAILS + EXTRA}
 
 
 class FakeBA:
-    """Bar Assistant with one collection (5) whose members can change."""
+    """Bar Assistant with a cocktail catalog and a configurable user role."""
 
-    def __init__(self, members=(1, 2)):
-        self.members = list(members)
-        self.created = []
+    def __init__(self):
+        self.role = 1
+        self.deleted = set()  # cocktail ids BA no longer returns
         self.uploads_down = False
+        self.lookup_down = False
 
     def get(self, url, **kw):
-        if url == f"{BA}/api/collections/5":
+        if url == f"{BA}/api/bars/1":
+            if self.role is None:
+                return Resp(500, json_data={})
+            return Resp(json_data={"data": {"id": 1, "access": {"role_id": self.role}}})
+        if url == f"{BA}/api/cocktails":
+            if self.lookup_down:
+                return Resp(500, json_data={})
+            ids = [int(i) for i in kw["params"]["filter[id]"].split(",")]
+            # BA returns them in its own order, not the one asked for.
             return Resp(
                 json_data={
-                    "data": {
-                        "id": 5,
-                        "name": "Thanksgiving 2026",
-                        "description": "Fall favorites",
-                        # No "cocktails": BA may leave them out of the detail.
-                    }
+                    "data": [
+                        c
+                        for c in sorted(CATALOG.values(), key=lambda c: -c["id"])
+                        if c["id"] in ids and c["id"] not in self.deleted
+                    ]
                 }
             )
-        if url == f"{BA}/api/collections/404":
+        if url.startswith(f"{BA}/api/cocktails/"):
+            slug = url.rsplit("/", 1)[-1]
+            for c in CATALOG.values():
+                if c["slug"] == slug and c["id"] not in self.deleted:
+                    return Resp(json_data={"data": c})
             return Resp(404, json_data={})
-        if url == f"{BA}/api/cocktails":
-            assert kw["params"]["filter[collection_id]"] == 5
-            return Resp(json_data={"data": [CATALOG[i] for i in self.members]})
         if url == f"{BA}/uploads/cocktails/1/cider-sour_Ab12Cd.jpg":
             if self.uploads_down:
                 return Resp(404)
@@ -98,22 +108,11 @@ class FakeBA:
             return r
         raise AssertionError(f"unexpected GET {url}")
 
-    def put(self, url, json=None, **kw):
-        assert url == f"{BA}/api/collections/5/cocktails"
-        self.members = list(json["cocktails"])
-        return Resp(204)
-
-    def post(self, url, json=None, **kw):
-        assert url == f"{BA}/api/collections"
-        self.created.append(json)
-        # The spec documents only a Location header, so send no body.
-        return Resp(201, headers={"Location": f"{BA}/api/collections/5"})
-
 
 @pytest.fixture
 def ba(monkeypatch):
     fake = FakeBA()
-    for verb in ("get", "put", "post"):
+    for verb in ("get",):
         monkeypatch.setattr(app_module.http, verb, getattr(fake, verb))
     return fake
 
@@ -124,7 +123,7 @@ def env(monkeypatch, tmp_path, ba):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     monkeypatch.setenv("BA_API_URL", BA)
     # setenv (not delenv) so teardown restores them: the app writes os.environ.
-    monkeypatch.setenv("MENU_COLLECTION_ID", "")
+    monkeypatch.setenv("BA_BAR_ID", "1")
     return tmp_path
 
 
@@ -141,24 +140,99 @@ def guest(env):
     return app_module.app.test_client()
 
 
-def publish(owner):
-    r = owner.post("/api/menu/publish", json={"collection_id": 5, "public_base": BASE})
+def put_list(env, ids, title="Thanksgiving 2026", subtitle="Fall favorites"):
+    menu.save_list(
+        menu.menu_dir(str(env / ".env")),
+        {"title": title, "subtitle": subtitle, "cocktail_ids": ids},
+    )
+
+
+def publish(owner, env=None, ids=None):
+    if ids is not None:
+        put_list(env, ids)
+    r = owner.post("/api/menu/publish", json={"public_base": BASE})
     assert r.status_code == 200, r.get_json()
     return r.get_json()
 
 
-def test_owner_routes_need_login(guest):
+@pytest.fixture
+def listed(env):
+    """A saved menu of drinks 1 and 2."""
+    put_list(env, [1, 2])
+    return env
+
+
+def test_routes_need_login(guest):
     assert guest.get("/api/menu").status_code == 401
-    assert guest.post("/api/menu/publish", json={"collection_id": 5}).status_code == 401
+    assert guest.post("/api/menu/publish", json={}).status_code == 401
+    assert guest.post("/api/menu/title", json={"title": "x"}).status_code == 401
+    assert toggle(guest, 1, True).status_code == 401
 
 
-def test_publish_snapshots_collection(owner, env):
+ROUTES = [
+    ("get", "/api/menu", None),
+    ("post", "/api/menu/title", {"title": "x"}),
+    ("post", "/api/menu/publish", {"public_base": BASE}),
+    ("post", "/api/menu/cocktails", {"cocktail_id": 3, "on": True, "public_base": BASE}),
+    ("post", "/api/menu/cocktails/set", {"cocktail_ids": [1], "public_base": BASE}),
+    ("post", "/api/menu/suggest", {"occasion": "x"}),
+]
+
+
+@pytest.mark.parametrize("role", [3, 4, None])
+def test_other_roles_are_refused_and_nothing_is_written(owner, ba, env, role):
+    ba.role = role
+    for verb, path, body in ROUTES:
+        r = getattr(owner, verb)(path, **({"json": body} if body else {}))
+        assert r.status_code == 403, path
+        assert r.get_json()["error"] == DENIED
+    assert not (env / "menu").exists()
+    for key in ("menu_page_seconds", "menu_suggest_model", "typesafe_api_key"):
+        assert owner.post("/config", json={key: "9"}).status_code == 403
+    assert app_module.os.getenv("MENU_PAGE_SECONDS") != "9"
+    assert not (env / ".env").exists() or "9" not in (env / ".env").read_text()
+
+
+def test_moderator_manages_the_menu(owner, ba, listed):
+    ba.role = 2
+    assert owner.get("/api/menu").status_code == 200
+    assert owner.post("/api/menu/title", json={"title": "Winter"}).status_code == 200
+    assert toggle(owner, 3, True).get_json()["published"]["count"] == 3
+    assert owner.post("/api/menu/publish", json={"public_base": BASE}).status_code == 200
+    assert owner.post("/config", json={"menu_page_seconds": 9}).status_code == 200
+
+
+def test_role_is_checked_on_every_request(owner, ba, listed):
+    assert owner.get("/api/menu").status_code == 200
+    ba.role = 3
+    assert owner.get("/api/menu").status_code == 403
+
+
+def test_no_bar_selected_is_not_permitted(owner, monkeypatch):
+    monkeypatch.setenv("BA_BAR_ID", "")
+    r = owner.get("/api/menu")
+    assert r.status_code == 400 and "No bar selected" in r.get_json()["error"]
+
+
+def test_other_settings_stay_login_only(owner, ba):
+    ba.role = 4
+    assert owner.post("/config", json={"ai_model": "x"}).status_code == 200
+
+
+def test_publish_snapshots_the_list_in_order(owner, env, ba):
+    put_list(env, [3, 1, 2])  # BA hands them back newest-first; the list wins
     state = publish(owner)
     assert state["published"]["title"] == "Thanksgiving 2026"
-    assert state["published"]["count"] == 2
+    assert state["published"]["count"] == 3
     assert state["url"] == f"{BASE}/menu"
     snap = menu.load(menu.menu_dir(str(env / ".env")))
-    cider = snap["cocktails"][0]
+    assert [c["name"] for c in snap["cocktails"]] == [
+        "Drink 3",
+        "Cider Sour",
+        "Maple Old Fashioned",
+    ]
+    assert snap["subtitle"] == "Fall favorites" and "collection_id" not in snap
+    cider = snap["cocktails"][1]
     # Only what the public pages show; nobody's account details.
     assert "created_user" not in cider and "id" not in cider
     assert [i["name"] for i in cider["ingredients"]] == [
@@ -169,39 +243,36 @@ def test_publish_snapshots_collection(owner, env):
     assert cider["ingredients"][0]["amount"] == "1 ½ oz"
     assert cider["ingredients"][2]["amount"] == "1–2 dashes"
     assert cider["image"] == "cider-sour.jpg"
-    assert snap["cocktails"][1]["image"] is None
+    assert snap["cocktails"][2]["image"] is None
 
 
-def test_publish_rejects_bad_input(owner, ba):
-    bad = [
-        {"collection_id": "5", "public_base": BASE},
-        {"collection_id": 5, "public_base": "javascript:alert(1)"},
-    ]
-    for body in bad:
-        assert owner.post("/api/menu/publish", json=body).status_code == 400
-    ba.members = []
-    r = owner.post("/api/menu/publish", json={"collection_id": 5, "public_base": BASE})
+def test_publish_rejects_bad_input(owner, env):
+    put_list(env, [1, 2])
+    r = owner.post("/api/menu/publish", json={"public_base": "javascript:alert(1)"})
     assert r.status_code == 400
-    ba.members = list(CATALOG)
-    r = owner.post("/api/menu/publish", json={"collection_id": 5, "public_base": BASE})
+    put_list(env, [])
+    r = owner.post("/api/menu/publish", json={"public_base": BASE})
+    assert r.status_code == 400
+    put_list(env, list(CATALOG))
+    r = owner.post("/api/menu/publish", json={"public_base": BASE})
     assert r.status_code == 400 and "at most" in r.get_json()["error"]
 
 
-def test_republish_drops_unused_photos(owner, env, ba):
-    publish(owner)
-    ba.members = [2]
-    publish(owner)
+def test_republish_drops_unused_photos(owner, env):
+    publish(owner, env, [1, 2])
+    publish(owner, env, [2])
     assert not (env / "menu" / "cider-sour.jpg").exists()
+    assert (env / "menu" / "list.json").exists()
 
 
-def test_public_pages_need_no_login_and_ignore_old_keys(owner, guest):
+def test_public_pages_need_no_login_and_ignore_old_keys(owner, guest, listed):
     publish(owner)
     for path in ("/menu", "/menu/r/cider-sour", "/menu/img/cider-sour"):
         assert guest.get(path).status_code == 200
         assert guest.get(path + "?key=from-an-old-link").status_code == 200
 
 
-def test_board_shows_menu_with_qr_to_recipe(owner, guest):
+def test_board_shows_menu_with_qr_to_recipe(owner, guest, listed):
     publish(owner)
     r = guest.get("/menu")
     assert r.status_code == 200
@@ -220,7 +291,7 @@ def test_board_shows_menu_with_qr_to_recipe(owner, guest):
     assert "--inset: 15" in guest.get("/menu?inset=99").get_data(as_text=True)
 
 
-def test_recipe_and_image_only_for_menu_cocktails(owner, guest):
+def test_recipe_and_image_only_for_menu_cocktails(owner, guest, listed):
     publish(owner)
     r = guest.get("/menu/r/cider-sour")
     assert r.status_code == 200 and "Apple fan" in r.get_data(as_text=True)
@@ -231,14 +302,40 @@ def test_recipe_and_image_only_for_menu_cocktails(owner, guest):
     assert guest.get("/menu/img/..%2F.env").status_code == 404
 
 
-def test_board_before_anything_published(owner, guest):
+def test_fresh_install_is_an_empty_menu_called_menu(owner, guest):
     state = owner.get("/api/menu").get_json()
     assert state["published"] is None and state["url"] is None
-    assert state["collection"] is None
+    assert state["menu"] == {
+        "title": "Menu",
+        "subtitle": "",
+        "drinks": [],
+        "cocktail_ids": [],
+    }
     r = guest.get("/menu")
     assert r.status_code == 200 and "No menu has been published" in r.get_data(
         as_text=True
     )
+
+
+def test_first_run_seeds_the_list_from_the_snapshot(owner, env):
+    snapshot = {
+        "title": "Thanksgiving Cocktails",
+        "subtitle": "Fall",
+        "public_base": BASE,
+        "cocktails": [
+            {"slug": "maple-old-fashioned"},
+            {"slug": "gone-from-ba"},
+            {"slug": "cider-sour"},
+        ],
+    }
+    directory = menu.menu_dir(str(env / ".env"))
+    app_module.os.makedirs(directory)
+    menu.save(directory, snapshot)
+    state = owner.get("/api/menu").get_json()
+    assert state["menu"]["title"] == "Thanksgiving Cocktails"
+    assert state["menu"]["subtitle"] == "Fall"
+    assert state["menu"]["cocktail_ids"] == [2, 1]
+    assert menu.load_list(directory)["cocktail_ids"] == [2, 1]
 
 
 def toggle(owner, cocktail_id, on):
@@ -248,96 +345,98 @@ def toggle(owner, cocktail_id, on):
     )
 
 
-def test_publish_remembers_the_menu_collection(owner):
-    state = publish(owner)
-    assert state["collection"] == {
-        "id": 5,
-        "name": "Thanksgiving 2026",
+def test_state_lists_the_drinks_in_list_order(owner, env):
+    put_list(env, [2, 1])
+    assert owner.get("/api/menu").get_json()["menu"] == {
+        "title": "Thanksgiving 2026",
+        "subtitle": "Fall favorites",
         "drinks": [
-            {"id": 1, "name": "Cider Sour"},
             {"id": 2, "name": "Maple Old Fashioned"},
+            {"id": 1, "name": "Cider Sour"},
         ],
-        "cocktail_ids": [1, 2],
+        "cocktail_ids": [2, 1],
     }
-    assert app_module.os.environ["MENU_COLLECTION_ID"] == "5"
 
 
-def test_menu_state_reports_a_collection_it_cannot_load(owner, ba, monkeypatch):
-    # A silent failure used to look like "no menu" and hid the add buttons.
-    owner.post("/api/menu/collection", json={"collection_id": 5})
-    real_get = ba.get
-
-    def get(url, **kw):
-        if url.endswith("/api/cocktails"):
-            return Resp(500, json_data={})
-        return real_get(url, **kw)
-
-    monkeypatch.setattr(app_module.http, "get", get)
-    state = owner.get("/api/menu").get_json()
-    assert state["collection"] is None
-    assert "lookup failed" in state["collection_error"]
+def test_a_failed_lookup_is_an_error_not_an_empty_menu(owner, ba, listed):
+    ba.lookup_down = True
+    assert owner.get("/api/menu").status_code == 502
+    assert toggle(owner, 3, True).status_code == 502
+    assert menu.load_list(menu.menu_dir(str(listed / ".env")))["cocktail_ids"] == [1, 2]
 
 
-def test_toggle_needs_a_menu_collection(owner):
-    r = toggle(owner, 3, True)
-    assert r.status_code == 400 and "Manage → Holiday Menu" in r.get_json()["error"]
+def test_title_route_renames_without_publishing(owner, listed):
+    r = owner.post("/api/menu/title", json={"title": " Christmas ", "subtitle": " Merry "})
+    assert r.status_code == 200
+    assert r.get_json()["menu"]["title"] == "Christmas"
+    assert r.get_json()["menu"]["subtitle"] == "Merry"
+    assert r.get_json()["menu"]["cocktail_ids"] == [1, 2]
+    assert r.get_json()["published"] is None
+    assert owner.post("/api/menu/title", json={"title": " "}).status_code == 400
 
 
-def test_toggle_adds_and_removes_then_republishes(owner, ba, env):
-    publish(owner)
+def test_toggle_adds_and_removes_then_republishes(owner, env):
+    put_list(env, [1, 2])
     r = toggle(owner, 3, True)
     assert r.status_code == 200
-    assert ba.members == [1, 2, 3]
     assert r.get_json()["published"]["count"] == 3
-    assert r.get_json()["collection"]["cocktail_ids"] == [1, 2, 3]
+    assert r.get_json()["menu"]["cocktail_ids"] == [1, 2, 3]
     toggle(owner, 3, True)  # already on: no duplicate
-    assert ba.members == [1, 2, 3]
+    list_path = menu.menu_dir(str(env / ".env"))
+    assert menu.load_list(list_path)["cocktail_ids"] == [1, 2, 3]
     r = toggle(owner, 1, False)
-    assert ba.members == [2, 3] and r.get_json()["published"]["count"] == 2
-    names = [
-        c["name"] for c in menu.load(menu.menu_dir(str(env / ".env")))["cocktails"]
-    ]
+    assert r.get_json()["published"]["count"] == 2
+    names = [c["name"] for c in menu.load(list_path)["cocktails"]]
     assert names == ["Maple Old Fashioned", "Drink 3"]
 
 
-def test_adding_keeps_the_drinks_already_there(owner, ba):
-    # Regression: members come from the cocktail filter, never an empty detail.
-    ba.members = [1, 2, 4]
-    owner.post("/api/menu/collection", json={"collection_id": 5})
-    toggle(owner, 3, True)
-    assert ba.members == [1, 2, 4, 3]
+def test_toggle_on_a_fresh_install_starts_the_menu(owner, env):
+    r = toggle(owner, 1, True)
+    assert r.status_code == 200 and r.get_json()["menu"]["title"] == "Menu"
+    assert r.get_json()["published"]["count"] == 1
 
 
-def test_a_failed_member_lookup_changes_nothing(owner, ba, monkeypatch):
-    owner.post("/api/menu/collection", json={"collection_id": 5})
-    real_get = ba.get
-
-    def get(url, **kw):
-        if url.endswith("/api/cocktails"):
-            return Resp(500, json_data={})
-        return real_get(url, **kw)
-
-    monkeypatch.setattr(app_module.http, "get", get)
-    assert toggle(owner, 3, True).status_code == 502
-    assert ba.members == [1, 2]
+def test_a_cocktail_deleted_in_ba_is_hidden_and_dropped_on_save(owner, ba, env):
+    put_list(env, [1, 2, 3])
+    ba.deleted = {2}
+    assert owner.get("/api/menu").get_json()["menu"]["cocktail_ids"] == [1, 3]
+    toggle(owner, 4, True)
+    directory = menu.menu_dir(str(env / ".env"))
+    assert menu.load_list(directory)["cocktail_ids"] == [1, 3, 4]
 
 
-def test_toggle_refuses_a_thirteenth_drink(owner, ba):
-    ba.members = list(range(1, 13))
-    publish(owner)
+def test_saving_the_title_drops_cocktails_deleted_in_ba(owner, ba, env):
+    put_list(env, [1, 2, 3])
+    ba.deleted = {2}
+    assert owner.post("/api/menu/title", json={"title": "X"}).status_code == 200
+    directory = menu.menu_dir(str(env / ".env"))
+    assert menu.load_list(directory)["cocktail_ids"] == [1, 3]
+
+
+def test_toggle_refuses_a_thirteenth_drink(owner, env):
+    put_list(env, list(range(1, 13)))
     r = toggle(owner, 13, True)
     assert r.status_code == 400 and "already has 12" in r.get_json()["error"]
-    assert ba.members == list(range(1, 13))
+    assert len(menu.load_list(menu.menu_dir(str(env / ".env")))["cocktail_ids"]) == 12
 
 
-def test_publish_falls_back_to_the_thumbnail(owner, guest, ba):
+def test_set_cocktails_replaces_the_list(owner, listed):
+    r = owner.post(
+        "/api/menu/cocktails/set",
+        json={"cocktail_ids": [4, 3, 4], "public_base": BASE},
+    )
+    assert r.status_code == 200 and r.get_json()["menu"]["cocktail_ids"] == [4, 3]
+    assert r.get_json()["published"]["count"] == 2
+
+
+def test_publish_falls_back_to_the_thumbnail(owner, guest, ba, listed):
     ba.uploads_down = True
     publish(owner)
     assert guest.get("/menu/img/cider-sour").data == b"\xff\xd8thumb"
 
 
-def test_a_long_menu_pages_and_shows_the_speed_setting(owner, guest, ba):
-    ba.members = list(range(1, 9))
+def test_a_long_menu_pages_and_shows_the_speed_setting(owner, guest, env):
+    put_list(env, list(range(1, 9)))
     state = publish(owner)
     assert state["per_page"] == 6 and state["max_drinks"] == 12
     html = guest.get("/menu").get_data(as_text=True)
@@ -345,31 +444,13 @@ def test_a_long_menu_pages_and_shows_the_speed_setting(owner, guest, ba):
     assert html.count("<b class=") == 4  # two dots in each screen's badge
 
 
-def test_emptying_the_menu_keeps_the_last_board(owner, ba):
-    ba.members = [1]
+def test_emptying_the_menu_keeps_the_last_board(owner, env):
+    put_list(env, [1])
     publish(owner)
     r = toggle(owner, 1, False)
-    assert r.status_code == 200 and ba.members == []
+    assert r.status_code == 200 and r.get_json()["menu"]["cocktail_ids"] == []
     assert "still shows" in r.get_json()["publish_error"]
     assert r.get_json()["published"]["count"] == 1
-
-
-def test_choose_or_create_the_menu_collection(owner, ba):
-    r = owner.post("/api/menu/collection", json={"collection_id": 5})
-    assert r.status_code == 200 and r.get_json()["collection"]["id"] == 5
-    assert (
-        owner.post("/api/menu/collection", json={"collection_id": 404}).status_code
-        == 404
-    )
-    r = owner.post("/api/menu/collection", json={"name": " Christmas 2026 "})
-    assert r.status_code == 200
-    assert ba.created == [{"name": "Christmas 2026", "description": None}]
-    assert app_module.os.environ["MENU_COLLECTION_ID"] == "5"
-
-
-def test_new_owner_routes_need_login(guest):
-    assert guest.post("/api/menu/collection", json={"name": "x"}).status_code == 401
-    assert toggle(guest, 1, True).status_code == 401
 
 
 def test_tagline_is_the_first_sentence_of_the_description():
@@ -435,7 +516,7 @@ def test_fmt_amount():
     assert menu.fmt_amount(1, None, "whole") == "1 whole"
 
 
-def test_page_seconds_setting_reaches_the_board(owner, guest, monkeypatch):
+def test_page_seconds_setting_reaches_the_board(owner, guest, monkeypatch, listed):
     monkeypatch.setenv("MENU_PAGE_SECONDS", "")
     publish(owner)
     assert "PAGE_SECONDS = 15;" in guest.get("/menu").get_data(as_text=True)
@@ -451,7 +532,7 @@ def test_page_seconds_setting_reaches_the_board(owner, guest, monkeypatch):
     assert guest_cfg.status_code == 401
 
 
-def test_qr_codes_use_short_links_to_each_recipe(owner, guest):
+def test_qr_codes_use_short_links_to_each_recipe(owner, guest, listed):
     publish(owner)
     html = guest.get("/menu").get_data(as_text=True)
     assert "/m/1" not in html  # the link is encoded in the code, not printed

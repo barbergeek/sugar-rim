@@ -233,6 +233,12 @@ def set_config():
                                 "typesafe_api_key", "menu_suggest_model",
                                 "menu_page_seconds")):
         return jsonify({"error": "unauthorized"}), 401
+    if _logged_in() and any(
+            k in body for k in ("typesafe_api_key", "menu_suggest_model",
+                                "menu_page_seconds")):
+        denied = _menu_role_denied()
+        if denied:
+            return denied
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
     if "api_url" in body:
@@ -516,8 +522,8 @@ def collection(cid):
 
 
 # ── Holiday menu ──────────────────────────────────────────────────────────────
-# Owner publishes a collection (logged in); display devices and guests' phones
-# read the published snapshot with the secret key. See menu.py.
+# Admins and moderators manage a menu list stored in sugar-rim and publish it;
+# display devices and guests' phones read the published snapshot. See menu.py.
 
 MENU_MAX = 12  # two full screens on the TV board (menu.PER_PAGE each)
 
@@ -531,65 +537,82 @@ class MenuError(Exception):
         self.status = status
 
 
-def _set_env(name, value):
-    if not os.path.exists(ENV_PATH):
-        open(ENV_PATH, "w").close()
-    set_key(ENV_PATH, name, str(value), follow_symlinks=True)
-    os.environ[name] = str(value)
+MENU_DENIED = "Only bar admins and moderators can manage the holiday menu"
 
 
-def _menu_collection_id():
-    """The collection the menu is built from: chosen in Settings, else the
-    one last published."""
-    raw = os.getenv("MENU_COLLECTION_ID") or (
-        (menu.load(menu.menu_dir(ENV_PATH)) or {}).get("collection_id"))
+def _menu_role_denied():
+    """None if the session user is an Admin (1) or Moderator (2) of the bar,
+    else the error response. Checked live on every call so role changes apply
+    at once."""
+    bid, err = bar_id_or_err()
+    if err:
+        return err
     try:
-        return int(raw) if raw else None
-    except ValueError:
+        r = http.get(ba_url(f"/bars/{bid}"), headers=auth_headers(), timeout=10)
+        role = ((r.json().get("data") or {}).get("access") or {}).get("role_id") if r.ok else None
+    except BA_ERRORS:
+        role = None
+    if role in (1, 2):
         return None
+    return jsonify({"error": MENU_DENIED}), 403
 
 
-def _ba_collection(cid):
-    r = http.get(ba_url(f"/collections/{cid}"), headers=ba_headers(), timeout=10)
-    if not r.ok:
-        raise MenuError("Collection not found in Bar Assistant", 404)
-    return r.json().get("data") or {}
+def _menu_list():
+    """The stored menu {title, subtitle, cocktail_ids}. First run after the
+    upgrade, seed it from the published snapshot (its slugs resolved to ids)."""
+    directory = menu.menu_dir(ENV_PATH)
+    stored = menu.load_list(directory)
+    if stored is not None:
+        return stored
+    snap = menu.load(directory)
+    if not snap:
+        return {"title": "Menu", "subtitle": "", "cocktail_ids": []}
+    ids = []
+    for c in snap.get("cocktails", []):
+        r = http.get(ba_url(f"/cocktails/{c['slug']}"), headers=ba_headers(), timeout=10)
+        if r.status_code == 404:
+            continue
+        if not r.ok:
+            raise MenuError("Bar Assistant cocktail lookup failed", 502)
+        cid = (r.json().get("data") or {}).get("id")
+        if isinstance(cid, int) and cid not in ids:
+            ids.append(cid)
+    seeded = {"title": snap.get("title") or "Menu",
+              "subtitle": snap.get("subtitle") or "", "cocktail_ids": ids}
+    menu.save_list(directory, seeded)
+    return seeded
 
 
-def _collection_drinks(cid):
-    """The collection's cocktails as [{id, name}], from the documented cocktail
-    filter (a collection's detail may omit its cocktails). A failed lookup
-    raises: reading it as "empty" would let the next sync wipe the collection."""
-    r = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15,
-                 params={"filter[collection_id]": cid, "per_page": 100})
+def _menu_cocktails(ids, include=None):
+    """The listed cocktails in list order; ones BA no longer returns are left
+    out. A failed lookup raises: reading it as "empty" would wipe the list."""
+    if not ids:
+        return []
+    params = {"filter[id]": ",".join(str(i) for i in ids), "per_page": 100}
+    if include:
+        params["include"] = include
+    r = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15, params=params)
     if not r.ok:
         raise MenuError("Bar Assistant cocktail lookup failed", 502)
-    return [{"id": c["id"], "name": c.get("name") or ""} for c in r.json().get("data") or []]
-
-
-def _collection_ids(cid):
-    return [c["id"] for c in _collection_drinks(cid)]
+    by_id = {c["id"]: c for c in r.json().get("data") or []}
+    return [by_id[i] for i in ids if i in by_id]
 
 
 def _menu_state():
-    snap = menu.load(menu.menu_dir(ENV_PATH))
-    out = {"published": None, "url": None, "collection": None,
+    directory = menu.menu_dir(ENV_PATH)
+    snap = menu.load(directory)
+    out = {"published": None, "url": None, "menu": None,
            "page_seconds": menu.page_seconds(os.getenv("MENU_PAGE_SECONDS")),
            "max_drinks": MENU_MAX, "per_page": menu.PER_PAGE}
     if snap:
-        out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
+        out["published"] = {k: snap.get(k) for k in ("title", "published_at")}
         out["published"]["count"] = len(snap.get("cocktails", []))
         out["url"] = f"{snap['public_base']}/menu"
-    cid = _menu_collection_id()
-    if cid:
-        try:
-            col = _ba_collection(cid)
-            drinks = _collection_drinks(cid)
-            out["collection"] = {"id": cid, "name": col.get("name") or "", "drinks": drinks,
-                                 "cocktail_ids": [d["id"] for d in drinks]}
-        except (MenuError, *BA_ERRORS) as e:
-            # Say so rather than look unset: a silent failure hides the menu buttons.
-            out["collection_error"] = str(e)
+    stored = _menu_list()
+    drinks = [{"id": c["id"], "name": c.get("name") or ""}
+              for c in _menu_cocktails(stored["cocktail_ids"])]
+    out["menu"] = {"title": stored["title"], "subtitle": stored["subtitle"],
+                   "drinks": drinks, "cocktail_ids": [d["id"] for d in drinks]}
     engine = _suggest_engine()
     out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None,
                       "typesafe_key_set": bool(os.getenv("TYPESAFE_API_KEY")),
@@ -640,21 +663,17 @@ def _menu_photo(img):
     return r.content if r.ok and r.content else None
 
 
-def _publish(cid, base):
-    """Copy one collection's cocktails and photos into the public snapshot."""
+def _publish(base):
+    """Copy the menu list's cocktails and photos into the public snapshot."""
     directory = menu.menu_dir(ENV_PATH)
-    col = _ba_collection(cid)
-    resp = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15, params={
-        "filter[collection_id]": cid, "per_page": 100,
-        "include": "images,glass,method,ingredients.ingredient"})
-    if not resp.ok:
-        raise MenuError("Bar Assistant cocktail lookup failed", 502)
-    raw = resp.json().get("data") or []
+    stored = _menu_list()
+    raw = _menu_cocktails(stored["cocktail_ids"],
+                          include="images,glass,method,ingredients.ingredient")
     if not raw:
-        raise MenuError("That collection has no cocktails")
+        raise MenuError("The menu has no cocktails")
     if len(raw) > MENU_MAX:
         raise MenuError(f"A menu holds at most {MENU_MAX} cocktails; "
-                        f"that collection has {len(raw)}")
+                        f"that menu has {len(raw)}")
     os.makedirs(directory, exist_ok=True)
     cocktails = []
     for c in raw:
@@ -667,9 +686,8 @@ def _publish(cid, base):
                 f.write(content)
         cocktails.append(slim)
     menu.save(directory, {
-        "collection_id": cid,
-        "title": col.get("name") or "Menu",
-        "subtitle": (col.get("description") or "").strip(),
+        "title": stored["title"] or "Menu",
+        "subtitle": (stored["subtitle"] or "").strip(),
         "public_base": base,
         "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cocktails": cocktails,
@@ -677,11 +695,14 @@ def _publish(cid, base):
 
 
 def _menu_route(fn):
-    """Owner-only, with MenuError and Bar Assistant failures as JSON errors."""
+    """Admins and moderators only, with MenuError and Bar Assistant failures as JSON errors."""
     @wraps(fn)
     def wrapper(*a, **kw):
         if not _logged_in():
             return jsonify({"error": "unauthorized"}), 401
+        denied = _menu_role_denied()
+        if denied:
+            return denied
         try:
             return fn(request.get_json(silent=True) or {}, *a, **kw)
         except MenuError as e:
@@ -704,72 +725,54 @@ def menu_status(body):
     return jsonify(_menu_state())
 
 
-@app.route("/api/menu/collection", methods=["POST"])
+@app.route("/api/menu/title", methods=["POST"])
 @_menu_route
-def menu_choose_collection(body):
-    """Pick the menu's collection, or create a new one by name."""
-    name = str(body.get("name") or "").strip()
-    if name:
-        r = http.post(ba_url("/collections"), headers=ba_headers(), timeout=10, json={
-            "name": name, "description": str(body.get("description") or "").strip() or None})
-        if not r.ok:
-            raise MenuError("Bar Assistant couldn't create the collection", 502)
-        # The spec documents only a Location header for the new collection.
-        try:
-            cid = (r.json().get("data") or {}).get("id")
-        except ValueError:
-            cid = None
-        if not isinstance(cid, int):
-            tail = (r.headers.get("Location") or "").rstrip("/").rsplit("/", 1)[-1]
-            cid = int(tail) if tail.isdigit() else None
-        if not isinstance(cid, int):
-            raise MenuError("Bar Assistant didn't return the new collection", 502)
-    else:
-        cid = _int_field(body, "collection_id")
-        _ba_collection(cid)
-    _set_env("MENU_COLLECTION_ID", cid)
+def menu_set_title(body):
+    """Rename the menu (title and subtitle)."""
+    title = str(body.get("title") or "").strip()
+    if not title:
+        raise MenuError("The menu needs a title")
+    stored = _menu_list()
+    # Resolving first drops cocktails deleted in BA from the saved list.
+    ids = [c["id"] for c in _menu_cocktails(stored["cocktail_ids"])]
+    menu.save_list(menu.menu_dir(ENV_PATH), {
+        **stored, "cocktail_ids": ids, "title": title, "subtitle": str(body.get("subtitle") or "").strip()})
     return jsonify(_menu_state())
 
 
 @app.route("/api/menu/publish", methods=["POST"])
 @_menu_route
 def menu_publish(body):
-    cid = _int_field(body, "collection_id")
-    _publish(cid, _public_base(body))
-    _set_env("MENU_COLLECTION_ID", cid)
+    _publish(_public_base(body))
     return jsonify(_menu_state())
 
 
 @app.route("/api/menu/cocktails", methods=["POST"])
 @_menu_route
 def menu_toggle_cocktail(body):
-    """Put a cocktail on (or take it off) the menu collection, then republish."""
+    """Put a cocktail on (or take it off) the menu, then republish."""
     cocktail_id = _int_field(body, "cocktail_id")
     on = body.get("on") is True
     base = _public_base(body)
-    cid = _menu_collection_id()
-    if not cid:
-        raise MenuError("Choose a menu collection in Manage → Holiday Menu first")
-    ids = _collection_ids(cid)
+    # Resolving first drops cocktails deleted in BA from the saved list.
+    ids = [c["id"] for c in _menu_cocktails(_menu_list()["cocktail_ids"])]
     if on and cocktail_id not in ids:
         if len(ids) >= MENU_MAX:
             raise MenuError(f"The menu already has {MENU_MAX} drinks; take one off first")
         ids.append(cocktail_id)
     elif not on:
         ids = [i for i in ids if i != cocktail_id]
-    return jsonify(_sync_and_publish(cid, ids, base))
+    return jsonify(_save_and_publish(ids, base))
 
 
-def _sync_and_publish(cid, ids, base):
-    """Make the collection hold exactly ids, then republish the board."""
-    r = http.put(ba_url(f"/collections/{cid}/cocktails"), headers=ba_headers(), timeout=10,
-                 json={"cocktails": ids})
-    if not r.ok:
-        raise MenuError("Bar Assistant couldn't update the collection", 502)
+def _save_and_publish(ids, base):
+    """Make the menu list hold exactly ids, then republish the board."""
+    directory = menu.menu_dir(ENV_PATH)
+    menu.save_list(directory, {**_menu_list(), "cocktail_ids": ids})
     out = {}
     if ids:
         try:
-            _publish(cid, base)
+            _publish(base)
         except MenuError as e:
             out["publish_error"] = str(e)
     else:
@@ -780,16 +783,13 @@ def _sync_and_publish(cid, ids, base):
 @app.route("/api/menu/cocktails/set", methods=["POST"])
 @_menu_route
 def menu_set_cocktails(body):
-    """Replace the menu collection's drinks (an approved suggestion), then republish."""
+    """Replace the menu's drinks (an approved suggestion), then republish."""
     ids = body.get("cocktail_ids")
     if (not isinstance(ids, list) or not 1 <= len(ids) <= MENU_MAX
             or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)):
         raise MenuError(f"cocktail_ids must be 1 to {MENU_MAX} numbers")
     base = _public_base(body)
-    cid = _menu_collection_id()
-    if not cid:
-        raise MenuError("Choose a menu collection in Manage → Holiday Menu first")
-    return jsonify(_sync_and_publish(cid, list(dict.fromkeys(ids)), base))
+    return jsonify(_save_and_publish(list(dict.fromkeys(ids)), base))
 
 
 def _ba_all(path, headers, params=None):

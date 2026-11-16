@@ -322,7 +322,7 @@ def test_suggest_route_uses_shelf_and_library(owner, ba, monkeypatch, jev):
             return Resp(json_data={"data": [{"id": 1}], "meta": {"last_page": 1}})
         if (
             url == "http://ba.test/api/cocktails"
-            and "filter[collection_id]" not in kw["params"]
+            and "filter[id]" not in kw["params"]
         ):
             assert kw["params"]["include"] == "ingredients.ingredient,glass,method"
             gin = {
@@ -342,11 +342,10 @@ def test_suggest_route_uses_shelf_and_library(owner, ba, monkeypatch, jev):
 
 
 def test_set_replaces_the_menu_and_publishes(owner, ba):
-    owner.post("/api/menu/collection", json={"collection_id": 5})
     r = owner.post(
         "/api/menu/cocktails/set", json={"cocktail_ids": [3, 4, 3], "public_base": BASE}
     )
-    assert r.status_code == 200 and ba.members == [3, 4]
+    assert r.status_code == 200 and r.get_json()["menu"]["cocktail_ids"] == [3, 4]
     assert r.get_json()["published"]["count"] == 2
     bad = owner.post(
         "/api/menu/cocktails/set", json={"cocktail_ids": [], "public_base": BASE}

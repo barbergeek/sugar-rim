@@ -1,8 +1,8 @@
-"""Holiday menu: a published snapshot of one Bar Assistant collection.
+"""Holiday menu: a menu list stored in sugar-rim, published as a snapshot.
 
-The public menu pages (/menu, /menu/r/<slug>, /menu/img/<slug>) need no
-login, so they serve only this snapshot: what the owner published, copied to
-disk, never a live Bar Assistant call.
+Admins and moderators manage the list; the public menu pages (/menu,
+/menu/r/<slug>, /menu/img/<slug>) need no login, so they serve only the
+published snapshot of it, copied to disk, never a live Bar Assistant call.
 """
 
 import html
@@ -200,6 +200,25 @@ def save(directory, snapshot):
     for name in os.listdir(directory):
         if name.endswith(".jpg") and name not in keep:
             os.remove(os.path.join(directory, name))
+
+
+def load_list(directory):
+    """The editable menu (title, subtitle, cocktail_ids), or None if never saved."""
+    try:
+        with open(os.path.join(directory, "list.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def save_list(directory, menu_list):
+    """Write list.json atomically. save() only deletes *.jpg, so it is safe."""
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, "list.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(menu_list, f)
+    os.replace(tmp, path)
 
 
 def find(snapshot, slug):
