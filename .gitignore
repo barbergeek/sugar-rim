@@ -233,3 +233,6 @@ coverage.xml
 .coverage
 
 .claude/settings.local.json
+
+# Published holiday menu snapshot (lives beside .env)
+/menu/

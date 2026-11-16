@@ -512,6 +512,21 @@ const Settings = {
           <div id="cfg-ai-message" class="cfg-status" style="margin-top:6px"></div>
         </div>
         <hr>
+        <div id="cfg-menu-wrap" style="display:none">
+          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Holiday Menu</div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Collection to show
+            <select id="cfg-menu-collection" class="text-input"></select>
+          </label>
+          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.publishMenu()">Publish Menu</button>
+          <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px"></div>
+          <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (anyone with it can view the menu)
+              <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
+            </label>
+            <button class="btn btn-ghost btn-wide" onclick="App.settings.newMenuKey()">New Link (old link and QR codes stop working)</button>
+          </div>
+        </div>
+        <hr>
         <div style="display:flex;flex-direction:column;gap:4px">
           <div id="server-version" class="header-subtitle">API Version: Loading…</div>
           <div id="app-version" class="header-subtitle">App Version: Loading…</div>
@@ -531,6 +546,7 @@ const Settings = {
       if (cfg.ai_provider) this._loadModels();
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
+        this._loadMenu();
       }
       const av = el('app-version');
       if (av) av.textContent = `App Version: ${cfg.app_version || 'Unknown'}`;
@@ -565,6 +581,67 @@ const Settings = {
   _syncScaleLabel(pct) {
     const lbl = el('settings-scale-label');
     if (lbl) lbl.textContent = (pct ?? UIScale.get()) + '%';
+  },
+
+  async _loadMenu() {
+    try {
+      const [cols, state] = await Promise.all([get('/api/collections'), get('/api/menu')]);
+      const sel = el('cfg-menu-collection');
+      if (!sel) return;
+      const current = state.published?.collection_id;
+      sel.innerHTML = (cols.data || [])
+        .map(
+          (c) =>
+            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
+        )
+        .join('');
+      el('cfg-menu-wrap').style.display = '';
+      this._showMenu(state);
+    } catch (e) {
+      /* silent: the section stays hidden */
+    }
+  },
+
+  _showMenu(state, msg) {
+    const p = state.published;
+    const status = el('cfg-menu-status');
+    status.className = 'cfg-status';
+    status.textContent =
+      msg ||
+      (p
+        ? `Showing “${p.title}” (${p.count} drinks), published ${new Date(p.published_at).toLocaleString()}`
+        : 'Nothing published yet.');
+    el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
+    el('cfg-menu-url').value = state.url || '';
+  },
+
+  async publishMenu() {
+    const id = parseInt(el('cfg-menu-collection').value, 10);
+    const status = el('cfg-menu-status');
+    if (!id) return;
+    status.className = 'cfg-status';
+    status.textContent = 'Publishing…';
+    try {
+      const state = await post('/api/menu/publish', {
+        collection_id: id,
+        public_base: location.origin,
+      });
+      this._showMenu(state);
+    } catch (e) {
+      status.className = 'cfg-status err';
+      status.textContent = e.message;
+    }
+  },
+
+  async newMenuKey() {
+    if (!confirm('Make a new link? The current link and every printed QR code will stop working.'))
+      return;
+    try {
+      this._showMenu(await post('/api/menu/key'), 'New link made. Update your displays.');
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
   },
 
   async _loadVersion() {

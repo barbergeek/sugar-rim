@@ -7,13 +7,16 @@ import socket
 import secrets
 import logging
 import ipaddress
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from functools import wraps
 from urllib.parse import urlparse
-from flask import Flask, jsonify, request, render_template, session, redirect, url_for
+from flask import (Flask, jsonify, request, render_template, session, redirect, url_for,
+                   send_from_directory)
 import requests as http
 from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import menu
 import scrapers
 from scrapers.draft2 import from_draft2, to_draft2
 from scrapers.match import rank as rank_ingredients
@@ -494,6 +497,151 @@ def collections():
 @app.route("/api/collections/<cid>")
 def collection(cid):
     return proxy("GET", f"/collections/{cid}")
+
+
+# ── Holiday menu ──────────────────────────────────────────────────────────────
+# Owner publishes a collection (logged in); display devices and guests' phones
+# read the published snapshot with the secret key. See menu.py.
+
+MENU_MAX = 6
+
+
+def _menu_state():
+    snap = menu.load(menu.menu_dir(ENV_PATH))
+    key = os.getenv("MENU_KEY", "")
+    out = {"published": None, "url": None}
+    if snap:
+        out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
+        out["published"]["count"] = len(snap.get("cocktails", []))
+        if key:
+            out["url"] = f"{snap['public_base']}/menu?key={key}"
+    return out
+
+
+def _set_menu_key(key):
+    if not os.path.exists(ENV_PATH):
+        open(ENV_PATH, "w").close()
+    set_key(ENV_PATH, "MENU_KEY", key, follow_symlinks=True)
+    os.environ["MENU_KEY"] = key
+
+
+@app.route("/api/menu")
+def menu_status():
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify(_menu_state())
+
+
+@app.route("/api/menu/key", methods=["POST"])
+def menu_new_key():
+    """Replace the key; every old menu link and QR code stops working."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    _set_menu_key(menu.new_key())
+    return jsonify(_menu_state())
+
+
+@app.route("/api/menu/publish", methods=["POST"])
+def menu_publish():
+    """Copy one collection's cocktails and photos into the public snapshot."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    cid = body.get("collection_id")
+    base = str(body.get("public_base") or "").rstrip("/")
+    if not isinstance(cid, int) or isinstance(cid, bool):
+        return jsonify({"error": "collection_id must be a number"}), 400
+    if urlparse(base).scheme not in ("http", "https") or not urlparse(base).netloc:
+        return jsonify({"error": "public_base must be an http(s) URL"}), 400
+    directory = menu.menu_dir(ENV_PATH)
+    try:
+        col = http.get(ba_url(f"/collections/{cid}"), headers=ba_headers(), timeout=10)
+        if not col.ok:
+            return jsonify({"error": "Collection not found in Bar Assistant"}), 404
+        col = col.json().get("data") or {}
+        resp = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15, params={
+            "filter[collection_id]": cid, "per_page": 100,
+            "include": "images,glass,method,ingredients.ingredient"})
+        if not resp.ok:
+            return jsonify({"error": "Bar Assistant cocktail lookup failed"}), 502
+        raw = resp.json().get("data") or []
+        if not raw:
+            return jsonify({"error": "That collection has no cocktails"}), 400
+        if len(raw) > MENU_MAX:
+            return jsonify({"error": f"A menu holds at most {MENU_MAX} cocktails; "
+                                     f"that collection has {len(raw)}"}), 400
+        os.makedirs(directory, exist_ok=True)
+        cocktails = []
+        for c in raw:
+            slim = menu.slim_cocktail(c)
+            img = (c.get("images") or [None])[0]
+            if img and img.get("id"):
+                r = http.get(ba_url(f"/images/{img['id']}/thumb"), headers=auth_headers(),
+                             timeout=15)
+                if r.ok and r.content:
+                    slim["image"] = menu.image_name(slim["slug"])
+                    with open(os.path.join(directory, slim["image"]), "wb") as f:
+                        f.write(r.content)
+            cocktails.append(slim)
+    except (http.exceptions.RequestException, ValueError, AttributeError, TypeError) as e:
+        return jsonify({"error": str(e)}), 502
+    menu.save(directory, {
+        "collection_id": cid,
+        "title": col.get("name") or "Menu",
+        "subtitle": (col.get("description") or "").strip(),
+        "public_base": base,
+        "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "cocktails": cocktails,
+    })
+    if not os.getenv("MENU_KEY"):
+        _set_menu_key(menu.new_key())
+    return jsonify(_menu_state())
+
+
+def _menu_public(fn):
+    """Key-gated and snapshot-only. A wrong or missing key looks like no page."""
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        key = request.args.get("key", "")
+        if not menu.key_ok(key, os.getenv("MENU_KEY", "")):
+            return "Not found", 404
+        resp = app.make_response(fn(key, menu.load(menu.menu_dir(ENV_PATH)), *a, **kw))
+        # The key rides in the URL: keep it out of Referer headers, caches and indexes.
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+        resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+    return wrapper
+
+
+@app.route("/menu")
+@_menu_public
+def menu_board(key, snap):
+    cards = [{**c, "key_ingredients": menu.key_ingredients(c),
+              "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}?key={key}")}
+             for c in (snap or {}).get("cocktails", [])]
+    return render_template("menu.html", snap=snap, cards=cards, key=key,
+                           inset=menu.inset(request.args.get("inset")))
+
+
+@app.route("/menu/r/<slug>")
+@_menu_public
+def menu_recipe(key, snap, slug):
+    c = menu.find(snap, slug)
+    if not c:
+        return "Not found", 404
+    return render_template("menu_recipe.html", c=c, title=snap["title"], key=key)
+
+
+@app.route("/menu/img/<slug>")
+@_menu_public
+def menu_image(key, snap, slug):
+    c = menu.find(snap, slug)
+    if not c or not c.get("image"):
+        return "Not found", 404
+    resp = send_from_directory(menu.menu_dir(ENV_PATH), c["image"], mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
 
 
 # ── Notes ─────────────────────────────────────────────────────────────────────
