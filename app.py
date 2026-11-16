@@ -506,85 +506,95 @@ def collection(cid):
 MENU_MAX = 6
 
 
+BA_ERRORS = (http.exceptions.RequestException, ValueError, AttributeError, TypeError)
+
+
+class MenuError(Exception):
+    def __init__(self, msg, status=400):
+        super().__init__(msg)
+        self.status = status
+
+
+def _set_env(name, value):
+    if not os.path.exists(ENV_PATH):
+        open(ENV_PATH, "w").close()
+    set_key(ENV_PATH, name, str(value), follow_symlinks=True)
+    os.environ[name] = str(value)
+
+
+def _menu_collection_id():
+    """The collection the menu is built from: chosen in Settings, else the
+    one last published."""
+    raw = os.getenv("MENU_COLLECTION_ID") or (
+        (menu.load(menu.menu_dir(ENV_PATH)) or {}).get("collection_id"))
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def _ba_collection(cid):
+    r = http.get(ba_url(f"/collections/{cid}"), headers=ba_headers(), timeout=10)
+    if not r.ok:
+        raise MenuError("Collection not found in Bar Assistant", 404)
+    return r.json().get("data") or {}
+
+
 def _menu_state():
     snap = menu.load(menu.menu_dir(ENV_PATH))
     key = os.getenv("MENU_KEY", "")
-    out = {"published": None, "url": None}
+    out = {"published": None, "url": None, "collection": None}
     if snap:
         out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
         out["published"]["count"] = len(snap.get("cocktails", []))
         if key:
             out["url"] = f"{snap['public_base']}/menu?key={key}"
+    cid = _menu_collection_id()
+    if cid:
+        try:
+            col = _ba_collection(cid)
+            out["collection"] = {"id": cid, "name": col.get("name") or "",
+                                 "cocktail_ids": [c["id"] for c in col.get("cocktails") or []]}
+        except (MenuError, *BA_ERRORS):
+            pass  # deleted in BA, or BA down: Settings shows nothing chosen
     return out
 
 
-def _set_menu_key(key):
-    if not os.path.exists(ENV_PATH):
-        open(ENV_PATH, "w").close()
-    set_key(ENV_PATH, "MENU_KEY", key, follow_symlinks=True)
-    os.environ["MENU_KEY"] = key
-
-
-@app.route("/api/menu")
-def menu_status():
-    if not _logged_in():
-        return jsonify({"error": "unauthorized"}), 401
-    return jsonify(_menu_state())
-
-
-@app.route("/api/menu/key", methods=["POST"])
-def menu_new_key():
-    """Replace the key; every old menu link and QR code stops working."""
-    if not _logged_in():
-        return jsonify({"error": "unauthorized"}), 401
-    _set_menu_key(menu.new_key())
-    return jsonify(_menu_state())
-
-
-@app.route("/api/menu/publish", methods=["POST"])
-def menu_publish():
-    """Copy one collection's cocktails and photos into the public snapshot."""
-    if not _logged_in():
-        return jsonify({"error": "unauthorized"}), 401
-    body = request.get_json(silent=True) or {}
-    cid = body.get("collection_id")
+def _public_base(body):
     base = str(body.get("public_base") or "").rstrip("/")
-    if not isinstance(cid, int) or isinstance(cid, bool):
-        return jsonify({"error": "collection_id must be a number"}), 400
     if urlparse(base).scheme not in ("http", "https") or not urlparse(base).netloc:
-        return jsonify({"error": "public_base must be an http(s) URL"}), 400
+        raise MenuError("public_base must be an http(s) URL")
+    return base
+
+
+def _publish(cid, base):
+    """Copy one collection's cocktails and photos into the public snapshot."""
     directory = menu.menu_dir(ENV_PATH)
-    try:
-        col = http.get(ba_url(f"/collections/{cid}"), headers=ba_headers(), timeout=10)
-        if not col.ok:
-            return jsonify({"error": "Collection not found in Bar Assistant"}), 404
-        col = col.json().get("data") or {}
-        resp = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15, params={
-            "filter[collection_id]": cid, "per_page": 100,
-            "include": "images,glass,method,ingredients.ingredient"})
-        if not resp.ok:
-            return jsonify({"error": "Bar Assistant cocktail lookup failed"}), 502
-        raw = resp.json().get("data") or []
-        if not raw:
-            return jsonify({"error": "That collection has no cocktails"}), 400
-        if len(raw) > MENU_MAX:
-            return jsonify({"error": f"A menu holds at most {MENU_MAX} cocktails; "
-                                     f"that collection has {len(raw)}"}), 400
-        os.makedirs(directory, exist_ok=True)
-        cocktails = []
-        for c in raw:
-            slim = menu.slim_cocktail(c)
-            img = (c.get("images") or [None])[0]
-            if img and img.get("id"):
-                r = http.get(ba_url(f"/images/{img['id']}/thumb"), headers=auth_headers(),
-                             timeout=15)
-                if r.ok and r.content:
-                    slim["image"] = menu.image_name(slim["slug"])
-                    with open(os.path.join(directory, slim["image"]), "wb") as f:
-                        f.write(r.content)
-            cocktails.append(slim)
-    except (http.exceptions.RequestException, ValueError, AttributeError, TypeError) as e:
-        return jsonify({"error": str(e)}), 502
+    col = _ba_collection(cid)
+    resp = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15, params={
+        "filter[collection_id]": cid, "per_page": 100,
+        "include": "images,glass,method,ingredients.ingredient"})
+    if not resp.ok:
+        raise MenuError("Bar Assistant cocktail lookup failed", 502)
+    raw = resp.json().get("data") or []
+    if not raw:
+        raise MenuError("That collection has no cocktails")
+    if len(raw) > MENU_MAX:
+        raise MenuError(f"A menu holds at most {MENU_MAX} cocktails; "
+                        f"that collection has {len(raw)}")
+    os.makedirs(directory, exist_ok=True)
+    cocktails = []
+    for c in raw:
+        slim = menu.slim_cocktail(c)
+        img = (c.get("images") or [None])[0]
+        if img and img.get("id"):
+            r = http.get(ba_url(f"/images/{img['id']}/thumb"), headers=auth_headers(),
+                         timeout=15)
+            if r.ok and r.content:
+                slim["image"] = menu.image_name(slim["slug"])
+                with open(os.path.join(directory, slim["image"]), "wb") as f:
+                    f.write(r.content)
+        cocktails.append(slim)
     menu.save(directory, {
         "collection_id": cid,
         "title": col.get("name") or "Menu",
@@ -594,8 +604,104 @@ def menu_publish():
         "cocktails": cocktails,
     })
     if not os.getenv("MENU_KEY"):
-        _set_menu_key(menu.new_key())
+        _set_env("MENU_KEY", menu.new_key())
+
+
+def _menu_route(fn):
+    """Owner-only, with MenuError and Bar Assistant failures as JSON errors."""
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        if not _logged_in():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            return fn(request.get_json(silent=True) or {}, *a, **kw)
+        except MenuError as e:
+            return jsonify({"error": str(e)}), e.status
+        except BA_ERRORS as e:
+            return jsonify({"error": str(e)}), 502
+    return wrapper
+
+
+def _int_field(body, name):
+    v = body.get(name)
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise MenuError(f"{name} must be a number")
+    return v
+
+
+@app.route("/api/menu")
+@_menu_route
+def menu_status(body):
     return jsonify(_menu_state())
+
+
+@app.route("/api/menu/key", methods=["POST"])
+@_menu_route
+def menu_new_key(body):
+    """Replace the key; every old menu link and QR code stops working."""
+    _set_env("MENU_KEY", menu.new_key())
+    return jsonify(_menu_state())
+
+
+@app.route("/api/menu/collection", methods=["POST"])
+@_menu_route
+def menu_choose_collection(body):
+    """Pick the menu's collection, or create a new one by name."""
+    name = str(body.get("name") or "").strip()
+    if name:
+        r = http.post(ba_url("/collections"), headers=ba_headers(), timeout=10, json={
+            "name": name, "description": str(body.get("description") or "").strip() or None})
+        if not r.ok:
+            raise MenuError("Bar Assistant couldn't create the collection", 502)
+        cid = (r.json().get("data") or {}).get("id")
+        if not isinstance(cid, int):
+            raise MenuError("Bar Assistant didn't return the new collection", 502)
+    else:
+        cid = _int_field(body, "collection_id")
+        _ba_collection(cid)
+    _set_env("MENU_COLLECTION_ID", cid)
+    return jsonify(_menu_state())
+
+
+@app.route("/api/menu/publish", methods=["POST"])
+@_menu_route
+def menu_publish(body):
+    cid = _int_field(body, "collection_id")
+    _publish(cid, _public_base(body))
+    _set_env("MENU_COLLECTION_ID", cid)
+    return jsonify(_menu_state())
+
+
+@app.route("/api/menu/cocktails", methods=["POST"])
+@_menu_route
+def menu_toggle_cocktail(body):
+    """Put a cocktail on (or take it off) the menu collection, then republish."""
+    cocktail_id = _int_field(body, "cocktail_id")
+    on = body.get("on") is True
+    base = _public_base(body)
+    cid = _menu_collection_id()
+    if not cid:
+        raise MenuError("Choose a menu collection in Settings → Holiday Menu first")
+    ids = [c["id"] for c in _ba_collection(cid).get("cocktails") or []]
+    if on and cocktail_id not in ids:
+        if len(ids) >= MENU_MAX:
+            raise MenuError(f"The menu already has {MENU_MAX} drinks; take one off first")
+        ids.append(cocktail_id)
+    elif not on:
+        ids = [i for i in ids if i != cocktail_id]
+    r = http.put(ba_url(f"/collections/{cid}/cocktails"), headers=ba_headers(), timeout=10,
+                 json={"cocktails": ids})
+    if not r.ok:
+        raise MenuError("Bar Assistant couldn't update the collection", 502)
+    out = {}
+    if ids:
+        try:
+            _publish(cid, base)
+        except MenuError as e:
+            out["publish_error"] = str(e)
+    else:
+        out["publish_error"] = "The menu is empty, so the board still shows the last one published"
+    return jsonify({**_menu_state(), **out})
 
 
 def _menu_public(fn):

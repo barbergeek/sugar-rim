@@ -515,8 +515,13 @@ const Settings = {
         <div id="cfg-menu-wrap" style="display:none">
           <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Holiday Menu</div>
           <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Collection to show
-            <select id="cfg-menu-collection" class="text-input"></select>
+            <select id="cfg-menu-collection" class="text-input" onchange="App.settings.chooseMenu()"></select>
           </label>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="cfg-menu-new" class="text-input" style="flex:1" placeholder="New collection, e.g. Christmas 2026">
+            <button class="btn btn-ghost" onclick="App.settings.createMenu()">Create</button>
+          </div>
+          <div class="cfg-status" style="margin-top:6px">Add drinks with the <span class="material-symbols-rounded" style="font-size:1rem;vertical-align:middle">restaurant_menu</span> button on any cocktail.</div>
           <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.publishMenu()">Publish Menu</button>
           <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px"></div>
           <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
@@ -586,15 +591,8 @@ const Settings = {
   async _loadMenu() {
     try {
       const [cols, state] = await Promise.all([get('/api/collections'), get('/api/menu')]);
-      const sel = el('cfg-menu-collection');
-      if (!sel) return;
-      const current = state.published?.collection_id;
-      sel.innerHTML = (cols.data || [])
-        .map(
-          (c) =>
-            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
-        )
-        .join('');
+      if (!el('cfg-menu-collection')) return;
+      this._fillMenuCollections(cols.data || [], state.collection?.id);
       el('cfg-menu-wrap').style.display = '';
       this._showMenu(state);
     } catch (e) {
@@ -602,7 +600,46 @@ const Settings = {
     }
   },
 
+  _fillMenuCollections(cols, current) {
+    el('cfg-menu-collection').innerHTML =
+      (current ? '' : '<option value="">— choose a collection —</option>') +
+      cols
+        .map(
+          (c) =>
+            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
+        )
+        .join('');
+  },
+
+  async chooseMenu() {
+    const id = parseInt(el('cfg-menu-collection').value, 10);
+    if (!id) return;
+    try {
+      this._showMenu(await post('/api/menu/collection', { collection_id: id }));
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  async createMenu() {
+    const name = el('cfg-menu-new').value.trim();
+    if (!name) return;
+    try {
+      const state = await post('/api/menu/collection', { name });
+      const cols = await get('/api/collections');
+      this._fillMenuCollections(cols.data || [], state.collection?.id);
+      el('cfg-menu-new').value = '';
+      this._showMenu(state, `Created “${name}”. Add drinks from their cocktail pages.`);
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
   _showMenu(state, msg) {
+    App.cocktails._menu = state; // keep the cocktail page's menu button in step
+    App.cocktails._menuFetched = true;
     const p = state.published;
     const status = el('cfg-menu-status');
     status.className = 'cfg-status';
@@ -1575,6 +1612,7 @@ const Cocktails = {
   _renderDetail(c) {
     el('detail-title').textContent = c.name;
     el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
+    this._syncMenuBtn();
     el('unit-toggle-btn').textContent = UnitPref.get();
 
     const s = this._servings;
@@ -1649,6 +1687,54 @@ const Cocktails = {
       ${c.instructions ? `<div class="detail-section"><h3>Instructions</h3><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
       ${c.garnish ? `<div class="detail-section"><h3>Garnish</h3><p class="detail-instructions">${escHtml(c.garnish)}</p></div>` : ''}
     `;
+  },
+
+  // Holiday menu toggle: the phone UI only (the kiosk has no such button).
+  _menu: null,
+  _menuFetched: false, // once per page load; Settings refreshes it on change
+
+  async _loadMenu() {
+    this._menuFetched = true;
+    try {
+      this._menu = await get('/api/menu');
+    } catch (e) {
+      this._menu = null; // button stays hidden
+    }
+    this._syncMenuBtn();
+  },
+
+  _syncMenuBtn() {
+    const btn = el('detail-menu-btn');
+    if (!btn) return;
+    if (!this._menuFetched) {
+      this._loadMenu();
+      return;
+    }
+    const col = this._menu?.collection;
+    btn.style.display = col ? '' : 'none';
+    if (!col) return;
+    const on = col.cocktail_ids.includes(this.currentId);
+    btn.classList.toggle('menu-on', on);
+    btn.title = on ? `On “${col.name}” — tap to remove` : `Add to “${col.name}”`;
+  },
+
+  async toggleMenu() {
+    const col = this._menu?.collection;
+    if (!col || !this.currentId) return;
+    const on = !col.cocktail_ids.includes(this.currentId);
+    try {
+      const state = await post('/api/menu/cocktails', {
+        cocktail_id: this.currentId,
+        on,
+        public_base: location.origin,
+      });
+      this._menu = state;
+      this._syncMenuBtn();
+      if (state.publish_error) Toast.err(state.publish_error);
+      else Toast.show(on ? `Added to “${col.name}”` : `Removed from “${col.name}”`);
+    } catch (e) {
+      Toast.err(e.message);
+    }
   },
 
   async toggleFav() {

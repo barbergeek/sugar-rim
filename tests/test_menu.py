@@ -48,41 +48,76 @@ COCKTAILS = [
 ]
 
 
-def fake_ba(cocktails=COCKTAILS, collection_ok=True):
-    def get(url, **kw):
+EXTRA = [
+    {
+        "id": i,
+        "slug": f"drink-{i}",
+        "name": f"Drink {i}",
+        "images": [],
+        "ingredients": [],
+    }
+    for i in range(3, 10)
+]
+CATALOG = {c["id"]: c for c in COCKTAILS + EXTRA}
+
+
+class FakeBA:
+    """Bar Assistant with one collection (5) whose members can change."""
+
+    def __init__(self, members=(1, 2)):
+        self.members = list(members)
+        self.created = []
+
+    def get(self, url, **kw):
         if url == f"{BA}/api/collections/5":
-            if not collection_ok:
-                return Resp(404, json_data={})
             return Resp(
                 json_data={
                     "data": {
                         "id": 5,
                         "name": "Thanksgiving 2026",
                         "description": "Fall favorites",
+                        "cocktails": [{"id": i} for i in self.members],
                     }
                 }
             )
+        if url == f"{BA}/api/collections/404":
+            return Resp(404, json_data={})
         if url == f"{BA}/api/cocktails":
             assert kw["params"]["filter[collection_id]"] == 5
-            return Resp(json_data={"data": cocktails})
+            return Resp(json_data={"data": [CATALOG[i] for i in self.members]})
         if url == f"{BA}/api/images/77/thumb":
             r = Resp()
             r.content = b"\xff\xd8jpeg"
             return r
         raise AssertionError(f"unexpected GET {url}")
 
-    return get
+    def put(self, url, json=None, **kw):
+        assert url == f"{BA}/api/collections/5/cocktails"
+        self.members = list(json["cocktails"])
+        return Resp(204)
+
+    def post(self, url, json=None, **kw):
+        assert url == f"{BA}/api/collections"
+        self.created.append(json)
+        return Resp(201, json_data={"data": {"id": 5, "name": json["name"]}})
 
 
 @pytest.fixture
-def env(monkeypatch, tmp_path):
+def ba(monkeypatch):
+    fake = FakeBA()
+    for verb in ("get", "put", "post"):
+        monkeypatch.setattr(app_module.http, verb, getattr(fake, verb))
+    return fake
+
+
+@pytest.fixture
+def env(monkeypatch, tmp_path, ba):
     app_module.app.config["TESTING"] = True
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     monkeypatch.setenv("BA_API_URL", BA)
-    monkeypatch.setenv(
-        "MENU_KEY", ""
-    )  # restored on teardown; the app writes os.environ
-    monkeypatch.setattr(app_module.http, "get", fake_ba())
+    # setenv (not delenv) so teardown restores them: the app writes os.environ.
+    monkeypatch.setenv("MENU_KEY", "")
+    monkeypatch.setenv("MENU_COLLECTION_ID", "")
     return tmp_path
 
 
@@ -135,24 +170,24 @@ def test_publish_snapshots_collection_and_makes_key(owner, env):
     assert snap["cocktails"][1]["image"] is None
 
 
-def test_publish_rejects_bad_input(owner, monkeypatch):
+def test_publish_rejects_bad_input(owner, ba):
     bad = [
         {"collection_id": "5", "public_base": BASE},
         {"collection_id": 5, "public_base": "javascript:alert(1)"},
     ]
     for body in bad:
         assert owner.post("/api/menu/publish", json=body).status_code == 400
-    monkeypatch.setattr(app_module.http, "get", fake_ba(cocktails=[]))
+    ba.members = []
     r = owner.post("/api/menu/publish", json={"collection_id": 5, "public_base": BASE})
     assert r.status_code == 400
-    monkeypatch.setattr(app_module.http, "get", fake_ba(cocktails=COCKTAILS * 4))
+    ba.members = list(CATALOG)
     r = owner.post("/api/menu/publish", json={"collection_id": 5, "public_base": BASE})
     assert r.status_code == 400 and "at most" in r.get_json()["error"]
 
 
-def test_republish_keeps_key_and_drops_unused_photos(owner, env, monkeypatch):
+def test_republish_keeps_key_and_drops_unused_photos(owner, env, ba):
     key = key_of(publish(owner))
-    monkeypatch.setattr(app_module.http, "get", fake_ba(cocktails=COCKTAILS[1:]))
+    ba.members = [2]
     assert key_of(publish(owner)) == key
     assert not (env / "menu" / "cider-sour.jpg").exists()
 
@@ -213,11 +248,85 @@ def test_new_key_revokes_old_links(owner, guest):
 
 def test_board_before_anything_published(owner, guest):
     state = owner.post("/api/menu/key").get_json()
-    assert state == {"published": None, "url": None}
+    assert state == {"published": None, "url": None, "collection": None}
     r = guest.get(f"/menu?key={app_module.os.environ['MENU_KEY']}")
     assert r.status_code == 200 and "No menu has been published" in r.get_data(
         as_text=True
     )
+
+
+def toggle(owner, cocktail_id, on):
+    return owner.post(
+        "/api/menu/cocktails",
+        json={"cocktail_id": cocktail_id, "on": on, "public_base": BASE},
+    )
+
+
+def test_publish_remembers_the_menu_collection(owner):
+    state = publish(owner)
+    assert state["collection"] == {
+        "id": 5,
+        "name": "Thanksgiving 2026",
+        "cocktail_ids": [1, 2],
+    }
+    assert app_module.os.environ["MENU_COLLECTION_ID"] == "5"
+
+
+def test_toggle_needs_a_menu_collection(owner):
+    r = toggle(owner, 3, True)
+    assert r.status_code == 400 and "Settings" in r.get_json()["error"]
+
+
+def test_toggle_adds_and_removes_then_republishes(owner, ba, env):
+    publish(owner)
+    r = toggle(owner, 3, True)
+    assert r.status_code == 200
+    assert ba.members == [1, 2, 3]
+    assert r.get_json()["published"]["count"] == 3
+    assert r.get_json()["collection"]["cocktail_ids"] == [1, 2, 3]
+    toggle(owner, 3, True)  # already on: no duplicate
+    assert ba.members == [1, 2, 3]
+    r = toggle(owner, 1, False)
+    assert ba.members == [2, 3] and r.get_json()["published"]["count"] == 2
+    names = [
+        c["name"] for c in menu.load(menu.menu_dir(str(env / ".env")))["cocktails"]
+    ]
+    assert names == ["Maple Old Fashioned", "Drink 3"]
+
+
+def test_toggle_refuses_a_seventh_drink(owner, ba):
+    ba.members = [1, 2, 3, 4, 5, 6]
+    publish(owner)
+    r = toggle(owner, 7, True)
+    assert r.status_code == 400 and "already has 6" in r.get_json()["error"]
+    assert ba.members == [1, 2, 3, 4, 5, 6]
+
+
+def test_emptying_the_menu_keeps_the_last_board(owner, ba):
+    ba.members = [1]
+    publish(owner)
+    r = toggle(owner, 1, False)
+    assert r.status_code == 200 and ba.members == []
+    assert "still shows" in r.get_json()["publish_error"]
+    assert r.get_json()["published"]["count"] == 1
+
+
+def test_choose_or_create_the_menu_collection(owner, ba):
+    r = owner.post("/api/menu/collection", json={"collection_id": 5})
+    assert r.status_code == 200 and r.get_json()["collection"]["id"] == 5
+    assert (
+        owner.post("/api/menu/collection", json={"collection_id": 404}).status_code
+        == 404
+    )
+    r = owner.post("/api/menu/collection", json={"name": " Christmas 2026 "})
+    assert r.status_code == 200
+    assert ba.created == [{"name": "Christmas 2026", "description": None}]
+    assert app_module.os.environ["MENU_COLLECTION_ID"] == "5"
+
+
+def test_new_owner_routes_need_login(guest):
+    assert guest.post("/api/menu/collection", json={"name": "x"}).status_code == 401
+    assert toggle(guest, 1, True).status_code == 401
 
 
 def test_fmt_amount():
