@@ -3463,6 +3463,12 @@ const HolidayMenu = {
               <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
             </label>
           </div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Seconds per page on the TV (when the drinks need more than one page)
+            <div style="display:flex;gap:8px">
+              <input type="number" id="cfg-menu-seconds" class="text-input" style="flex:1" min="3" max="600" step="1">
+              <button class="btn btn-ghost" onclick="App.holidayMenu.saveSeconds()">Save</button>
+            </div>
+          </label>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Suggest drinks for
               <input type="text" id="cfg-menu-occasion" class="text-input" placeholder="e.g. Thanksgiving dinner">
@@ -3493,6 +3499,19 @@ const HolidayMenu = {
     } catch (e) {
       el('cfg-menu-status').className = 'cfg-status err';
       el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  async saveSeconds() {
+    const n = parseInt(el('cfg-menu-seconds').value, 10);
+    if (!n) return;
+    try {
+      await post('/config', { menu_page_seconds: n });
+      const state = await get('/api/menu');
+      el('cfg-menu-seconds').value = state.page_seconds;
+      Toast.show(`Pages flip every ${state.page_seconds} s (the TV picks it up within 5 minutes)`);
+    } catch (e) {
+      Toast.err(e.message);
     }
   },
 
@@ -3675,6 +3694,7 @@ const HolidayMenu = {
         : 'Nothing published yet.');
     el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
     el('cfg-menu-url').value = state.url || '';
+    if (state.page_seconds) el('cfg-menu-seconds').value = state.page_seconds;
     if (state.collection_error) {
       status.className = 'cfg-status err';
       status.textContent = `Couldn't load the menu collection: ${state.collection_error}`;

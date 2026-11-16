@@ -392,3 +392,19 @@ def test_fmt_amount():
     assert menu.fmt_amount(2, None, "dashes") == "2 dashes"
     assert menu.fmt_amount(None, None, "") == ""
     assert menu.fmt_amount(1, None, "whole") == "1 whole"
+
+
+def test_page_seconds_setting_reaches_the_board(owner, guest, monkeypatch):
+    monkeypatch.setenv("MENU_PAGE_SECONDS", "")
+    publish(owner)
+    assert "PAGE_SECONDS = 15;" in guest.get("/menu").get_data(as_text=True)
+    assert owner.post("/config", json={"menu_page_seconds": 8}).status_code == 200
+    assert owner.get("/api/menu").get_json()["page_seconds"] == 8
+    assert "PAGE_SECONDS = 8;" in guest.get("/menu").get_data(as_text=True)
+    assert "PAGE_SECONDS = 30;" in guest.get("/menu?seconds=30").get_data(as_text=True)
+    owner.post("/config", json={"menu_page_seconds": 1})  # clamped
+    assert owner.get("/api/menu").get_json()["page_seconds"] == 3
+    guest_cfg = app_module.app.test_client().post(
+        "/config", json={"menu_page_seconds": 9}
+    )
+    assert guest_cfg.status_code == 401

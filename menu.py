@@ -154,6 +154,18 @@ def qr_svg(url):
     )
 
 
+PAGE_SECONDS_DEFAULT = 15
+PAGE_SECONDS_MIN, PAGE_SECONDS_MAX = 3, 600
+
+
+def page_seconds(raw):
+    """How long the TV board shows each page before flipping."""
+    try:
+        return max(PAGE_SECONDS_MIN, min(PAGE_SECONDS_MAX, int(raw)))
+    except (TypeError, ValueError):
+        return PAGE_SECONDS_DEFAULT
+
+
 def inset(raw):
     try:
         return max(0, min(INSET_MAX, int(raw)))

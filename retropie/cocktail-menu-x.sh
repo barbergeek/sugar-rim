@@ -21,17 +21,24 @@ OUT=$(xrandr --query | awk '/ connected/ {print $1; exit}')
 if [[ -n "$OUT" ]] && xrandr --query | grep -qE '^ +1920x1080 '; then
   xrandr --output "$OUT" --mode 1920x1080
 fi
+# There's no window manager here to make Chromium full screen, so size its
+# window to the screen ourselves (otherwise it opens about half-width).
+read -r W H < <(xrandr --query | sed -n 's/.* current \([0-9]*\) x \([0-9]*\).*/\1 \2/p')
+W=${W:-1920} H=${H:-1080}
 
 # Select+Start ends Chromium with SIGTERM, which it records as a crash; mark
 # the last exit clean so it never opens with a "Restore pages?" prompt
-# (same fix as bar-pi/autostart).
-python3 - "$CONF/chromium/Default/Preferences" <<'EOF' 2>/dev/null
+# (same fix as bar-pi/autostart), and forget any remembered window size.
+python3 - "$CONF/chromium/Default/Preferences" "$W" "$H" <<'EOF' 2>/dev/null
 import json, sys
-f = sys.argv[1]
+f, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 try:
     with open(f) as fp:
         d = json.load(fp)
     d.setdefault("profile", {}).update(exit_type="Normal", exited_cleanly=True)
+    d.setdefault("browser", {})["window_placement"] = {
+        "left": 0, "top": 0, "right": w, "bottom": h, "maximized": True,
+        "work_area_left": 0, "work_area_top": 0, "work_area_right": w, "work_area_bottom": h}
     with open(f, "w") as fp:
         json.dump(d, fp)
 except (OSError, ValueError):
@@ -39,7 +46,7 @@ except (OSError, ValueError):
 EOF
 
 chromium \
-  --kiosk --start-fullscreen --window-position=0,0 \
+  --kiosk --start-fullscreen --window-position=0,0 --window-size="$W,$H" \
   --user-data-dir="$CONF/chromium" \
   --password-store=basic --noerrdialogs --disable-session-crashed-bubble \
   --disable-infobars --no-first-run --check-for-update-interval=31536000 \

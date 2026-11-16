@@ -162,7 +162,7 @@
     // about CARD_W x CARD_H (in vmin, so a 4K TV shows the same count as a
     // 1080p one, just sharper). ?per_page=N in the link overrides it.
     const CARD_W = 36, CARD_H = 46, GAP = 2.4; // vmin
-    const PAGE_SECONDS = 15;
+    const PAGE_SECONDS = {{ seconds }}; // Manage → Holiday Menu, or ?seconds= in the link
 
     function capacity(area) {
       const u = Math.min(innerWidth, innerHeight) / 100;

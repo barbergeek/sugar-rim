@@ -230,7 +230,8 @@ def set_config():
     if not _logged_in() and any(
             k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
                                 "ai_prompt_ingredient", "ai_prompt_cocktail",
-                                "typesafe_api_key", "menu_suggest_model")):
+                                "typesafe_api_key", "menu_suggest_model",
+                                "menu_page_seconds")):
         return jsonify({"error": "unauthorized"}), 401
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
@@ -266,6 +267,10 @@ def set_config():
         key = str(body["typesafe_api_key"]).strip()
         set_key(ENV_PATH, "TYPESAFE_API_KEY", key, follow_symlinks=True)
         os.environ["TYPESAFE_API_KEY"] = key
+    if "menu_page_seconds" in body:  # how fast the TV menu board flips pages
+        val = str(menu.page_seconds(body["menu_page_seconds"]))
+        set_key(ENV_PATH, "MENU_PAGE_SECONDS", val, follow_symlinks=True)
+        os.environ["MENU_PAGE_SECONDS"] = val
     if "menu_suggest_model" in body:  # chat model for suggestions; blank = provider default
         val = str(body["menu_suggest_model"] or "").strip()
         set_key(ENV_PATH, "MENU_SUGGEST_MODEL", val, follow_symlinks=True)
@@ -568,7 +573,8 @@ def _collection_ids(cid):
 
 def _menu_state():
     snap = menu.load(menu.menu_dir(ENV_PATH))
-    out = {"published": None, "url": None, "collection": None}
+    out = {"published": None, "url": None, "collection": None,
+           "page_seconds": menu.page_seconds(os.getenv("MENU_PAGE_SECONDS"))}
     if snap:
         out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
         out["published"]["count"] = len(snap.get("cocktails", []))
@@ -829,7 +835,9 @@ def menu_board(snap):
     cards = [{**c, "blurb": menu.blurb(c),
               "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}")}
              for c in (snap or {}).get("cocktails", [])]
-    return render_template("menu.html", snap=snap, cards=cards,
+    seconds = menu.page_seconds(request.args.get("seconds")
+                                or os.getenv("MENU_PAGE_SECONDS"))
+    return render_template("menu.html", snap=snap, cards=cards, seconds=seconds,
                            inset=menu.inset(request.args.get("inset")))
 
 
