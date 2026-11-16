@@ -76,7 +76,7 @@ class FakeBA:
                         "id": 5,
                         "name": "Thanksgiving 2026",
                         "description": "Fall favorites",
-                        "cocktails": [{"id": i} for i in self.members],
+                        # No "cocktails": BA may leave them out of the detail.
                     }
                 }
             )
@@ -99,7 +99,8 @@ class FakeBA:
     def post(self, url, json=None, **kw):
         assert url == f"{BA}/api/collections"
         self.created.append(json)
-        return Resp(201, json_data={"data": {"id": 5, "name": json["name"]}})
+        # The spec documents only a Location header, so send no body.
+        return Resp(201, headers={"Location": f"{BA}/api/collections/5"})
 
 
 @pytest.fixture
@@ -293,6 +294,28 @@ def test_toggle_adds_and_removes_then_republishes(owner, ba, env):
         c["name"] for c in menu.load(menu.menu_dir(str(env / ".env")))["cocktails"]
     ]
     assert names == ["Maple Old Fashioned", "Drink 3"]
+
+
+def test_adding_keeps_the_drinks_already_there(owner, ba):
+    # Regression: members come from the cocktail filter, never an empty detail.
+    ba.members = [1, 2, 4]
+    owner.post("/api/menu/collection", json={"collection_id": 5})
+    toggle(owner, 3, True)
+    assert ba.members == [1, 2, 4, 3]
+
+
+def test_a_failed_member_lookup_changes_nothing(owner, ba, monkeypatch):
+    owner.post("/api/menu/collection", json={"collection_id": 5})
+    real_get = ba.get
+
+    def get(url, **kw):
+        if url.endswith("/api/cocktails"):
+            return Resp(500, json_data={})
+        return real_get(url, **kw)
+
+    monkeypatch.setattr(app_module.http, "get", get)
+    assert toggle(owner, 3, True).status_code == 502
+    assert ba.members == [1, 2]
 
 
 def test_toggle_refuses_a_seventh_drink(owner, ba):

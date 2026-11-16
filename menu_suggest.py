@@ -18,7 +18,7 @@ a base spirit.
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
 import requests
@@ -32,6 +32,7 @@ API_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-1.14.0"
 WORKERS = 6
 RETRIES = 3
+DEADLINE = 60  # seconds for a whole suggestion; Cloudflare gives up near 100
 
 MENU_SIZE = 4
 MAX_MISSING = 2  # drinks needing more than this many purchases are left out
@@ -192,7 +193,7 @@ def _ask(api_key, payload):
             r = requests.post(
                 API_URL,
                 json=payload,
-                timeout=30,
+                timeout=15,
                 headers={"Authorization": f"Bearer {api_key}"},
             )
         except requests.RequestException as e:
@@ -220,8 +221,16 @@ def judge(api_key, occasion, pool):
         }
         return c["id"], _ask(api_key, payload)
 
-    with ThreadPoolExecutor(WORKERS) as ex:
-        return dict(ex.map(one, [c for c, _ in pool]))
+    # Stop at the first failure or the deadline and drop what's still queued,
+    # so a stuck API can't hold a web worker (the same one serving the TV board).
+    ex = ThreadPoolExecutor(WORKERS)
+    futures = [ex.submit(one, c) for c, _ in pool]
+    try:
+        return dict(f.result() for f in as_completed(futures, timeout=DEADLINE))
+    except TimeoutError as e:
+        raise SuggestError("TypeSafe took too long; try again in a minute") from e
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
 # ── Deciding (code) ───────────────────────────────────────────────────────────

@@ -547,6 +547,17 @@ def _ba_collection(cid):
     return r.json().get("data") or {}
 
 
+def _collection_ids(cid):
+    """The collection's cocktail ids, from the documented cocktail filter
+    (a collection's detail may omit its cocktails). A failed lookup raises:
+    reading it as "empty" would let the next sync wipe the collection."""
+    r = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15,
+                 params={"filter[collection_id]": cid, "per_page": 100})
+    if not r.ok:
+        raise MenuError("Bar Assistant cocktail lookup failed", 502)
+    return [c["id"] for c in r.json().get("data") or []]
+
+
 def _menu_state():
     snap = menu.load(menu.menu_dir(ENV_PATH))
     key = os.getenv("MENU_KEY", "")
@@ -561,7 +572,7 @@ def _menu_state():
         try:
             col = _ba_collection(cid)
             out["collection"] = {"id": cid, "name": col.get("name") or "",
-                                 "cocktail_ids": [c["id"] for c in col.get("cocktails") or []]}
+                                 "cocktail_ids": _collection_ids(cid)}
         except (MenuError, *BA_ERRORS):
             pass  # deleted in BA, or BA down: Settings shows nothing chosen
     out["suggest"] = {"ready": bool(os.getenv("TYPESAFE_API_KEY")),
@@ -662,7 +673,14 @@ def menu_choose_collection(body):
             "name": name, "description": str(body.get("description") or "").strip() or None})
         if not r.ok:
             raise MenuError("Bar Assistant couldn't create the collection", 502)
-        cid = (r.json().get("data") or {}).get("id")
+        # The spec documents only a Location header for the new collection.
+        try:
+            cid = (r.json().get("data") or {}).get("id")
+        except ValueError:
+            cid = None
+        if not isinstance(cid, int):
+            tail = (r.headers.get("Location") or "").rstrip("/").rsplit("/", 1)[-1]
+            cid = int(tail) if tail.isdigit() else None
         if not isinstance(cid, int):
             raise MenuError("Bar Assistant didn't return the new collection", 502)
     else:
@@ -691,7 +709,7 @@ def menu_toggle_cocktail(body):
     cid = _menu_collection_id()
     if not cid:
         raise MenuError("Choose a menu collection in Settings → Holiday Menu first")
-    ids = [c["id"] for c in _ba_collection(cid).get("cocktails") or []]
+    ids = _collection_ids(cid)
     if on and cocktail_id not in ids:
         if len(ids) >= MENU_MAX:
             raise MenuError(f"The menu already has {MENU_MAX} drinks; take one off first")

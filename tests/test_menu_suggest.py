@@ -248,3 +248,31 @@ def test_typesafe_key_is_write_only(owner, monkeypatch, env):
     cfg = owner.get("/config").get_json()
     assert cfg["typesafe_key_set"] is True and "sk-1" not in str(cfg)
     assert app_module.os.environ["TYPESAFE_API_KEY"] == "sk-1"
+
+
+def test_first_failure_cancels_the_rest(monkeypatch):
+    calls = []
+
+    def post(*a, **k):
+        calls.append(1)
+        return Resp(500, text="boom")
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "WORKERS", 1)
+    pool = [({**CATALOG[1], "id": i}, []) for i in range(20)]
+    with pytest.raises(ms.SuggestError):
+        ms.judge("k", "x", pool)
+    assert len(calls) < 20  # queued drinks were dropped, not all sent
+
+
+def test_a_slow_run_hits_the_deadline(monkeypatch):
+    import threading
+
+    gate = threading.Event()
+    monkeypatch.setattr(ms, "DEADLINE", 0.2)
+    monkeypatch.setattr(ms, "_ask", lambda *a: gate.wait(2) or {})
+    try:
+        with pytest.raises(ms.SuggestError, match="too long"):
+            ms.judge("k", "x", [(CATALOG[1], [])])
+    finally:
+        gate.set()

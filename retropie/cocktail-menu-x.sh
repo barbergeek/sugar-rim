@@ -13,6 +13,22 @@ URL=""
 [[ -s "$URL_FILE" ]] && URL=$(head -n1 "$URL_FILE" | tr -d '[:space:]')
 [[ "$URL" == http* ]] || URL="file://$SHARE/no-url.html"
 
+# Select+Start ends Chromium with SIGTERM, which it records as a crash; mark
+# the last exit clean so it never opens with a "Restore pages?" prompt
+# (same fix as bar-pi/autostart).
+python3 - "$CONF/chromium/Default/Preferences" <<'EOF' 2>/dev/null
+import json, sys
+f = sys.argv[1]
+try:
+    with open(f) as fp:
+        d = json.load(fp)
+    d.setdefault("profile", {}).update(exit_type="Normal", exited_cleanly=True)
+    with open(f, "w") as fp:
+        json.dump(d, fp)
+except (OSError, ValueError):
+    pass
+EOF
+
 chromium \
   --kiosk --start-fullscreen --window-position=0,0 \
   --user-data-dir="$CONF/chromium" \
