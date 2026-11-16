@@ -269,9 +269,29 @@ def test_publish_remembers_the_menu_collection(owner):
     assert state["collection"] == {
         "id": 5,
         "name": "Thanksgiving 2026",
+        "drinks": [
+            {"id": 1, "name": "Cider Sour"},
+            {"id": 2, "name": "Maple Old Fashioned"},
+        ],
         "cocktail_ids": [1, 2],
     }
     assert app_module.os.environ["MENU_COLLECTION_ID"] == "5"
+
+
+def test_menu_state_reports_a_collection_it_cannot_load(owner, ba, monkeypatch):
+    # A silent failure used to look like "no menu" and hid the add buttons.
+    owner.post("/api/menu/collection", json={"collection_id": 5})
+    real_get = ba.get
+
+    def get(url, **kw):
+        if url.endswith("/api/cocktails"):
+            return Resp(500, json_data={})
+        return real_get(url, **kw)
+
+    monkeypatch.setattr(app_module.http, "get", get)
+    state = owner.get("/api/menu").get_json()
+    assert state["collection"] is None
+    assert "lookup failed" in state["collection_error"]
 
 
 def test_toggle_needs_a_menu_collection(owner):

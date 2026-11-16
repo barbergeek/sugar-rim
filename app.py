@@ -547,15 +547,19 @@ def _ba_collection(cid):
     return r.json().get("data") or {}
 
 
-def _collection_ids(cid):
-    """The collection's cocktail ids, from the documented cocktail filter
-    (a collection's detail may omit its cocktails). A failed lookup raises:
-    reading it as "empty" would let the next sync wipe the collection."""
+def _collection_drinks(cid):
+    """The collection's cocktails as [{id, name}], from the documented cocktail
+    filter (a collection's detail may omit its cocktails). A failed lookup
+    raises: reading it as "empty" would let the next sync wipe the collection."""
     r = http.get(ba_url("/cocktails"), headers=ba_headers(), timeout=15,
                  params={"filter[collection_id]": cid, "per_page": 100})
     if not r.ok:
         raise MenuError("Bar Assistant cocktail lookup failed", 502)
-    return [c["id"] for c in r.json().get("data") or []]
+    return [{"id": c["id"], "name": c.get("name") or ""} for c in r.json().get("data") or []]
+
+
+def _collection_ids(cid):
+    return [c["id"] for c in _collection_drinks(cid)]
 
 
 def _menu_state():
@@ -571,10 +575,12 @@ def _menu_state():
     if cid:
         try:
             col = _ba_collection(cid)
-            out["collection"] = {"id": cid, "name": col.get("name") or "",
-                                 "cocktail_ids": _collection_ids(cid)}
-        except (MenuError, *BA_ERRORS):
-            pass  # deleted in BA, or BA down: Settings shows nothing chosen
+            drinks = _collection_drinks(cid)
+            out["collection"] = {"id": cid, "name": col.get("name") or "", "drinks": drinks,
+                                 "cocktail_ids": [d["id"] for d in drinks]}
+        except (MenuError, *BA_ERRORS) as e:
+            # Say so rather than look unset: a silent failure hides the menu buttons.
+            out["collection_error"] = str(e)
     out["suggest"] = {"ready": bool(os.getenv("TYPESAFE_API_KEY")),
                       "occasion": menu_suggest.default_occasion()}
     return out

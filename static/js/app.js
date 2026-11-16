@@ -1498,7 +1498,6 @@ const Cocktails = {
   _renderDetail(c) {
     el('detail-title').textContent = c.name;
     el('detail-fav-btn').textContent = c.is_favorited ? '★' : '☆';
-    this._syncMenuBtn();
     el('unit-toggle-btn').textContent = UnitPref.get();
 
     const s = this._servings;
@@ -1569,39 +1568,45 @@ const Cocktails = {
       : `${metaSection}${ingsSection}`;
 
     el('detail-body').innerHTML = `
+      ${window.KIOSK ? '' : '<div id="detail-menu-row" class="detail-menu-row"></div>'}
       ${topContent}
       ${c.instructions ? `<div class="detail-section"><h3>Instructions</h3><p class="detail-instructions">${escHtml(c.instructions)}</p></div>` : ''}
       ${c.garnish ? `<div class="detail-section"><h3>Garnish</h3><p class="detail-instructions">${escHtml(c.garnish)}</p></div>` : ''}
     `;
+    this._syncMenuBtn();
   },
 
-  // Holiday menu toggle: the phone UI only (the kiosk has no such button).
+  // Holiday menu button: the phone UI only (the kiosk renders no row for it).
   _menu: null,
-  _menuFetched: false, // once per page load; Settings refreshes it on change
+  _menuFetched: false, // once per page load; the Holiday Menu dialog refreshes it
 
   async _loadMenu() {
     this._menuFetched = true;
     try {
       this._menu = await get('/api/menu');
     } catch (e) {
-      this._menu = null; // button stays hidden
+      this._menu = { collection_error: e.message };
     }
     this._syncMenuBtn();
   },
 
   _syncMenuBtn() {
-    const btn = el('detail-menu-btn');
-    if (!btn) return;
+    const row = el('detail-menu-row');
+    if (!row) return;
     if (!this._menuFetched) {
       this._loadMenu();
       return;
     }
     const col = this._menu?.collection;
-    btn.style.display = col ? '' : 'none';
-    if (!col) return;
+    const icon = (name) => `<span class="material-symbols-rounded">${name}</span>`;
+    if (!col) {
+      // No menu yet, or it couldn't be loaded: open the dialog, which says which.
+      row.innerHTML = `<button class="btn btn-ghost menu-pill" onclick="App.holidayMenu.show()">${icon('restaurant_menu')} Add to a holiday menu…</button>`;
+      return;
+    }
     const on = col.cocktail_ids.includes(this.currentId);
-    btn.classList.toggle('menu-on', on);
-    btn.title = on ? `On “${col.name}” — tap to remove` : `Add to “${col.name}”`;
+    row.innerHTML = `<button class="btn ${on ? 'btn-primary' : 'btn-ghost'} menu-pill" onclick="App.cocktails.toggleMenu()" title="${on ? 'Tap to take it off the menu' : ''}">
+      ${icon(on ? 'check' : 'add')} ${on ? 'On' : 'Add to'} “${escHtml(col.name)}”</button>`;
   },
 
   async toggleMenu() {
@@ -3445,7 +3450,12 @@ const HolidayMenu = {
             <input type="text" id="cfg-menu-new" class="text-input" style="flex:1" placeholder="New collection, e.g. Christmas 2026">
             <button class="btn btn-ghost" onclick="App.holidayMenu.createMenu()">Create</button>
           </div>
-          <div class="cfg-status" style="margin-top:6px">Add drinks with the <span class="material-symbols-rounded" style="font-size:1rem;vertical-align:middle">restaurant_menu</span> button on any cocktail.</div>
+          <div id="hm-drinks" style="margin-top:12px"></div>
+          <div id="hm-add" style="display:none;margin-top:8px">
+            <input type="search" id="hm-search" class="text-input" style="width:100%" placeholder="Add a drink: type its name" autocomplete="off" oninput="App.holidayMenu.search()">
+            <div id="hm-results"></div>
+            <div class="cfg-status" style="margin-top:6px">You can also add a drink from its cocktail page.</div>
+          </div>
           <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
           <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px">Loading…</div>
           <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
@@ -3651,6 +3661,87 @@ const HolidayMenu = {
         : 'Nothing published yet.');
     el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
     el('cfg-menu-url').value = state.url || '';
+    if (state.collection_error) {
+      status.className = 'cfg-status err';
+      status.textContent = `Couldn't load the menu collection: ${state.collection_error}`;
+    }
+    this._showDrinks(state.collection);
+  },
+
+  // The drinks on the menu collection, each removable, plus a search to add more.
+  _showDrinks(col) {
+    const list = el('hm-drinks');
+    if (!list) return;
+    el('hm-add').style.display = col ? '' : 'none';
+    if (!col) {
+      list.innerHTML = '<div class="cfg-status">Choose or create a collection to add drinks.</div>';
+      return;
+    }
+    list.innerHTML = col.drinks.length
+      ? col.drinks
+          .map(
+            (d) => `<div class="hm-drink"><span>${escHtml(d.name)}</span>
+              <button class="btn btn-ghost" title="Take off the menu" onclick="App.holidayMenu.setDrink(${d.id}, false)">✕</button></div>`
+          )
+          .join('')
+      : `<div class="cfg-status">“${escHtml(col.name)}” has no drinks yet. Add some below.</div>`;
+  },
+
+  search() {
+    clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => this._search(), 250);
+  },
+
+  async _search() {
+    const q = el('hm-search').value.replace(/,/g, ' ').trim();
+    const out = el('hm-results');
+    const on = new Set(App.cocktails._menu?.collection?.cocktail_ids || []);
+    if (q.length < 2) {
+      out.innerHTML = '';
+      return;
+    }
+    try {
+      const d = await get('/api/cocktails', { 'filter[name]': q, per_page: 8 });
+      if (el('hm-search').value.replace(/,/g, ' ').trim() !== q) return; // a newer search won
+      const hits = (d.data || []).filter((c) => !on.has(c.id));
+      out.innerHTML = hits.length
+        ? hits
+            .map(
+              (
+                c
+              ) => `<button class="btn btn-ghost menu-pill" style="width:100%;justify-content:flex-start" onclick="App.holidayMenu.setDrink(${c.id}, true)">
+                <span class="material-symbols-rounded">add</span>${escHtml(c.name)}</button>`
+            )
+            .join('')
+        : '<div class="cfg-status">No matching cocktails.</div>';
+    } catch (e) {
+      out.innerHTML = `<div class="cfg-status err">${escHtml(e.message)}</div>`;
+    }
+  },
+
+  async setDrink(id, on) {
+    const status = el('cfg-menu-status');
+    status.className = 'cfg-status';
+    status.textContent = on ? 'Adding…' : 'Removing…';
+    try {
+      const state = await post('/api/menu/cocktails', {
+        cocktail_id: id,
+        on,
+        public_base: location.origin,
+      });
+      if (on) {
+        el('hm-search').value = '';
+        el('hm-results').innerHTML = '';
+      }
+      this._showMenu(state);
+      if (state.publish_error) {
+        status.className = 'cfg-status err';
+        status.textContent = state.publish_error;
+      }
+    } catch (e) {
+      status.className = 'cfg-status err';
+      status.textContent = e.message;
+    }
   },
 
   async publishMenu() {
