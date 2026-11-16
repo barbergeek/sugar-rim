@@ -408,3 +408,14 @@ def test_page_seconds_setting_reaches_the_board(owner, guest, monkeypatch):
         "/config", json={"menu_page_seconds": 9}
     )
     assert guest_cfg.status_code == 401
+
+
+def test_qr_codes_use_short_links_to_each_recipe(owner, guest):
+    publish(owner)
+    html = guest.get("/menu").get_data(as_text=True)
+    assert "/m/1" not in html  # the link is encoded in the code, not printed
+    r = guest.get("/m/1")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/menu/r/cider-sour")
+    assert guest.get("/m/2").headers["Location"].endswith("/menu/r/maple-old-fashioned")
+    assert guest.get("/m/3").status_code == 404
+    assert guest.get("/m/0").status_code == 404

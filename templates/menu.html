@@ -69,8 +69,8 @@
       opacity: 0;
       --name: 5vmin; --desc: 3.2vmin; --lines: 6; --qr: 12vmin;
     }
-    .page.medium { --name: 4.2vmin; --desc: 2.8vmin; --lines: 4; --qr: 10vmin; }
-    .page.dense { --name: 3.6vmin; --desc: 2.5vmin; --lines: 3; --qr: 9vmin; }
+    .page.medium { --name: 4.2vmin; --desc: 2.8vmin; --lines: 4; --qr: 11vmin; }
+    .page.dense { --name: 3.6vmin; --desc: 2.5vmin; --lines: 3; --qr: 11vmin; }
     .page.solo { --name: 6.5vmin; --desc: 3.6vmin; --lines: 12; --qr: 12vmin; }
     .pages.fading .page { transition: opacity 0.8s ease; }
     .page.active { opacity: 1; }
@@ -108,6 +108,7 @@
     .page:is(.dense, .medium) .desc { min-height: calc(var(--desc) * 1.35 * 3); }
     .qr { flex: none; width: var(--qr); height: var(--qr); border-radius: 0.8vmin; overflow: hidden; align-self: flex-end; }
     .qr svg { width: 100%; height: 100%; display: block; }
+    .qr svg path { shape-rendering: crispEdges; } /* hard module edges, no blur */
 
     /* A drink alone on its page (landscape): photo beside the text. */
     .page.solo.wide .card { flex-direction: row; gap: 3vw; }

@@ -833,12 +833,23 @@ def _menu_public(fn):
 @_menu_public
 def menu_board(snap):
     cards = [{**c, "blurb": menu.blurb(c),
-              "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}")}
-             for c in (snap or {}).get("cocktails", [])]
+              # Short /m/<n> links make coarser, easier-to-scan codes on a TV.
+              "qr": menu.qr_svg(f"{snap['public_base']}/m/{n}")}
+             for n, c in enumerate((snap or {}).get("cocktails", []), 1)]
     seconds = menu.page_seconds(request.args.get("seconds")
                                 or os.getenv("MENU_PAGE_SECONDS"))
     return render_template("menu.html", snap=snap, cards=cards, seconds=seconds,
                            inset=menu.inset(request.args.get("inset")))
+
+
+@app.route("/m/<int:n>")
+@_menu_public
+def menu_qr(snap, n):
+    """A board QR code: the n-th drink on the published menu (from 1)."""
+    drinks = (snap or {}).get("cocktails", [])
+    if not 1 <= n <= len(drinks):
+        return "Not found", 404
+    return redirect(f"/menu/r/{drinks[n - 1]['slug']}")
 
 
 @app.route("/menu/r/<slug>")

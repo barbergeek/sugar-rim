@@ -149,8 +149,9 @@ def find(snapshot, slug):
 
 def qr_svg(url):
     # Dark modules on a white quiet zone, so phones read it on a dark board.
+    # A 2-module border (not 4) leaves more of the box for the code itself.
     return segno.make(url, error="m").svg_inline(
-        scale=4, dark="#111", light="#fff", omitsize=True
+        scale=4, border=2, dark="#111", light="#fff", omitsize=True
     )
 
 
