@@ -248,7 +248,8 @@ def test_new_key_revokes_old_links(owner, guest):
 
 def test_board_before_anything_published(owner, guest):
     state = owner.post("/api/menu/key").get_json()
-    assert state == {"published": None, "url": None, "collection": None}
+    assert state["published"] is None and state["url"] is None
+    assert state["collection"] is None
     r = guest.get(f"/menu?key={app_module.os.environ['MENU_KEY']}")
     assert r.status_code == 200 and "No menu has been published" in r.get_data(
         as_text=True

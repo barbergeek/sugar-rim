@@ -17,6 +17,7 @@ from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 import menu
+import menu_suggest
 import scrapers
 from scrapers.draft2 import from_draft2, to_draft2
 from scrapers.match import rank as rank_ingredients
@@ -213,6 +214,7 @@ def get_config():
         "ai_key_set":   bool(os.getenv("AI_IMAGE_API_KEY")),
         "ai_prompt_ingredient": os.getenv("AI_PROMPT_INGREDIENT", ""),
         "ai_prompt_cocktail":   os.getenv("AI_PROMPT_COCKTAIL", ""),
+        "typesafe_key_set":     bool(os.getenv("TYPESAFE_API_KEY")),
     })
 
 
@@ -227,7 +229,8 @@ def set_config():
     body = request.get_json(force=True)
     if not _logged_in() and any(
             k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
-                                "ai_prompt_ingredient", "ai_prompt_cocktail")):
+                                "ai_prompt_ingredient", "ai_prompt_cocktail",
+                                "typesafe_api_key")):
         return jsonify({"error": "unauthorized"}), 401
     if not os.path.exists(ENV_PATH):
         open(ENV_PATH, "w").close()
@@ -259,6 +262,10 @@ def set_config():
     if body.get("ai_api_key"):  # write-only; blank keeps the existing key
         set_key(ENV_PATH, "AI_IMAGE_API_KEY", body["ai_api_key"], follow_symlinks=True)
         os.environ["AI_IMAGE_API_KEY"] = body["ai_api_key"]
+    if body.get("typesafe_api_key"):  # write-only, for holiday menu suggestions
+        key = str(body["typesafe_api_key"]).strip()
+        set_key(ENV_PATH, "TYPESAFE_API_KEY", key, follow_symlinks=True)
+        os.environ["TYPESAFE_API_KEY"] = key
     return jsonify({"ok": True})
 
 
@@ -557,6 +564,8 @@ def _menu_state():
                                  "cocktail_ids": [c["id"] for c in col.get("cocktails") or []]}
         except (MenuError, *BA_ERRORS):
             pass  # deleted in BA, or BA down: Settings shows nothing chosen
+    out["suggest"] = {"ready": bool(os.getenv("TYPESAFE_API_KEY")),
+                      "occasion": menu_suggest.default_occasion()}
     return out
 
 
@@ -689,6 +698,11 @@ def menu_toggle_cocktail(body):
         ids.append(cocktail_id)
     elif not on:
         ids = [i for i in ids if i != cocktail_id]
+    return jsonify(_sync_and_publish(cid, ids, base))
+
+
+def _sync_and_publish(cid, ids, base):
+    """Make the collection hold exactly ids, then republish the board."""
     r = http.put(ba_url(f"/collections/{cid}/cocktails"), headers=ba_headers(), timeout=10,
                  json={"cocktails": ids})
     if not r.ok:
@@ -701,7 +715,59 @@ def menu_toggle_cocktail(body):
             out["publish_error"] = str(e)
     else:
         out["publish_error"] = "The menu is empty, so the board still shows the last one published"
-    return jsonify({**_menu_state(), **out})
+    return {**_menu_state(), **out}
+
+
+@app.route("/api/menu/cocktails/set", methods=["POST"])
+@_menu_route
+def menu_set_cocktails(body):
+    """Replace the menu collection's drinks (an approved suggestion), then republish."""
+    ids = body.get("cocktail_ids")
+    if (not isinstance(ids, list) or not 1 <= len(ids) <= MENU_MAX
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)):
+        raise MenuError(f"cocktail_ids must be 1 to {MENU_MAX} numbers")
+    base = _public_base(body)
+    cid = _menu_collection_id()
+    if not cid:
+        raise MenuError("Choose a menu collection in Settings → Holiday Menu first")
+    return jsonify(_sync_and_publish(cid, list(dict.fromkeys(ids)), base))
+
+
+def _ba_all(path, headers, params=None):
+    """Every page of a Bar Assistant list endpoint."""
+    items, page = [], 1
+    while True:
+        r = http.get(ba_url(path), headers=headers, timeout=20,
+                     params={**(params or {}), "per_page": 500, "page": page})
+        if not r.ok:
+            raise MenuError("Bar Assistant lookup failed", 502)
+        payload = r.json()
+        items += payload.get("data") or []
+        if page >= ((payload.get("meta") or {}).get("last_page") or 1):
+            return items
+        page += 1
+
+
+@app.route("/api/menu/suggest", methods=["POST"])
+@_menu_route
+def menu_suggest_route(body):
+    """Ask Jev about every nearly-makeable drink; code picks a menu to approve."""
+    key = os.getenv("TYPESAFE_API_KEY", "")
+    if not key:
+        raise MenuError("Add a TypeSafe API key in Settings → Holiday Menu first")
+    occasion = " ".join(str(body.get("occasion") or "").split())[:120]
+    if not occasion:
+        raise MenuError("Say what the occasion is, e.g. Thanksgiving dinner")
+    bid, err = bar_id_or_err()
+    if err:
+        return err
+    shelf = {i.get("id") for i in _ba_all(f"/bars/{bid}/ingredients", auth_headers())}
+    cocktails = _ba_all("/cocktails", ba_headers(),
+                        {"include": "ingredients.ingredient,glass,method"})
+    try:
+        return jsonify(menu_suggest.suggest(key, occasion, cocktails, shelf))
+    except menu_suggest.SuggestError as e:
+        raise MenuError(str(e), 502) from e
 
 
 def _menu_public(fn):
