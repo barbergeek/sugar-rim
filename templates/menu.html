@@ -47,74 +47,79 @@
       inset: calc(var(--inset) * 1vh) calc(var(--inset) * 1vw);
       display: flex;
       flex-direction: column;
-      gap: 2.5vh;
+      gap: 2.5vmin;
     }
     header { text-align: center; }
-    h1 { font-size: 6.5vh; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
+    h1 { font-size: 6.5vmin; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
     h1::after {
-      content: ""; display: block; width: 8vw; height: 0.5vh; margin: 1.4vh auto 0;
-      border-radius: 1vh; background: linear-gradient(90deg, var(--accent), var(--accent2));
+      content: ""; display: block; width: 8vw; height: 0.5vmin; margin: 1.4vmin auto 0;
+      border-radius: 1vmin; background: linear-gradient(90deg, var(--accent), var(--accent2));
     }
-    .subtitle { margin-top: 1.2vh; font-size: 3vh; color: var(--dim); font-weight: 300; }
+    .subtitle { margin-top: 1.2vmin; font-size: 3vmin; color: var(--dim); font-weight: 300; }
 
-    /* Pages are stacked; one is shown at a time. */
+    /* Pages are stacked; one is shown at a time. The script sets each page's
+       grid and density from the screen size. */
     .pages { flex: 1; min-height: 0; position: relative; }
     .page {
       position: absolute; inset: 0;
       display: grid;
       grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
-      gap: 2.5vw;
+      grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+      gap: 2.4vmin;
       opacity: 0;
+      --name: 5vmin; --desc: 3.2vmin; --lines: 6; --qr: 12vmin;
     }
+    .page.medium { --name: 4.2vmin; --desc: 2.8vmin; --lines: 4; --qr: 10vmin; }
+    .page.dense { --name: 3.6vmin; --desc: 2.5vmin; --lines: 3; --qr: 9vmin; }
+    .page.solo { --name: 6.5vmin; --desc: 3.6vmin; --lines: 12; --qr: 12vmin; }
     .pages.fading .page { transition: opacity 0.8s ease; }
     .page.active { opacity: 1; }
     .stash { position: absolute; visibility: hidden; }
 
     .card {
       min-height: 0; overflow: hidden;
-      display: flex; flex-direction: column; gap: 1.6vh;
+      display: flex; flex-direction: column; gap: 1.4vmin;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 2.2vh;
-      padding: 2vh;
+      border-radius: 2.2vmin;
+      padding: 1.8vmin;
     }
     /* The photo takes whatever the text leaves; its image never sizes the card. */
     .photo {
       position: relative;
-      flex: 1 1 0; min-height: 22vh;
-      border-radius: 1.4vh;
+      flex: 1 1 0; min-height: 10vmin;
+      border-radius: 1.4vmin;
       overflow: hidden;
       background: linear-gradient(135deg, rgba(255, 46, 99, 0.35), rgba(249, 212, 35, 0.25));
       display: flex; align-items: center; justify-content: center;
-      font-size: 14vh; font-weight: 700; color: rgba(255, 255, 255, 0.5);
+      font-size: 12vmin; font-weight: 700; color: rgba(255, 255, 255, 0.5);
     }
     .photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .text { display: flex; flex-direction: column; gap: 1.4vh; }
-    .name { font-size: 5vh; font-weight: 600; line-height: 1.1; }
-    .desc { font-size: 3.2vh; color: var(--dim); line-height: 1.4; font-weight: 300; }
-    .qr { flex: none; width: 12vh; height: 12vh; border-radius: 0.8vh; overflow: hidden; align-self: flex-end; }
+    .text { display: flex; flex-direction: column; gap: 1vmin; }
+    .name, .desc { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+    .name { font-size: var(--name); font-weight: 600; line-height: 1.12; -webkit-line-clamp: 2; }
+    /* Long descriptions are trimmed on the board; the QR code has the rest. */
+    .desc {
+      font-size: var(--desc); color: var(--dim); line-height: 1.35; font-weight: 300;
+      -webkit-line-clamp: var(--lines);
+    }
+    /* Same text space in every card of a page, so the photos line up. */
+    .page:is(.dense, .medium) .name { min-height: calc(var(--name) * 1.12 * 2); }
+    .page:is(.dense, .medium) .desc { min-height: calc(var(--desc) * 1.35 * 3); }
+    .qr { flex: none; width: var(--qr); height: var(--qr); border-radius: 0.8vmin; overflow: hidden; align-self: flex-end; }
     .qr svg { width: 100%; height: 100%; display: block; }
 
-    /* Side by side, room for two description lines keeps the names level. */
-    .page:not(.solo) .desc { min-height: 2.8em; }
-    /* A drink alone on its page: photo beside the text. */
-    .page.solo .card { flex-direction: row; gap: 3vw; }
-    .page.solo .photo { flex: 0 0 42%; min-height: 0; }
-    .page.solo .text { flex: 1; justify-content: center; }
-    .page.solo .name { font-size: 6.5vh; }
-    .page.solo .desc { font-size: 3.6vh; }
-    /* Last resort when even one drink can't fit: smaller text, then clamp. */
-    .page.tight .desc {
-      font-size: 2.8vh;
-      display: -webkit-box; -webkit-line-clamp: 12; -webkit-box-orient: vertical; overflow: hidden;
-    }
+    /* A drink alone on its page (landscape): photo beside the text. */
+    .page.solo.wide .card { flex-direction: row; gap: 3vw; }
+    .page.solo.wide .photo { flex: 0 0 42%; min-height: 0; }
+    .page.solo.wide .text { flex: 1; justify-content: center; }
 
     footer { display: flex; align-items: center; justify-content: center; gap: 3vw; }
-    .hint { font-size: 2.4vh; color: var(--dim); font-weight: 300; }
-    .dots { display: flex; gap: 1vh; }
-    .dots i { width: 1.4vh; height: 1.4vh; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
+    .hint { font-size: 2.4vmin; color: var(--dim); font-weight: 300; }
+    .dots { display: flex; gap: 1vmin; }
+    .dots i { width: 1.4vmin; height: 1.4vmin; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
     .dots i.on { background: var(--accent2); }
-    .empty { margin: auto; text-align: center; color: var(--dim); font-size: 3.5vh; }
+    .empty { margin: auto; text-align: center; color: var(--dim); font-size: 3.5vmin; }
   </style>
 </head>
 <body style="--inset: {{ inset }}">
@@ -153,36 +158,27 @@
     {% endif %}
   </main>
   <script>
-    // Fit as many drinks per page as the text allows (never cutting a
-    // description short), then rotate through the pages.
-    const MAX_PER_PAGE = 3;
+    // How many drinks fit on a page comes from the screen: each card needs
+    // about CARD_W x CARD_H (in vmin, so a 4K TV shows the same count as a
+    // 1080p one, just sharper). ?per_page=N in the link overrides it.
+    const CARD_W = 36, CARD_H = 46, GAP = 2.4; // vmin
     const PAGE_SECONDS = 15;
 
-    function tryPage(pagesEl, group) {
-      const page = document.createElement('div');
-      page.className = 'page' + (group.length === 1 ? ' solo' : '');
-      page.style.setProperty('--cols', group.length);
-      group.forEach((c) => page.appendChild(c));
-      pagesEl.appendChild(page);
-      const fits = group.every((c) => c.scrollHeight <= c.clientHeight + 1 && c.scrollWidth <= c.clientWidth + 1);
-      return { page, fits };
+    function capacity(area) {
+      const u = Math.min(innerWidth, innerHeight) / 100;
+      const fit = (len, size) => Math.max(1, Math.floor((len + GAP * u) / ((size + GAP) * u)));
+      return { cols: fit(area.width, CARD_W), rows: fit(area.height, CARD_H) };
     }
 
-    function layout(sizes, cards, pagesEl, stash) {
-      // Build pages of the given sizes; undo and return null if any overflow.
-      const pages = [];
-      let i = 0;
-      for (const n of sizes) {
-        const { page, fits } = tryPage(pagesEl, cards.slice(i, i + n));
-        pages.push(page);
-        i += n;
-        if (!fits && n > 1) {
-          pages.forEach((p) => { [...p.children].forEach((c) => stash.appendChild(c)); p.remove(); });
-          return null;
-        }
-        if (!fits) page.classList.add('tight');
+    function grid(k, cap, area) {
+      // Columns for k cards: as many as fit, or for a forced count, whatever
+      // keeps cards closest to their usual shape.
+      let cols = Math.min(cap.cols, k);
+      if (k > cap.cols * cap.rows) {
+        const shape = (area.width / area.height) * (CARD_H / CARD_W);
+        cols = Math.min(k, Math.max(1, Math.round(Math.sqrt(k * shape))));
       }
-      return pages;
+      return { cols, rows: Math.ceil(k / cols) };
     }
 
     function paginate() {
@@ -190,14 +186,27 @@
       const stash = document.getElementById('stash');
       if (!pagesEl) return [];
       const cards = [...stash.children];
-      // Fewest pages first, sizes as even as possible (4 drinks → 2 + 2, not 3 + 1).
-      for (let count = Math.ceil(cards.length / MAX_PER_PAGE); count <= cards.length; count++) {
-        const base = Math.floor(cards.length / count), extra = cards.length % count;
-        const sizes = Array.from({ length: count }, (_, k) => base + (k < extra ? 1 : 0));
-        const pages = layout(sizes, cards, pagesEl, stash);
-        if (pages) return pages;
+      const area = pagesEl.getBoundingClientRect();
+      const cap = capacity(area);
+      const forced = parseInt(new URLSearchParams(location.search).get('per_page'), 10);
+      const per = forced > 0 ? forced : cap.cols * cap.rows;
+      // Even pages: 5 drinks at 4 a page is 3 + 2, not 4 + 1.
+      const count = Math.ceil(cards.length / per);
+      const size = Math.ceil(cards.length / count);
+      const pages = [];
+      for (let i = 0; i < cards.length; i += size) {
+        const group = cards.slice(i, i + size);
+        const g = grid(group.length, cap, area);
+        const page = document.createElement('div');
+        const density = group.length === 1 ? 'solo' : g.rows > 1 || g.cols >= 4 ? 'dense' : g.cols === 3 ? 'medium' : '';
+        page.className = `page ${density}${area.width > area.height ? ' wide' : ''}`;
+        page.style.setProperty('--cols', g.cols);
+        page.style.setProperty('--rows', g.rows);
+        group.forEach((c) => page.appendChild(c));
+        pagesEl.appendChild(page);
+        pages.push(page);
       }
-      return [];
+      return pages;
     }
 
     function start() {
@@ -216,8 +225,7 @@
       if (pages.length > 1) setInterval(() => { at = (at + 1) % pages.length; show(); }, PAGE_SECONDS * 1000);
     }
 
-    // Measure with the real font, or line wrapping (and so the fit) is wrong.
-    (document.fonts ? document.fonts.ready : Promise.resolve()).then(start);
+    start();
   </script>
 </body>
 </html>
