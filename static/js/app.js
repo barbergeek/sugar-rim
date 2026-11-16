@@ -2604,7 +2604,7 @@ const Users = {
         <div class="card shelf-card">
           <div class="card-name">${escHtml(u.name)}</div>
           <div class="card-sub">${escHtml(u.email)}</div>
-          <div class="card-sub">Role: ${u.is_admin ? 'Admin' : 'User'}</div>
+          <div class="card-sub">Role: ${escHtml(u.role?.role_name || '—')}</div>
           <button class="remove-btn" onclick="App.users.delete(${u.id})" title="Delete user">✕</button>
         </div>`
         )
@@ -2630,6 +2630,15 @@ const Users = {
       <div class="form-group">
         <label class="form-label">Password *</label>
         <input type="password" class="text-input" id="uf-pass">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role *</label>
+        <select class="text-input" id="uf-role">
+          <option value="1">Admin</option>
+          <option value="2">Moderator</option>
+          <option value="3" selected>General</option>
+          <option value="4">Guest</option>
+        </select>
       </div>`,
       `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        <button class="btn btn-primary" onclick="App.users.submit()">Create User</button>`
@@ -2640,12 +2649,13 @@ const Users = {
     const name = el('uf-name').value;
     const email = el('uf-email').value;
     const password = el('uf-pass').value;
+    const role_id = Number(el('uf-role').value);
     if (!name || !email || !password) {
       Toast.err('All fields are required');
       return;
     }
     try {
-      await post('/api/users', { name, email, password });
+      await post('/api/users', { name, email, password, role_id });
       Toast.show('User created');
       Modal.close();
       this.load();
