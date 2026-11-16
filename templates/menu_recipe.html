@@ -51,7 +51,7 @@
     <h1>{{ c.name }}</h1>
     {% if c.description %}<p class="desc">{{ c.description }}</p>{% endif %}
     {% if c.image %}
-      <div class="photo"><img src="/menu/img/{{ c.slug }}?key={{ key }}" alt="{{ c.name }}"></div>
+      <div class="photo"><img src="/menu/img/{{ c.slug }}" alt="{{ c.name }}"></div>
     {% endif %}
     {% if c.glass or c.method or c.abv %}
       <div class="meta">

@@ -3459,10 +3459,9 @@ const HolidayMenu = {
           <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
           <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px">Loading…</div>
           <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (anyone with it can view the menu)
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (the TV and the QR codes use it; it always shows what's published)
               <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
             </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.newMenuKey()">New Link (old link and QR codes stop working)</button>
           </div>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Suggest drinks for
@@ -3774,17 +3773,6 @@ const HolidayMenu = {
     } catch (e) {
       status.className = 'cfg-status err';
       status.textContent = e.message;
-    }
-  },
-
-  async newMenuKey() {
-    if (!confirm('Make a new link? The current link and every printed QR code will stop working.'))
-      return;
-    try {
-      this._showMenu(await post('/api/menu/key'), 'New link made. Update your displays.');
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
     }
   },
 };

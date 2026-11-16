@@ -10,9 +10,8 @@ closes it and returns to the games.
 |------|-------------|---------|
 | `Cocktail Menu.sh` | `~/RetroPie/roms/ports/` | the Ports entry; hands off to RetroPie's `runcommand` |
 | `emulators.cfg` | `/opt/retropie/configs/ports/cocktail-menu/` | tells `runcommand` to start X (`XINIT:`) and run the script below |
-| `cocktail-menu-x.sh` | `~/.local/bin/` | inside X: turns off blanking, opens Chromium in kiosk mode on the menu link |
+| `cocktail-menu-x.sh` | `~/.local/bin/` | inside X: switches to 1920x1080, turns off blanking, opens Chromium in kiosk mode on the menu |
 | `menu-exit-watch.py` | `~/.local/bin/` | reads `/dev/input/js*`; closes Chromium on Select + Start |
-| `no-url.html` | `~/.local/share/cocktail-menu/` | shown when no menu link has been saved yet |
 
 ## How it works
 
@@ -29,21 +28,21 @@ buttons 8 and 9 — and falls back to those numbers if it can't match a device.
 Chromium uses its own profile (`~/.config/cocktail-menu/chromium`), so the
 menu never restores tabs or shows a "restore pages" prompt.
 
-## The menu link
+## What it shows
 
-The script reads the board's address from `~/.config/cocktail-menu/url`
-(one line). Copy it from sugar-rim **Manage → Holiday Menu → Display link**:
+It always opens `https://sugar.scotthoge.com/menu`, which shows whatever
+holiday menu is currently published (Manage → Holiday Menu in sugar-rim), so
+there is nothing to set on the console. To point it somewhere else, put a
+different address on the first line of `~/.config/cocktail-menu/url`.
 
-```sh
-ssh retropie.home 'cat > ~/.config/cocktail-menu/url' <<< 'https://sugar.scotthoge.com/menu?key=…'
-```
+The console boots the TV at 1280x768 (an old `video=` setting in the Pi's
+`cmdline.txt`). While the menu is open the script switches X to 1920x1080 if
+the TV offers it; closing the menu ends X, so EmulationStation and the boot
+settings are untouched.
 
-Pressing **New Link** in Manage → Holiday Menu invalidates the old link, so update this file
-afterwards. Without a link, the port shows a "No menu link yet" screen.
-
-The board keeps a 5% margin because this TV overscans (cuts off the edges) in
-X. If you switch the TV's picture size to "Just Scan" / "Screen Fit", add
-`&inset=0` to the end of the link to use the full screen.
+The board keeps a 5% margin because this TV overscans (cuts off the edges).
+If you switch the TV's picture size to "Just Scan" / "Screen Fit", use
+`https://sugar.scotthoge.com/menu?inset=0` as the override above.
 
 ## Install / update
 

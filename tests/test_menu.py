@@ -117,7 +117,6 @@ def env(monkeypatch, tmp_path, ba):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     monkeypatch.setenv("BA_API_URL", BA)
     # setenv (not delenv) so teardown restores them: the app writes os.environ.
-    monkeypatch.setenv("MENU_KEY", "")
     monkeypatch.setenv("MENU_COLLECTION_ID", "")
     return tmp_path
 
@@ -141,21 +140,16 @@ def publish(owner):
     return r.get_json()
 
 
-def key_of(state):
-    return state["url"].split("key=")[1]
-
-
 def test_owner_routes_need_login(guest):
     assert guest.get("/api/menu").status_code == 401
-    assert guest.post("/api/menu/key").status_code == 401
     assert guest.post("/api/menu/publish", json={"collection_id": 5}).status_code == 401
 
 
-def test_publish_snapshots_collection_and_makes_key(owner, env):
+def test_publish_snapshots_collection(owner, env):
     state = publish(owner)
     assert state["published"]["title"] == "Thanksgiving 2026"
     assert state["published"]["count"] == 2
-    assert state["url"].startswith(f"{BASE}/menu?key=")
+    assert state["url"] == f"{BASE}/menu"
     snap = menu.load(menu.menu_dir(str(env / ".env")))
     cider = snap["cocktails"][0]
     # Only what the public pages show; nobody's account details.
@@ -186,71 +180,52 @@ def test_publish_rejects_bad_input(owner, ba):
     assert r.status_code == 400 and "at most" in r.get_json()["error"]
 
 
-def test_republish_keeps_key_and_drops_unused_photos(owner, env, ba):
-    key = key_of(publish(owner))
+def test_republish_drops_unused_photos(owner, env, ba):
+    publish(owner)
     ba.members = [2]
-    assert key_of(publish(owner)) == key
+    publish(owner)
     assert not (env / "menu" / "cider-sour.jpg").exists()
 
 
-def test_public_pages_need_the_key(owner, guest):
+def test_public_pages_need_no_login_and_ignore_old_keys(owner, guest):
     publish(owner)
     for path in ("/menu", "/menu/r/cider-sour", "/menu/img/cider-sour"):
-        assert guest.get(path).status_code == 404
-        assert guest.get(path + "?key=wrong").status_code == 404
+        assert guest.get(path).status_code == 200
+        assert guest.get(path + "?key=from-an-old-link").status_code == 200
 
 
 def test_board_shows_menu_with_qr_to_recipe(owner, guest):
-    key = key_of(publish(owner))
-    r = guest.get(f"/menu?key={key}")
+    publish(owner)
+    r = guest.get("/menu")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "Thanksgiving 2026" in html and "Maple Old Fashioned" in html
     # The board shows the drink's own description, not an ingredient list.
     assert "Bright and appley." in html and "Lemon Juice" not in html
-    assert "<svg" in html
+    assert "<svg" in html and "key=" not in html
+    assert "data-menu-board" in html  # what the TV's reload check looks for
     assert r.headers["Referrer-Policy"] == "no-referrer"
     assert r.headers["Cache-Control"] == "no-store"
     assert "--inset: 5" in html
-    assert "--inset: 15" in guest.get(f"/menu?key={key}&inset=99").get_data(
-        as_text=True
-    )
+    assert "--inset: 15" in guest.get("/menu?inset=99").get_data(as_text=True)
 
 
 def test_recipe_and_image_only_for_menu_cocktails(owner, guest):
-    key = key_of(publish(owner))
-    r = guest.get(f"/menu/r/cider-sour?key={key}")
-    assert r.status_code == 200 and "Apple fan" in r.get_data(as_text=True)
-    assert guest.get(f"/menu/r/not-on-menu?key={key}").status_code == 404
-    img = guest.get(f"/menu/img/cider-sour?key={key}")
-    assert img.status_code == 200 and img.data == b"\xff\xd8jpeg"
-    assert guest.get(f"/menu/img/maple-old-fashioned?key={key}").status_code == 404
-    assert guest.get(f"/menu/img/..%2F.env?key={key}").status_code == 404
-
-
-def test_non_ascii_key_is_not_found_not_a_crash(owner, guest):
     publish(owner)
-    assert guest.get("/menu?key=%C3%A9").status_code == 404
-
-
-def test_board_carries_the_reload_marker(owner, guest):
-    key = key_of(publish(owner))
-    assert "data-menu-board" in guest.get(f"/menu?key={key}").get_data(as_text=True)
-
-
-def test_new_key_revokes_old_links(owner, guest):
-    old = key_of(publish(owner))
-    new = key_of(owner.post("/api/menu/key").get_json())
-    assert new != old
-    assert guest.get(f"/menu?key={old}").status_code == 404
-    assert guest.get(f"/menu?key={new}").status_code == 200
+    r = guest.get("/menu/r/cider-sour")
+    assert r.status_code == 200 and "Apple fan" in r.get_data(as_text=True)
+    assert guest.get("/menu/r/not-on-menu").status_code == 404
+    img = guest.get("/menu/img/cider-sour")
+    assert img.status_code == 200 and img.data == b"\xff\xd8jpeg"
+    assert guest.get("/menu/img/maple-old-fashioned").status_code == 404
+    assert guest.get("/menu/img/..%2F.env").status_code == 404
 
 
 def test_board_before_anything_published(owner, guest):
-    state = owner.post("/api/menu/key").get_json()
+    state = owner.get("/api/menu").get_json()
     assert state["published"] is None and state["url"] is None
     assert state["collection"] is None
-    r = guest.get(f"/menu?key={app_module.os.environ['MENU_KEY']}")
+    r = guest.get("/menu")
     assert r.status_code == 200 and "No menu has been published" in r.get_data(
         as_text=True
     )

@@ -4,14 +4,23 @@
 # and RetroPie returns to EmulationStation.
 
 CONF="$HOME/.config/cocktail-menu"
-URL_FILE="$CONF/url"
-SHARE="$HOME/.local/share/cocktail-menu"
+# Always the currently published holiday menu. A first line in
+# ~/.config/cocktail-menu/url overrides it (optional; nothing to set up).
+URL="https://sugar.scotthoge.com/menu"
+if [[ -s "$CONF/url" ]]; then
+  OVERRIDE=$(head -n1 "$CONF/url" | tr -d '[:space:]')
+  [[ "$OVERRIDE" == http* ]] && URL="$OVERRIDE"
+fi
 
 xset -dpms s off s noblank  # the menu sits on screen for hours
 
-URL=""
-[[ -s "$URL_FILE" ]] && URL=$(head -n1 "$URL_FILE" | tr -d '[:space:]')
-[[ "$URL" == http* ]] || URL="file://$SHARE/no-url.html"
+# The console boots the TV at a low resolution (1280x768). For the menu
+# only, switch X to 1920x1080 when the TV offers it; X ends when the menu
+# closes, so EmulationStation and the boot settings are untouched.
+OUT=$(xrandr --query | awk '/ connected/ {print $1; exit}')
+if [[ -n "$OUT" ]] && xrandr --query | grep -qE '^ +1920x1080 '; then
+  xrandr --output "$OUT" --mode 1920x1080
+fi
 
 # Select+Start ends Chromium with SIGTERM, which it records as a crash; mark
 # the last exit clean so it never opens with a "Restore pages?" prompt

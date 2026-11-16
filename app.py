@@ -568,13 +568,11 @@ def _collection_ids(cid):
 
 def _menu_state():
     snap = menu.load(menu.menu_dir(ENV_PATH))
-    key = os.getenv("MENU_KEY", "")
     out = {"published": None, "url": None, "collection": None}
     if snap:
         out["published"] = {k: snap.get(k) for k in ("collection_id", "title", "published_at")}
         out["published"]["count"] = len(snap.get("cocktails", []))
-        if key:
-            out["url"] = f"{snap['public_base']}/menu?key={key}"
+        out["url"] = f"{snap['public_base']}/menu"
     cid = _menu_collection_id()
     if cid:
         try:
@@ -655,8 +653,6 @@ def _publish(cid, base):
         "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cocktails": cocktails,
     })
-    if not os.getenv("MENU_KEY"):
-        _set_env("MENU_KEY", menu.new_key())
 
 
 def _menu_route(fn):
@@ -684,14 +680,6 @@ def _int_field(body, name):
 @app.route("/api/menu")
 @_menu_route
 def menu_status(body):
-    return jsonify(_menu_state())
-
-
-@app.route("/api/menu/key", methods=["POST"])
-@_menu_route
-def menu_new_key(body):
-    """Replace the key; every old menu link and QR code stops working."""
-    _set_env("MENU_KEY", menu.new_key())
     return jsonify(_menu_state())
 
 
@@ -823,14 +811,11 @@ def menu_suggest_route(body):
 
 
 def _menu_public(fn):
-    """Key-gated and snapshot-only. A wrong or missing key looks like no page."""
+    """No login, snapshot-only: the published menu is public on purpose (one
+    menu at a time, nothing else reachable). Old links' ?key= is ignored."""
     @wraps(fn)
     def wrapper(*a, **kw):
-        key = request.args.get("key", "")
-        if not menu.key_ok(key, os.getenv("MENU_KEY", "")):
-            return "Not found", 404
-        resp = app.make_response(fn(key, menu.load(menu.menu_dir(ENV_PATH)), *a, **kw))
-        # The key rides in the URL: keep it out of Referer headers, caches and indexes.
+        resp = app.make_response(fn(menu.load(menu.menu_dir(ENV_PATH)), *a, **kw))
         resp.headers["Referrer-Policy"] = "no-referrer"
         resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         resp.headers.setdefault("Cache-Control", "no-store")
@@ -840,26 +825,26 @@ def _menu_public(fn):
 
 @app.route("/menu")
 @_menu_public
-def menu_board(key, snap):
+def menu_board(snap):
     cards = [{**c, "blurb": menu.blurb(c),
-              "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}?key={key}")}
+              "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}")}
              for c in (snap or {}).get("cocktails", [])]
-    return render_template("menu.html", snap=snap, cards=cards, key=key,
+    return render_template("menu.html", snap=snap, cards=cards,
                            inset=menu.inset(request.args.get("inset")))
 
 
 @app.route("/menu/r/<slug>")
 @_menu_public
-def menu_recipe(key, snap, slug):
+def menu_recipe(snap, slug):
     c = menu.find(snap, slug)
     if not c:
         return "Not found", 404
-    return render_template("menu_recipe.html", c=c, title=snap["title"], key=key)
+    return render_template("menu_recipe.html", c=c, title=snap["title"])
 
 
 @app.route("/menu/img/<slug>")
 @_menu_public
-def menu_image(key, snap, slug):
+def menu_image(snap, slug):
     c = menu.find(snap, slug)
     if not c or not c.get("image"):
         return "Not found", 404

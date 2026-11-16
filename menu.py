@@ -1,15 +1,14 @@
 """Holiday menu: a published snapshot of one Bar Assistant collection.
 
-The public menu pages (/menu, /menu/r/<slug>, /menu/img/<slug>) are reached
-with a secret key, not a login, so they serve only this snapshot: what the
-owner published, copied to disk, never a live Bar Assistant call.
+The public menu pages (/menu, /menu/r/<slug>, /menu/img/<slug>) need no
+login, so they serve only this snapshot: what the owner published, copied to
+disk, never a live Bar Assistant call.
 """
 
 import html
 import json
 import os
 import re
-import secrets
 
 import segno
 
@@ -20,17 +19,6 @@ INSET_MAX = 15
 def menu_dir(env_path):
     """Snapshot dir beside the real .env (/config/menu in Docker)."""
     return os.path.join(os.path.dirname(os.path.realpath(env_path)), "menu")
-
-
-def new_key():
-    return secrets.token_urlsafe(16)
-
-
-def key_ok(given, expected):
-    # Bytes: compare_digest raises on non-ASCII str, which a crafted URL can send.
-    return bool(given and expected) and secrets.compare_digest(
-        str(given).encode(), str(expected).encode()
-    )
 
 
 def _fmt_oz(n):
