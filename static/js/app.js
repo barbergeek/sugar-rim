@@ -512,36 +512,6 @@ const Settings = {
           <div id="cfg-ai-message" class="cfg-status" style="margin-top:6px"></div>
         </div>
         <hr>
-        <div id="cfg-menu-wrap" style="display:none">
-          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Holiday Menu</div>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Collection to show
-            <select id="cfg-menu-collection" class="text-input" onchange="App.settings.chooseMenu()"></select>
-          </label>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <input type="text" id="cfg-menu-new" class="text-input" style="flex:1" placeholder="New collection, e.g. Christmas 2026">
-            <button class="btn btn-ghost" onclick="App.settings.createMenu()">Create</button>
-          </div>
-          <div class="cfg-status" style="margin-top:6px">Add drinks with the <span class="material-symbols-rounded" style="font-size:1rem;vertical-align:middle">restaurant_menu</span> button on any cocktail.</div>
-          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.publishMenu()">Publish Menu</button>
-          <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px"></div>
-          <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (anyone with it can view the menu)
-              <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
-            </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.settings.newMenuKey()">New Link (old link and QR codes stop working)</button>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Suggest drinks for
-              <input type="text" id="cfg-menu-occasion" class="text-input" placeholder="e.g. Thanksgiving dinner">
-            </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.settings.suggestMenu()">Suggest a Menu</button>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">TypeSafe API key (for suggestions)
-              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
-            </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.settings.saveTypesafeKey()">Save Key</button>
-          </div>
-        </div>
-        <hr>
         <div style="display:flex;flex-direction:column;gap:4px">
           <div id="server-version" class="header-subtitle">API Version: Loading…</div>
           <div id="app-version" class="header-subtitle">App Version: Loading…</div>
@@ -561,7 +531,6 @@ const Settings = {
       if (cfg.ai_provider) this._loadModels();
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
-        this._loadMenu();
       }
       const av = el('app-version');
       if (av) av.textContent = `App Version: ${cfg.app_version || 'Unknown'}`;
@@ -596,220 +565,6 @@ const Settings = {
   _syncScaleLabel(pct) {
     const lbl = el('settings-scale-label');
     if (lbl) lbl.textContent = (pct ?? UIScale.get()) + '%';
-  },
-
-  async _loadMenu() {
-    try {
-      const [cols, state] = await Promise.all([get('/api/collections'), get('/api/menu')]);
-      if (!el('cfg-menu-collection')) return;
-      this._fillMenuCollections(cols.data || [], state.collection?.id);
-      el('cfg-menu-wrap').style.display = '';
-      el('cfg-menu-occasion').value = state.suggest?.occasion || '';
-      el('cfg-typesafe-key').placeholder = state.suggest?.ready ? '•••• (saved)' : '';
-      this._showMenu(state);
-    } catch (e) {
-      /* silent: the section stays hidden */
-    }
-  },
-
-  async saveTypesafeKey() {
-    const key = el('cfg-typesafe-key').value.trim();
-    if (!key) return;
-    try {
-      await post('/config', { typesafe_api_key: key });
-      el('cfg-typesafe-key').value = '';
-      el('cfg-typesafe-key').placeholder = '•••• (saved)';
-      Toast.show('TypeSafe key saved');
-    } catch (e) {
-      Toast.err(e.message);
-    }
-  },
-
-  // ── Menu suggestions: Jev judges each drink, the server picks a set, you approve ──
-  _suggestion: null,
-
-  async suggestMenu() {
-    const occasion = el('cfg-menu-occasion').value.trim();
-    const status = el('cfg-menu-status');
-    if (!occasion) return;
-    status.className = 'cfg-status';
-    status.textContent = 'Asking about your drinks… this can take a little while.';
-    try {
-      this._suggestion = await post('/api/menu/suggest', { occasion });
-      this._menuName = App.cocktails._menu?.collection?.name || '';
-      this._renderSuggestion();
-    } catch (e) {
-      status.className = 'cfg-status err';
-      status.textContent = e.message;
-    }
-  },
-
-  _suggestRow(d, checked) {
-    const tags = d.tags.map((t) => `<span class="tag">${escHtml(t)}</span>`).join(' ');
-    const needs = d.missing.length
-      ? `<div class="cfg-status">Needs: ${d.missing.map((m) => escHtml(m.name)).join(', ')}</div>`
-      : '';
-    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-      <input type="checkbox" class="sg-pick" value="${d.id}" ${checked ? 'checked' : ''} onchange="App.settings._syncSuggestCount()" style="margin-top:4px">
-      <div style="flex:1"><div style="font-weight:600">${escHtml(d.name)}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${tags}</div>${needs}</div>
-    </label>`;
-  },
-
-  _renderSuggestion() {
-    const s = this._suggestion;
-    const year = new Date().getFullYear();
-    const name = this._menuName || `${s.occasion} ${year}`;
-    const notes = s.unfilled.map((u) => `<div class="cfg-status">${escHtml(u)}</div>`).join('');
-    const body = `
-      <div class="cfg-status" style="margin-bottom:8px">Judged ${s.considered} drinks you can make or are at most two ingredients away from.</div>
-      ${notes}
-      <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Suggested</div>
-      ${s.picks.map((d) => this._suggestRow(d, true)).join('') || '<div class="cfg-status">Nothing fits.</div>'}
-      ${
-        s.alternates.length
-          ? `<div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em">Alternatives</div>
-             ${s.alternates.map((d) => this._suggestRow(d, false)).join('')}`
-          : ''
-      }
-      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">Save to collection
-        <input type="text" id="sg-name" class="text-input" value="${escHtml(name)}">
-      </label>
-      <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim);margin-top:10px">
-        <input type="checkbox" id="sg-shop" checked> Add missing ingredients to the shopping list
-      </label>
-      <div id="sg-status" class="cfg-status" style="margin-top:8px"></div>`;
-    const footer = `<button class="btn btn-primary" id="sg-save" onclick="App.settings.approveSuggestion()">Save &amp; Publish</button>`;
-    Modal.open(`Menu for ${s.occasion}`, body, footer);
-    this._syncSuggestCount();
-  },
-
-  _syncSuggestCount() {
-    const n = document.querySelectorAll('.sg-pick:checked').length;
-    const ok = n >= 1 && n <= 6;
-    el('sg-save').disabled = !ok;
-    el('sg-status').className = 'cfg-status' + (ok ? '' : ' err');
-    el('sg-status').textContent = ok ? `${n} drinks selected` : 'Choose 1 to 6 drinks';
-  },
-
-  async approveSuggestion() {
-    const ids = [...document.querySelectorAll('.sg-pick:checked')].map((c) =>
-      parseInt(c.value, 10)
-    );
-    const name = el('sg-name').value.trim();
-    const status = el('sg-status');
-    if (!ids.length || !name) return;
-    el('sg-save').disabled = true;
-    status.className = 'cfg-status';
-    status.textContent = 'Saving…';
-    try {
-      // A new name makes a new collection; the current menu's name updates it in place.
-      if (name !== this._menuName) await post('/api/menu/collection', { name });
-      const state = await post('/api/menu/cocktails/set', {
-        cocktail_ids: ids,
-        public_base: location.origin,
-      });
-      App.cocktails._menu = state;
-      if (el('sg-shop').checked) {
-        const all = [...this._suggestion.picks, ...this._suggestion.alternates];
-        const missing = new Map();
-        all
-          .filter((d) => ids.includes(d.id))
-          .forEach((d) => d.missing.forEach((m) => m.id && missing.set(m.id, m)));
-        if (missing.size)
-          await post('/api/shopping-list/batch', {
-            ingredients: [...missing.keys()].map((id) => ({ id, quantity: 1 })),
-          });
-      }
-      Modal.close();
-      if (state.publish_error) Toast.err(state.publish_error);
-      else Toast.show(`Published “${state.published?.title || name}”`);
-    } catch (e) {
-      status.className = 'cfg-status err';
-      status.textContent = e.message;
-      el('sg-save').disabled = false;
-    }
-  },
-
-  _fillMenuCollections(cols, current) {
-    el('cfg-menu-collection').innerHTML =
-      (current ? '' : '<option value="">— choose a collection —</option>') +
-      cols
-        .map(
-          (c) =>
-            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
-        )
-        .join('');
-  },
-
-  async chooseMenu() {
-    const id = parseInt(el('cfg-menu-collection').value, 10);
-    if (!id) return;
-    try {
-      this._showMenu(await post('/api/menu/collection', { collection_id: id }));
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
-    }
-  },
-
-  async createMenu() {
-    const name = el('cfg-menu-new').value.trim();
-    if (!name) return;
-    try {
-      const state = await post('/api/menu/collection', { name });
-      const cols = await get('/api/collections');
-      this._fillMenuCollections(cols.data || [], state.collection?.id);
-      el('cfg-menu-new').value = '';
-      this._showMenu(state, `Created “${name}”. Add drinks from their cocktail pages.`);
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
-    }
-  },
-
-  _showMenu(state, msg) {
-    App.cocktails._menu = state; // keep the cocktail page's menu button in step
-    App.cocktails._menuFetched = true;
-    const p = state.published;
-    const status = el('cfg-menu-status');
-    status.className = 'cfg-status';
-    status.textContent =
-      msg ||
-      (p
-        ? `Showing “${p.title}” (${p.count} drinks), published ${new Date(p.published_at).toLocaleString()}`
-        : 'Nothing published yet.');
-    el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
-    el('cfg-menu-url').value = state.url || '';
-  },
-
-  async publishMenu() {
-    const id = parseInt(el('cfg-menu-collection').value, 10);
-    const status = el('cfg-menu-status');
-    if (!id) return;
-    status.className = 'cfg-status';
-    status.textContent = 'Publishing…';
-    try {
-      const state = await post('/api/menu/publish', {
-        collection_id: id,
-        public_base: location.origin,
-      });
-      this._showMenu(state);
-    } catch (e) {
-      status.className = 'cfg-status err';
-      status.textContent = e.message;
-    }
-  },
-
-  async newMenuKey() {
-    if (!confirm('Make a new link? The current link and every printed QR code will stop working.'))
-      return;
-    try {
-      this._showMenu(await post('/api/menu/key'), 'New link made. Update your displays.');
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
-    }
   },
 
   async _loadVersion() {
@@ -3672,6 +3427,262 @@ const Importer = {
   },
 };
 
+// ── Holiday menu (Manage) ──────────────────────────────────────────────────
+
+const HolidayMenu = {
+  show() {
+    Modal.open('Holiday Menu', this._html());
+    this._loadMenu();
+  },
+
+  _html() {
+    return `
+        <div id="cfg-menu-wrap">
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Collection to show
+            <select id="cfg-menu-collection" class="text-input" onchange="App.holidayMenu.chooseMenu()"></select>
+          </label>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="text" id="cfg-menu-new" class="text-input" style="flex:1" placeholder="New collection, e.g. Christmas 2026">
+            <button class="btn btn-ghost" onclick="App.holidayMenu.createMenu()">Create</button>
+          </div>
+          <div class="cfg-status" style="margin-top:6px">Add drinks with the <span class="material-symbols-rounded" style="font-size:1rem;vertical-align:middle">restaurant_menu</span> button on any cocktail.</div>
+          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
+          <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px">Loading…</div>
+          <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (anyone with it can view the menu)
+              <input type="text" id="cfg-menu-url" class="text-input" readonly onclick="this.select()">
+            </label>
+            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.newMenuKey()">New Link (old link and QR codes stop working)</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Suggest drinks for
+              <input type="text" id="cfg-menu-occasion" class="text-input" placeholder="e.g. Thanksgiving dinner">
+            </label>
+            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.suggestMenu()">Suggest a Menu</button>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">TypeSafe API key (for suggestions)
+              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
+            </label>
+            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.saveTypesafeKey()">Save Key</button>
+          </div>
+        </div>`;
+  },
+
+  async _loadMenu() {
+    try {
+      const [cols, state] = await Promise.all([get('/api/collections'), get('/api/menu')]);
+      if (!el('cfg-menu-collection')) return;
+      this._fillMenuCollections(cols.data || [], state.collection?.id);
+      el('cfg-menu-occasion').value = state.suggest?.occasion || '';
+      el('cfg-typesafe-key').placeholder = state.suggest?.ready ? '•••• (saved)' : '';
+      this._showMenu(state);
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  async saveTypesafeKey() {
+    const key = el('cfg-typesafe-key').value.trim();
+    if (!key) return;
+    try {
+      await post('/config', { typesafe_api_key: key });
+      el('cfg-typesafe-key').value = '';
+      el('cfg-typesafe-key').placeholder = '•••• (saved)';
+      Toast.show('TypeSafe key saved');
+    } catch (e) {
+      Toast.err(e.message);
+    }
+  },
+
+  // ── Menu suggestions: Jev judges each drink, the server picks a set, you approve ──
+  _suggestion: null,
+
+  async suggestMenu() {
+    const occasion = el('cfg-menu-occasion').value.trim();
+    const status = el('cfg-menu-status');
+    if (!occasion) return;
+    status.className = 'cfg-status';
+    status.textContent = 'Asking about your drinks… this can take a little while.';
+    try {
+      this._suggestion = await post('/api/menu/suggest', { occasion });
+      this._menuName = App.cocktails._menu?.collection?.name || '';
+      this._renderSuggestion();
+    } catch (e) {
+      status.className = 'cfg-status err';
+      status.textContent = e.message;
+    }
+  },
+
+  _suggestRow(d, checked) {
+    const tags = d.tags.map((t) => `<span class="tag">${escHtml(t)}</span>`).join(' ');
+    const needs = d.missing.length
+      ? `<div class="cfg-status">Needs: ${d.missing.map((m) => escHtml(m.name)).join(', ')}</div>`
+      : '';
+    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" class="sg-pick" value="${d.id}" ${checked ? 'checked' : ''} onchange="App.holidayMenu._syncSuggestCount()" style="margin-top:4px">
+      <div style="flex:1"><div style="font-weight:600">${escHtml(d.name)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${tags}</div>${needs}</div>
+    </label>`;
+  },
+
+  _renderSuggestion() {
+    const s = this._suggestion;
+    const year = new Date().getFullYear();
+    const name = this._menuName || `${s.occasion} ${year}`;
+    const notes = s.unfilled.map((u) => `<div class="cfg-status">${escHtml(u)}</div>`).join('');
+    const body = `
+      <div class="cfg-status" style="margin-bottom:8px">Judged ${s.considered} drinks you can make or are at most two ingredients away from.</div>
+      ${notes}
+      <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Suggested</div>
+      ${s.picks.map((d) => this._suggestRow(d, true)).join('') || '<div class="cfg-status">Nothing fits.</div>'}
+      ${
+        s.alternates.length
+          ? `<div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em">Alternatives</div>
+             ${s.alternates.map((d) => this._suggestRow(d, false)).join('')}`
+          : ''
+      }
+      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">Save to collection
+        <input type="text" id="sg-name" class="text-input" value="${escHtml(name)}">
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim);margin-top:10px">
+        <input type="checkbox" id="sg-shop" checked> Add missing ingredients to the shopping list
+      </label>
+      <div id="sg-status" class="cfg-status" style="margin-top:8px"></div>`;
+    const footer = `<button class="btn btn-ghost" onclick="App.holidayMenu.show()">Back</button>
+      <button class="btn btn-primary" id="sg-save" onclick="App.holidayMenu.approveSuggestion()">Save &amp; Publish</button>`;
+    Modal.open(`Menu for ${s.occasion}`, body, footer);
+    this._syncSuggestCount();
+  },
+
+  _syncSuggestCount() {
+    const n = document.querySelectorAll('.sg-pick:checked').length;
+    const ok = n >= 1 && n <= 6;
+    el('sg-save').disabled = !ok;
+    el('sg-status').className = 'cfg-status' + (ok ? '' : ' err');
+    el('sg-status').textContent = ok ? `${n} drinks selected` : 'Choose 1 to 6 drinks';
+  },
+
+  async approveSuggestion() {
+    const ids = [...document.querySelectorAll('.sg-pick:checked')].map((c) =>
+      parseInt(c.value, 10)
+    );
+    const name = el('sg-name').value.trim();
+    const status = el('sg-status');
+    if (!ids.length || !name) return;
+    el('sg-save').disabled = true;
+    status.className = 'cfg-status';
+    status.textContent = 'Saving…';
+    try {
+      // A new name makes a new collection; the current menu's name updates it in place.
+      if (name !== this._menuName) await post('/api/menu/collection', { name });
+      const state = await post('/api/menu/cocktails/set', {
+        cocktail_ids: ids,
+        public_base: location.origin,
+      });
+      App.cocktails._menu = state;
+      if (el('sg-shop').checked) {
+        const all = [...this._suggestion.picks, ...this._suggestion.alternates];
+        const missing = new Map();
+        all
+          .filter((d) => ids.includes(d.id))
+          .forEach((d) => d.missing.forEach((m) => m.id && missing.set(m.id, m)));
+        if (missing.size)
+          await post('/api/shopping-list/batch', {
+            ingredients: [...missing.keys()].map((id) => ({ id, quantity: 1 })),
+          });
+      }
+      Modal.close();
+      if (state.publish_error) Toast.err(state.publish_error);
+      else Toast.show(`Published “${state.published?.title || name}”`);
+    } catch (e) {
+      status.className = 'cfg-status err';
+      status.textContent = e.message;
+      el('sg-save').disabled = false;
+    }
+  },
+
+  _fillMenuCollections(cols, current) {
+    el('cfg-menu-collection').innerHTML =
+      (current ? '' : '<option value="">— choose a collection —</option>') +
+      cols
+        .map(
+          (c) =>
+            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
+        )
+        .join('');
+  },
+
+  async chooseMenu() {
+    const id = parseInt(el('cfg-menu-collection').value, 10);
+    if (!id) return;
+    try {
+      this._showMenu(await post('/api/menu/collection', { collection_id: id }));
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  async createMenu() {
+    const name = el('cfg-menu-new').value.trim();
+    if (!name) return;
+    try {
+      const state = await post('/api/menu/collection', { name });
+      const cols = await get('/api/collections');
+      this._fillMenuCollections(cols.data || [], state.collection?.id);
+      el('cfg-menu-new').value = '';
+      this._showMenu(state, `Created “${name}”. Add drinks from their cocktail pages.`);
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  _showMenu(state, msg) {
+    App.cocktails._menu = state; // keep the cocktail page's menu button in step
+    App.cocktails._menuFetched = true;
+    const p = state.published;
+    const status = el('cfg-menu-status');
+    status.className = 'cfg-status';
+    status.textContent =
+      msg ||
+      (p
+        ? `Showing “${p.title}” (${p.count} drinks), published ${new Date(p.published_at).toLocaleString()}`
+        : 'Nothing published yet.');
+    el('cfg-menu-link').style.display = state.url ? 'flex' : 'none';
+    el('cfg-menu-url').value = state.url || '';
+  },
+
+  async publishMenu() {
+    const id = parseInt(el('cfg-menu-collection').value, 10);
+    const status = el('cfg-menu-status');
+    if (!id) return;
+    status.className = 'cfg-status';
+    status.textContent = 'Publishing…';
+    try {
+      const state = await post('/api/menu/publish', {
+        collection_id: id,
+        public_base: location.origin,
+      });
+      this._showMenu(state);
+    } catch (e) {
+      status.className = 'cfg-status err';
+      status.textContent = e.message;
+    }
+  },
+
+  async newMenuKey() {
+    if (!confirm('Make a new link? The current link and every printed QR code will stop working.'))
+      return;
+    try {
+      this._showMenu(await post('/api/menu/key'), 'New link made. Update your displays.');
+    } catch (e) {
+      el('cfg-menu-status').className = 'cfg-status err';
+      el('cfg-menu-status').textContent = e.message;
+    }
+  },
+};
+
 // ── AI prompt templates (Manage) ───────────────────────────────────────────
 
 const AiPrompts = {
@@ -3748,6 +3759,7 @@ const App = {
   glasses: Glasses,
   methods: Methods,
   settings: Settings,
+  holidayMenu: HolidayMenu,
   stats: Stats,
   aiPrompts: AiPrompts,
 

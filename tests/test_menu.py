@@ -276,7 +276,7 @@ def test_publish_remembers_the_menu_collection(owner):
 
 def test_toggle_needs_a_menu_collection(owner):
     r = toggle(owner, 3, True)
-    assert r.status_code == 400 and "Settings" in r.get_json()["error"]
+    assert r.status_code == 400 and "Manage → Holiday Menu" in r.get_json()["error"]
 
 
 def test_toggle_adds_and_removes_then_republishes(owner, ba, env):

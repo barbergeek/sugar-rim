@@ -32,13 +32,13 @@ menu never restores tabs or shows a "restore pages" prompt.
 ## The menu link
 
 The script reads the board's address from `~/.config/cocktail-menu/url`
-(one line). Copy it from sugar-rim **Settings → Holiday Menu → Display link**:
+(one line). Copy it from sugar-rim **Manage → Holiday Menu → Display link**:
 
 ```sh
 ssh retropie.home 'cat > ~/.config/cocktail-menu/url' <<< 'https://sugar.scotthoge.com/menu?key=…'
 ```
 
-Pressing **New Link** in Settings invalidates the old link, so update this file
+Pressing **New Link** in Manage → Holiday Menu invalidates the old link, so update this file
 afterwards. Without a link, the port shows a "No menu link yet" screen.
 
 The board keeps a 5% margin because this TV overscans (cuts off the edges) in

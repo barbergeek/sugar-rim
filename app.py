@@ -708,7 +708,7 @@ def menu_toggle_cocktail(body):
     base = _public_base(body)
     cid = _menu_collection_id()
     if not cid:
-        raise MenuError("Choose a menu collection in Settings → Holiday Menu first")
+        raise MenuError("Choose a menu collection in Manage → Holiday Menu first")
     ids = _collection_ids(cid)
     if on and cocktail_id not in ids:
         if len(ids) >= MENU_MAX:
@@ -747,7 +747,7 @@ def menu_set_cocktails(body):
     base = _public_base(body)
     cid = _menu_collection_id()
     if not cid:
-        raise MenuError("Choose a menu collection in Settings → Holiday Menu first")
+        raise MenuError("Choose a menu collection in Manage → Holiday Menu first")
     return jsonify(_sync_and_publish(cid, list(dict.fromkeys(ids)), base))
 
 
@@ -772,7 +772,7 @@ def menu_suggest_route(body):
     """Ask Jev about every nearly-makeable drink; code picks a menu to approve."""
     key = os.getenv("TYPESAFE_API_KEY", "")
     if not key:
-        raise MenuError("Add a TypeSafe API key in Settings → Holiday Menu first")
+        raise MenuError("Add a TypeSafe API key in Manage → Holiday Menu first")
     occasion = " ".join(str(body.get("occasion") or "").split())[:120]
     if not occasion:
         raise MenuError("Say what the occasion is, e.g. Thanksgiving dinner")
