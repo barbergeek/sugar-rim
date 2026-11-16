@@ -7,6 +7,7 @@ disk, never a live Bar Assistant call.
 
 import html
 import json
+import math
 import os
 import re
 
@@ -95,24 +96,85 @@ def slim_cocktail(c):
     }
 
 
-def blurb(cocktail, limit=3):
-    """The board's description: the drink's own, else "Made with …" from its
-    main ingredients, spirits first, so the bourbon isn't lost behind sugar."""
-    if cocktail.get("description"):
-        return _text(cocktail["description"])  # snapshots from before _text existed
+def tagline(cocktail):
+    """The board's one-liner: the first sentence of the drink's description."""
+    text = _text(cocktail.get("description"))  # snapshots from before _text existed
+    return re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0] if text else ""
+
+
+PANTRY = {"water", "sugar", "simple syrup", "club soda", "soda water", "ice"}
+
+
+def key_ingredients(cocktail, limit=3):
+    """The board's ingredient line: spirits first, so the bourbon isn't lost
+    behind sugar, and pantry staples left out."""
     names, seen = [], set()
-    required = [i for i in cocktail["ingredients"] if not i["optional"] and i["name"]]
+    required = [
+        i
+        for i in cocktail["ingredients"]
+        if not i["optional"] and i["name"] and i["name"].lower() not in PANTRY
+    ]
     for i in sorted(required, key=lambda i: -(i.get("strength") or 0)):
         if i["name"].lower() not in seen:
             seen.add(i["name"].lower())
             names.append(i["name"])
-    names = names[:limit]
-    if not names:
-        return ""
-    listed = (
-        names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-    )
-    return f"Made with {listed}."
+    return names[:limit]
+
+
+PER_PAGE = 6  # drinks on one board screen; a longer menu pages through screens
+
+# Board tiles on a 6-column x 2-row grid, by how many drinks a screen shows:
+# (grid columns, grid rows, text side l/c/r, text edge t/b, size). The title
+# badge sits at the centre of the screen, where the tiles meet, so each
+# drink's text keeps to its tile's outer edge.
+LAYOUTS = {
+    1: [("1/7", "1/3", "l", "b", "hero")],
+    2: [("1/4", "1/3", "l", "b", "hero"), ("4/7", "1/3", "r", "b", "hero")],
+    3: [
+        ("1/4", "1/3", "l", "b", "hero"),
+        ("4/7", "1/2", "r", "t", "wide"),
+        ("4/7", "2/3", "r", "b", "wide"),
+    ],
+    4: [
+        ("1/4", "1/2", "l", "t", "wide"),
+        ("4/7", "1/2", "r", "t", "wide"),
+        ("1/4", "2/3", "l", "b", "wide"),
+        ("4/7", "2/3", "r", "b", "wide"),
+    ],
+    5: [
+        ("1/3", "1/2", "l", "t", "narrow"),
+        ("3/5", "1/2", "c", "t", "narrow"),
+        ("5/7", "1/2", "r", "t", "narrow"),
+        ("1/4", "2/3", "l", "b", "wide"),
+        ("4/7", "2/3", "r", "b", "wide"),
+    ],
+    6: [
+        ("1/3", "1/2", "l", "t", "narrow"),
+        ("3/5", "1/2", "c", "t", "narrow"),
+        ("5/7", "1/2", "r", "t", "narrow"),
+        ("1/3", "2/3", "l", "b", "narrow"),
+        ("3/5", "2/3", "c", "b", "narrow"),
+        ("5/7", "2/3", "r", "b", "narrow"),
+    ],
+}
+
+
+def board_pages(cards):
+    """Split the cards into evenly sized screens (7 drinks are 4 + 3, not
+    6 + 1) and give each card its tile on that screen."""
+    if not cards:
+        return []
+    size = math.ceil(len(cards) / math.ceil(len(cards) / PER_PAGE))
+    pages = []
+    for start in range(0, len(cards), size):
+        group = cards[start : start + size]
+        pages.append(
+            [
+                {**c, "tile": dict(zip(("cols", "rows", "h", "v", "size"), t))}
+                for c, t in zip(group, LAYOUTS[len(group)])
+            ]
+        )
+    return pages
 
 
 def image_name(slug):

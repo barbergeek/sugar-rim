@@ -19,214 +19,164 @@
   </script>
   <title>{{ snap.title if snap else "Menu" }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,400&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0b1e;
-      --card: rgba(255, 255, 255, 0.05);
-      --border: rgba(255, 255, 255, 0.1);
-      --text: #fff;
-      --dim: rgba(255, 255, 255, 0.75);
-      --accent: #ff2e63;
-      --accent2: #f9d423;
+      --gold: #c9a24a;
+      --gold-text: #e2bd6b;
+      --shade: 10, 6, 4;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; overflow: hidden; }
-    body {
-      background: var(--bg);
-      background-image:
-        radial-gradient(circle at 10% 15%, rgba(255, 46, 99, 0.10) 0%, transparent 45%),
-        radial-gradient(circle at 90% 85%, rgba(249, 212, 35, 0.08) 0%, transparent 45%);
-      color: var(--text);
-      font-family: 'Outfit', system-ui, sans-serif;
-      cursor: none;
-    }
-    /* --inset keeps everything inside the part of the screen an overscanning TV shows. */
-    .board {
-      position: fixed;
-      inset: calc(var(--inset) * 1vh) calc(var(--inset) * 1vw);
-      display: flex;
-      flex-direction: column;
-      gap: 2.5vmin;
-    }
-    header { text-align: center; }
-    h1 { font-size: 6.5vmin; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
-    h1::after {
-      content: ""; display: block; width: 8vw; height: 0.5vmin; margin: 1.4vmin auto 0;
-      border-radius: 1vmin; background: linear-gradient(90deg, var(--accent), var(--accent2));
-    }
-    .subtitle { margin-top: 1.2vmin; font-size: 3vmin; color: var(--dim); font-weight: 300; }
+    body { background: #111; color: #fff; font-family: 'DM Sans', system-ui, sans-serif; cursor: none; }
 
-    /* Pages are stacked; one is shown at a time. The script sets each page's
-       grid and density from the screen size. */
-    .pages { flex: 1; min-height: 0; position: relative; }
+    /* One screen of drinks: photos edge to edge on a 6 x 2 grid, split by thin
+       gold lines. Each tile's place comes from menu.LAYOUTS. A longer menu
+       stacks several screens and fades between them. */
     .page {
-      position: absolute; inset: 0;
-      display: grid;
-      grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
-      grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
-      gap: 2.4vmin;
+      position: fixed; inset: 0;
+      display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 1fr 1fr;
+      gap: 4px; background: var(--gold);
       opacity: 0;
-      --name: 5vmin; --desc: 3.2vmin; --lines: 6; --qr: 12vmin;
     }
-    .page.medium { --name: 4.2vmin; --desc: 2.8vmin; --lines: 4; --qr: 11vmin; }
-    .page.dense { --name: 3.6vmin; --desc: 2.5vmin; --lines: 3; --qr: 11vmin; }
-    .page.solo { --name: 6.5vmin; --desc: 3.6vmin; --lines: 12; --qr: 12vmin; }
-    .pages.fading .page { transition: opacity 0.8s ease; }
+    .fading .page { transition: opacity 0.8s ease; }
     .page.active { opacity: 1; }
-    .stash { position: absolute; visibility: hidden; }
 
-    .card {
-      min-height: 0; overflow: hidden;
-      display: flex; flex-direction: column; gap: 1.4vmin;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 2.2vmin;
-      padding: 1.8vmin;
-    }
-    /* The photo takes whatever the text leaves; its image never sizes the card. */
-    .photo {
-      position: relative;
-      flex: 1 1 0; min-height: 10vmin;
-      border-radius: 1.4vmin;
-      overflow: hidden;
-      background: linear-gradient(135deg, rgba(255, 46, 99, 0.35), rgba(249, 212, 35, 0.25));
-      display: flex; align-items: center; justify-content: center;
-      font-size: 12vmin; font-weight: 700; color: rgba(255, 255, 255, 0.5);
-    }
-    .photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .text { display: flex; flex-direction: column; gap: 1vmin; }
-    .name, .desc { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-    .name { font-size: var(--name); font-weight: 600; line-height: 1.12; -webkit-line-clamp: 2; }
-    /* Long descriptions are trimmed on the board; the QR code has the rest. */
-    .desc {
-      font-size: var(--desc); color: var(--dim); line-height: 1.35; font-weight: 300;
-      -webkit-line-clamp: var(--lines);
-    }
-    /* Same text space in every card of a page, so the photos line up. */
-    .page:is(.dense, .medium) .name { min-height: calc(var(--name) * 1.12 * 2); }
-    .page:is(.dense, .medium) .desc { min-height: calc(var(--desc) * 1.35 * 3); }
-    .qr { flex: none; width: var(--qr); height: var(--qr); border-radius: 0.8vmin; overflow: hidden; align-self: flex-end; }
+    .tile { position: relative; overflow: hidden;
+      background: linear-gradient(135deg, #4a2414, #1a0d07); }
+    .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 45%; }
+    .initial { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: 'Fraunces', serif; font-size: 30vh; color: rgba(255, 255, 255, 0.08); }
+    /* A dark fade behind the text so it reads on any photo: from the side on
+       wide tiles, from the top or bottom edge on the rest. */
+    .tile::after { content: ""; position: absolute; inset: 0;
+      background: linear-gradient(var(--fade), rgba(var(--shade), .94) 0%, rgba(var(--shade), .72) 42%, rgba(var(--shade), 0) 78%); }
+    .v-t { --fade: 180deg; }
+    .v-b { --fade: 0deg; }
+    .wide.h-l { --fade: 90deg; }
+    .wide.h-r { --fade: 270deg; }
+    .wide::after {
+      background: linear-gradient(var(--fade), rgba(var(--shade), .92) 0%, rgba(var(--shade), .7) 38%, rgba(var(--shade), 0) 70%); }
+
+    /* --inset keeps text inside the part of the screen an overscanning TV shows. */
+    .text { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 1.2vh; }
+    .wide .text { width: 52%; }
+    .hero .text { width: 62%; }
+    .narrow .text { left: 3vw; right: 3vw; }
+    .h-l .text { left: calc(var(--inset) * 1vw); }
+    .h-r .text { right: calc(var(--inset) * 1vw); text-align: right; align-items: flex-end; }
+    .h-c .text { text-align: center; align-items: center; }
+    .v-t .text { top: calc(var(--inset) * 1vh); }
+    .v-b .text { bottom: calc(var(--inset) * 1vh); }
+
+    .ings { font-size: 1.8vh; letter-spacing: .16em; text-transform: uppercase; color: var(--gold-text); font-weight: 700; }
+    .narrow .ings { letter-spacing: .1em; }
+    .name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 5.4vh; line-height: 1.05; }
+    .hero .name { font-size: 6.8vh; }
+    .narrow .name { font-size: 4.4vh; }
+    .tag { font-size: 2.2vh; line-height: 1.4; color: rgba(255, 255, 255, .8);
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .hero .tag { font-size: 2.5vh; }
+    .narrow .tag { display: none; }
+    .facts { margin-top: .8vh; font-size: 1.9vh; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: rgba(255, 255, 255, .7); }
+    .facts .zero { color: #a7dcaa; }
+    /* Small on purpose: there for a guest who wants the recipe, not a feature.
+       It sits in a corner on the text's side, at the far end of the tile from
+       the text, so it stays clear of both the text and the title badge. */
+    .qr { position: absolute; z-index: 1; width: 7.5vh; height: 7.5vh; border-radius: .6vh; overflow: hidden;
+      opacity: .9; box-shadow: 0 .4vh 1.2vh rgba(0, 0, 0, .5); }
+    .v-t .qr { bottom: 2.5vh; }
+    .v-b .qr { top: 2.5vh; }
+    .hero.v-b .qr { top: calc(var(--inset) * 1vh); } /* full height: that edge is the screen's */
+    .h-l .qr { left: calc(var(--inset) * 1vw); }
+    .h-r .qr { right: calc(var(--inset) * 1vw); }
+    .h-c .qr { right: 2vw; }
     .qr svg { width: 100%; height: 100%; display: block; }
     .qr svg path { shape-rendering: crispEdges; } /* hard module edges, no blur */
 
-    /* A drink alone on its page (landscape): photo beside the text. */
-    .page.solo.wide .card { flex-direction: row; gap: 3vw; }
-    .page.solo.wide .photo { flex: 0 0 42%; min-height: 0; }
-    .page.solo.wide .text { flex: 1; justify-content: center; }
+    /* The title badge, where the tiles meet. */
+    .badge { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: var(--m); height: var(--m); border-radius: 50%;
+      background: radial-gradient(circle at 50% 35%, #3b1f12, #1a0d07);
+      border: .5vh solid var(--gold); box-shadow: 0 0 0 1.1vh rgba(26, 13, 7, .85), 0 2vh 6vh rgba(0, 0, 0, .7);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+    .page { --m: 34vh; }
+    .page.n5, .page.n6 { --m: 28vh; }
+    /* One drink fills the screen, so the badge moves out of its way. */
+    .page.n1 .badge { left: auto; top: calc(var(--inset) * 1vh); right: calc(var(--inset) * 1vw); transform: none; }
+    .badge small { font-size: calc(var(--m) * .05); letter-spacing: .4em; text-transform: uppercase; color: var(--gold-text); }
+    .badge h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: calc(var(--m) * var(--t, .126)); line-height: 1.05;
+      max-width: 82%; margin: .6vh 0; }
+    .badge h1.long { --t: .1; }
+    .badge h1.longer { --t: .08; }
+    .badge i { font-family: 'Fraunces', serif; font-style: italic; font-size: calc(var(--m) * .065); color: rgba(255, 255, 255, .8); max-width: 75%; }
+    .badge .rule { width: calc(var(--m) * .24); height: 2px; background: var(--gold); margin: 1.2vh 0; }
+    .dots { display: flex; gap: .8vh; }
+    .dots b { width: 1vh; height: 1vh; border-radius: 50%; background: rgba(255, 255, 255, .25); }
+    .dots b.on { background: var(--gold-text); }
 
-    footer { display: flex; align-items: center; justify-content: center; gap: 3vw; }
-    .hint { font-size: 2.4vmin; color: var(--dim); font-weight: 300; }
-    .dots { display: flex; gap: 1vmin; }
-    .dots i { width: 1.4vmin; height: 1.4vmin; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
-    .dots i.on { background: var(--accent2); }
-    .empty { margin: auto; text-align: center; color: var(--dim); font-size: 3.5vmin; }
+    .empty { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: rgba(255, 255, 255, .75); font-size: 3.5vmin; }
   </style>
 </head>
 <body style="--inset: {{ inset }}">
   <main class="board" data-menu-board>
-    {% if cards %}
-      <header>
-        <h1>{{ snap.title }}</h1>
-        {% if snap.subtitle %}<p class="subtitle">{{ snap.subtitle }}</p>{% endif %}
-      </header>
-      <section class="pages" id="pages">
-        <div class="stash" id="stash">
-          {% for c in cards %}
-            <article class="card">
-              <div class="photo">
-                {% if c.image %}
-                  <img src="/menu/img/{{ c.slug }}" alt="">
-                {% else %}
-                  {{ c.name[:1] }}
-                {% endif %}
-              </div>
+    {% if pages %}
+      {% set tl = snap.title|length %}
+      {% for page in pages %}
+        <section class="page n{{ page|length }}{{ ' active' if loop.first }}">
+          {% for c in page %}
+            {% set t = c.tile %}
+            <article class="tile h-{{ t.h }} v-{{ t.v }} {{ t.size }}" style="grid-column: {{ t.cols }}; grid-row: {{ t.rows }}">
+              {% if c.image %}
+                <img src="/menu/img/{{ c.slug }}" alt="">
+              {% else %}
+                <div class="initial">{{ c.name[:1] }}</div>
+              {% endif %}
               <div class="text">
+                {% if c.ings %}<p class="ings">{{ c.ings|join(' · ') }}</p>{% endif %}
                 <h2 class="name">{{ c.name }}</h2>
-                {% if c.blurb %}<p class="desc">{{ c.blurb }}</p>{% endif %}
+                {% if c.tagline %}<p class="tag">{{ c.tagline }}</p>{% endif %}
+                <p class="facts">
+                  {%- if c.abv == 0 %}<span class="zero">Zero proof</span>
+                  {%- elif c.abv %}{{ c.abv|round|int }}% ABV{% endif %}
+                  {%- if c.glass %}<br>{{ c.glass }}{% endif -%}
+                </p>
               </div>
               <div class="qr">{{ c.qr|safe }}</div>
             </article>
           {% endfor %}
-        </div>
-      </section>
-      <footer>
-        <p class="hint">Scan a code for the full recipe</p>
-        <div class="dots" id="dots"></div>
-      </footer>
+          <div class="badge">
+            <small>The bar is open</small>
+            <div class="rule"></div>
+            <h1 class="{{ 'longer' if tl > 26 else 'long' if tl > 14 else '' }}">{{ snap.title }}</h1>
+            {% if snap.subtitle %}<i>{{ snap.subtitle }}</i>{% endif %}
+            <div class="rule"></div>
+            {% if pages|length > 1 %}
+              <div class="dots">{% for p in pages %}<b class="{{ 'on' if p is sameas page }}"></b>{% endfor %}</div>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
     {% else %}
       <p class="empty">No menu has been published yet.</p>
     {% endif %}
   </main>
   <script>
-    // How many drinks fit on a page comes from the screen: each card needs
-    // about CARD_W x CARD_H (in vmin, so a 4K TV shows the same count as a
-    // 1080p one, just sharper). ?per_page=N in the link overrides it.
-    const CARD_W = 36, CARD_H = 46, GAP = 2.4; // vmin
+    // Every drink fits on one screen up to menu.PER_PAGE; past that the
+    // screens take turns.
     const PAGE_SECONDS = {{ seconds }}; // Manage → Holiday Menu, or ?seconds= in the link
-
-    function capacity(area) {
-      const u = Math.min(innerWidth, innerHeight) / 100;
-      const fit = (len, size) => Math.max(1, Math.floor((len + GAP * u) / ((size + GAP) * u)));
-      return { cols: fit(area.width, CARD_W), rows: fit(area.height, CARD_H) };
-    }
-
-    function grid(k, cap, area) {
-      // Columns for k cards: as many as fit, or for a forced count, whatever
-      // keeps cards closest to their usual shape.
-      let cols = Math.min(cap.cols, k);
-      if (k > cap.cols * cap.rows) {
-        const shape = (area.width / area.height) * (CARD_H / CARD_W);
-        cols = Math.min(k, Math.max(1, Math.round(Math.sqrt(k * shape))));
-      }
-      return { cols, rows: Math.ceil(k / cols) };
-    }
-
-    function paginate() {
-      const pagesEl = document.getElementById('pages');
-      const stash = document.getElementById('stash');
-      if (!pagesEl) return [];
-      const cards = [...stash.children];
-      const area = pagesEl.getBoundingClientRect();
-      const cap = capacity(area);
-      const forced = parseInt(new URLSearchParams(location.search).get('per_page'), 10);
-      const per = forced > 0 ? forced : cap.cols * cap.rows;
-      // Even pages: 5 drinks at 4 a page is 3 + 2, not 4 + 1.
-      const count = Math.ceil(cards.length / per);
-      const size = Math.ceil(cards.length / count);
-      const pages = [];
-      for (let i = 0; i < cards.length; i += size) {
-        const group = cards.slice(i, i + size);
-        const g = grid(group.length, cap, area);
-        const page = document.createElement('div');
-        const density = group.length === 1 ? 'solo' : g.rows > 1 || g.cols >= 4 ? 'dense' : g.cols === 3 ? 'medium' : '';
-        page.className = `page ${density}${area.width > area.height ? ' wide' : ''}`;
-        page.style.setProperty('--cols', g.cols);
-        page.style.setProperty('--rows', g.rows);
-        group.forEach((c) => page.appendChild(c));
-        pagesEl.appendChild(page);
-        pages.push(page);
-      }
-      return pages;
-    }
-
-    function start() {
-      const pages = paginate();
-      if (!pages.length) return;
-      const dots = document.getElementById('dots');
-      if (pages.length > 1) dots.innerHTML = pages.map(() => '<i></i>').join('');
+    const pages = [...document.querySelectorAll('.page')];
+    if (pages.length > 1) {
+      void pages[0].offsetHeight; // the first screen shows at once; later ones fade in
+      document.querySelector('.board').classList.add('fading');
       let at = 0;
-      const show = () => {
-        pages.forEach((p, k) => p.classList.toggle('active', k === at));
-        [...dots.children].forEach((d, k) => d.classList.toggle('on', k === at));
-      };
-      show(); // the first page appears at once; later ones fade in
-      void pages[0].offsetHeight; // commit it before fades are switched on
-      document.getElementById('pages').classList.add('fading');
-      if (pages.length > 1) setInterval(() => { at = (at + 1) % pages.length; show(); }, PAGE_SECONDS * 1000);
+      setInterval(() => {
+        pages[at].classList.remove('active');
+        at = (at + 1) % pages.length;
+        pages[at].classList.add('active');
+      }, PAGE_SECONDS * 1000);
     }
-
-    start();
   </script>
 </body>
 </html>

@@ -19,7 +19,7 @@ COCKTAILS = [
         "method": {"name": "Shake"},
         "abv": 18.5,
         "created_user": {"name": "Secret Person"},
-        "images": [{"id": 77}],
+        "images": [{"id": 77, "file_path": "cocktails/1/cider-sour_Ab12Cd.jpg"}],
         "ingredients": [
             {
                 "sort": 2,
@@ -56,7 +56,7 @@ EXTRA = [
         "images": [],
         "ingredients": [],
     }
-    for i in range(3, 10)
+    for i in range(3, 15)
 ]
 CATALOG = {c["id"]: c for c in COCKTAILS + EXTRA}
 
@@ -67,6 +67,7 @@ class FakeBA:
     def __init__(self, members=(1, 2)):
         self.members = list(members)
         self.created = []
+        self.uploads_down = False
 
     def get(self, url, **kw):
         if url == f"{BA}/api/collections/5":
@@ -85,9 +86,15 @@ class FakeBA:
         if url == f"{BA}/api/cocktails":
             assert kw["params"]["filter[collection_id]"] == 5
             return Resp(json_data={"data": [CATALOG[i] for i in self.members]})
+        if url == f"{BA}/uploads/cocktails/1/cider-sour_Ab12Cd.jpg":
+            if self.uploads_down:
+                return Resp(404)
+            r = Resp()
+            r.content = b"\xff\xd8full-size"
+            return r
         if url == f"{BA}/api/images/77/thumb":
             r = Resp()
-            r.content = b"\xff\xd8jpeg"
+            r.content = b"\xff\xd8thumb"
             return r
         raise AssertionError(f"unexpected GET {url}")
 
@@ -200,8 +207,11 @@ def test_board_shows_menu_with_qr_to_recipe(owner, guest):
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "Thanksgiving 2026" in html and "Maple Old Fashioned" in html
-    # The board shows the drink's own description, not an ingredient list.
-    assert "Bright and appley." in html and "Lemon Juice" not in html
+    # The first sentence of the description, and the main ingredients
+    # (spirits first, optional ones left out).
+    assert "Bright and appley." in html
+    assert "Bourbon · Lemon Juice</p>" in html and "Angostura" not in html
+    assert "18% ABV" in html and "Coupe" in html
     assert "<svg" in html and "key=" not in html
     assert "data-menu-board" in html  # what the TV's reload check looks for
     assert r.headers["Referrer-Policy"] == "no-referrer"
@@ -216,7 +226,7 @@ def test_recipe_and_image_only_for_menu_cocktails(owner, guest):
     assert r.status_code == 200 and "Apple fan" in r.get_data(as_text=True)
     assert guest.get("/menu/r/not-on-menu").status_code == 404
     img = guest.get("/menu/img/cider-sour")
-    assert img.status_code == 200 and img.data == b"\xff\xd8jpeg"
+    assert img.status_code == 200 and img.data == b"\xff\xd8full-size"
     assert guest.get("/menu/img/maple-old-fashioned").status_code == 404
     assert guest.get("/menu/img/..%2F.env").status_code == 404
 
@@ -312,12 +322,27 @@ def test_a_failed_member_lookup_changes_nothing(owner, ba, monkeypatch):
     assert ba.members == [1, 2]
 
 
-def test_toggle_refuses_a_seventh_drink(owner, ba):
-    ba.members = [1, 2, 3, 4, 5, 6]
+def test_toggle_refuses_a_thirteenth_drink(owner, ba):
+    ba.members = list(range(1, 13))
     publish(owner)
-    r = toggle(owner, 7, True)
-    assert r.status_code == 400 and "already has 6" in r.get_json()["error"]
-    assert ba.members == [1, 2, 3, 4, 5, 6]
+    r = toggle(owner, 13, True)
+    assert r.status_code == 400 and "already has 12" in r.get_json()["error"]
+    assert ba.members == list(range(1, 13))
+
+
+def test_publish_falls_back_to_the_thumbnail(owner, guest, ba):
+    ba.uploads_down = True
+    publish(owner)
+    assert guest.get("/menu/img/cider-sour").data == b"\xff\xd8thumb"
+
+
+def test_a_long_menu_pages_and_shows_the_speed_setting(owner, guest, ba):
+    ba.members = list(range(1, 9))
+    state = publish(owner)
+    assert state["per_page"] == 6 and state["max_drinks"] == 12
+    html = guest.get("/menu").get_data(as_text=True)
+    assert html.count('<section class="page n4') == 2  # 8 drinks: 4 + 4
+    assert html.count("<b class=") == 4  # two dots in each screen's badge
 
 
 def test_emptying_the_menu_keeps_the_last_board(owner, ba):
@@ -347,17 +372,21 @@ def test_new_owner_routes_need_login(guest):
     assert toggle(guest, 1, True).status_code == 401
 
 
-def test_blurb_prefers_the_description_then_spirits_first():
-    assert menu.blurb({"description": "America&#039;s best", "ingredients": []}) == (
-        "America's best"
+def test_tagline_is_the_first_sentence_of_the_description():
+    assert menu.tagline({"description": "America&#039;s best. Since 1862."}) == (
+        "America's best."
     )
+    assert menu.tagline({"description": ""}) == ""
+    assert menu.tagline({}) == ""
 
+
+def test_key_ingredients_put_spirits_first_and_skip_staples():
     def i(name, strength=0, optional=False):
         return {"name": name, "strength": strength, "optional": optional}
 
     c = {
-        "description": "",
         "ingredients": [
+            i("Water"),
             i("Cranberries"),
             i("Orange juice"),
             i("Sugar"),
@@ -367,11 +396,23 @@ def test_blurb_prefers_the_description_then_spirits_first():
             i("Bitters", 45, optional=True),
         ],
     }
-    assert menu.blurb(c) == "Made with Bourbon Whiskey, Cranberries and Orange juice."
-    assert menu.blurb({"description": "", "ingredients": [i("Apple"), i("apple")]}) == (
-        "Made with Apple."
-    )
-    assert menu.blurb({"description": "", "ingredients": []}) == ""
+    assert menu.key_ingredients(c) == ["Bourbon Whiskey", "Cranberries", "Orange juice"]
+    assert menu.key_ingredients({"ingredients": [i("Apple"), i("apple")]}) == ["Apple"]
+    assert menu.key_ingredients({"ingredients": []}) == []
+
+
+def test_board_pages_split_evenly_with_a_tile_each():
+    def sizes(n):
+        return [len(p) for p in menu.board_pages([{"n": k} for k in range(n)])]
+
+    assert sizes(0) == []
+    assert sizes(1) == [1] and sizes(6) == [6]
+    assert sizes(7) == [4, 3] and sizes(12) == [6, 6]
+    for n in range(1, menu.PER_PAGE + 1):
+        tiles = [c["tile"] for c in menu.board_pages([{}] * n)[0]]
+        assert len(tiles) == n and all(
+            t["h"] in "lcr" and t["v"] in "tb" for t in tiles
+        )
 
 
 def test_publish_decodes_entities_and_keeps_strength(env):
