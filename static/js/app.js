@@ -1585,7 +1585,7 @@ const Cocktails = {
     try {
       this._menu = await get('/api/menu');
     } catch (e) {
-      this._menu = { collection_error: e.message };
+      this._menu = null; // not an admin or moderator (or BA is down): no pill
     }
     this._syncMenuBtn();
   },
@@ -1597,20 +1597,19 @@ const Cocktails = {
       this._loadMenu();
       return;
     }
-    const col = this._menu?.collection;
+    const col = this._menu?.menu;
     const icon = (name) => `<span class="material-symbols-rounded">${name}</span>`;
     if (!col) {
-      // No menu yet, or it couldn't be loaded: open the dialog, which says which.
-      row.innerHTML = `<button class="btn btn-ghost menu-pill" onclick="App.holidayMenu.show()">${icon('restaurant_menu')} Add to a holiday menu…</button>`;
+      row.innerHTML = '';
       return;
     }
     const on = col.cocktail_ids.includes(this.currentId);
     row.innerHTML = `<button class="btn ${on ? 'btn-primary' : 'btn-ghost'} menu-pill" onclick="App.cocktails.toggleMenu()" title="${on ? 'Tap to take it off the menu' : ''}">
-      ${icon(on ? 'check' : 'add')} ${on ? 'On' : 'Add to'} “${escHtml(col.name)}”</button>`;
+      ${icon(on ? 'check' : 'add')} ${on ? 'On' : 'Add to'} “${escHtml(col.title)}”</button>`;
   },
 
   async toggleMenu() {
-    const col = this._menu?.collection;
+    const col = this._menu?.menu;
     if (!col || !this.currentId) return;
     const on = !col.cocktail_ids.includes(this.currentId);
     try {
@@ -1622,7 +1621,7 @@ const Cocktails = {
       this._menu = state;
       this._syncMenuBtn();
       if (state.publish_error) Toast.err(state.publish_error);
-      else Toast.show(on ? `Added to “${col.name}”` : `Removed from “${col.name}”`);
+      else Toast.show(on ? `Added to “${col.title}”` : `Removed from “${col.title}”`);
     } catch (e) {
       Toast.err(e.message);
     }
@@ -3453,15 +3452,17 @@ const HolidayMenu = {
   _html() {
     return `
         <div id="cfg-menu-wrap">
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Collection to show
-            <select id="cfg-menu-collection" class="text-input" onchange="App.holidayMenu.chooseMenu()"></select>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Title
+            <input type="text" id="cfg-menu-title" class="text-input" placeholder="e.g. Christmas 2026">
           </label>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <input type="text" id="cfg-menu-new" class="text-input" style="flex:1" placeholder="New collection, e.g. Christmas 2026">
-            <button class="btn btn-ghost" onclick="App.holidayMenu.createMenu()">Create</button>
-          </div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Subtitle
+            <div style="display:flex;gap:8px">
+              <input type="text" id="cfg-menu-subtitle" class="text-input" style="flex:1">
+              <button class="btn btn-ghost" onclick="App.holidayMenu.saveTitle()">Save</button>
+            </div>
+          </label>
           <div id="hm-drinks" style="margin-top:12px"></div>
-          <div id="hm-add" style="display:none;margin-top:8px">
+          <div id="hm-add" style="margin-top:8px">
             <input type="search" id="hm-search" class="text-input" style="width:100%" placeholder="Add a drink: type its name" autocomplete="off" oninput="App.holidayMenu.search()">
             <div id="hm-results"></div>
             <div class="cfg-status" style="margin-top:6px">You can also add a drink from its cocktail page.</div>
@@ -3498,17 +3499,38 @@ const HolidayMenu = {
 
   async _loadMenu() {
     try {
-      const [cols, state] = await Promise.all([get('/api/collections'), get('/api/menu')]);
-      if (!el('cfg-menu-collection')) return;
-      this._fillMenuCollections(cols.data || [], state.collection?.id);
+      const state = await get('/api/menu');
+      if (!el('cfg-menu-title')) return;
+      el('cfg-menu-title').value = state.menu.title;
+      el('cfg-menu-subtitle').value = state.menu.subtitle;
       el('cfg-menu-occasion').value = state.suggest?.occasion || '';
       el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
       el('cfg-suggest-model').value = state.suggest?.model || '';
       this._showEngine(state.suggest);
       this._showMenu(state);
     } catch (e) {
+      if (!el('cfg-menu-wrap')) return;
+      if (e.message.startsWith('Only bar admins')) {
+        // Not allowed: the message replaces every control.
+        el('cfg-menu-wrap').innerHTML = `<div class="cfg-status err">${escHtml(e.message)}</div>`;
+        return;
+      }
       el('cfg-menu-status').className = 'cfg-status err';
       el('cfg-menu-status').textContent = e.message;
+    }
+  },
+
+  async saveTitle() {
+    const title = el('cfg-menu-title').value.trim();
+    if (!title) return;
+    try {
+      const state = await post('/api/menu/title', {
+        title,
+        subtitle: el('cfg-menu-subtitle').value.trim(),
+      });
+      this._showMenu(state, 'Saved. Publish to put it on the board.');
+    } catch (e) {
+      Toast.err(e.message);
     }
   },
 
@@ -3558,7 +3580,7 @@ const HolidayMenu = {
     status.textContent = 'Asking about your drinks… this can take a little while.';
     try {
       this._suggestion = await post('/api/menu/suggest', { occasion });
-      this._menuName = App.cocktails._menu?.collection?.name || '';
+      this._menuName = App.cocktails._menu?.menu?.title || '';
       this._renderSuggestion();
     } catch (e) {
       status.className = 'cfg-status err';
@@ -3594,7 +3616,7 @@ const HolidayMenu = {
              ${s.alternates.map((d) => this._suggestRow(d, false)).join('')}`
           : ''
       }
-      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">Save to collection
+      <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:16px">Menu title
         <input type="text" id="sg-name" class="text-input" value="${escHtml(name)}">
       </label>
       <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim);margin-top:10px">
@@ -3627,8 +3649,11 @@ const HolidayMenu = {
     status.className = 'cfg-status';
     status.textContent = 'Saving…';
     try {
-      // A new name makes a new collection; the current menu's name updates it in place.
-      if (name !== this._menuName) await post('/api/menu/collection', { name });
+      if (name !== this._menuName)
+        await post('/api/menu/title', {
+          title: name,
+          subtitle: App.cocktails._menu?.menu?.subtitle || '',
+        });
       const state = await post('/api/menu/cocktails/set', {
         cocktail_ids: ids,
         public_base: location.origin,
@@ -3655,43 +3680,6 @@ const HolidayMenu = {
     }
   },
 
-  _fillMenuCollections(cols, current) {
-    el('cfg-menu-collection').innerHTML =
-      (current ? '' : '<option value="">— choose a collection —</option>') +
-      cols
-        .map(
-          (c) =>
-            `<option value="${c.id}" ${c.id === current ? 'selected' : ''}>${escHtml(c.name)}</option>`
-        )
-        .join('');
-  },
-
-  async chooseMenu() {
-    const id = parseInt(el('cfg-menu-collection').value, 10);
-    if (!id) return;
-    try {
-      this._showMenu(await post('/api/menu/collection', { collection_id: id }));
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
-    }
-  },
-
-  async createMenu() {
-    const name = el('cfg-menu-new').value.trim();
-    if (!name) return;
-    try {
-      const state = await post('/api/menu/collection', { name });
-      const cols = await get('/api/collections');
-      this._fillMenuCollections(cols.data || [], state.collection?.id);
-      el('cfg-menu-new').value = '';
-      this._showMenu(state, `Created “${name}”. Add drinks from their cocktail pages.`);
-    } catch (e) {
-      el('cfg-menu-status').className = 'cfg-status err';
-      el('cfg-menu-status').textContent = e.message;
-    }
-  },
-
   _showMenu(state, msg) {
     App.cocktails._menu = state; // keep the cocktail page's menu button in step
     App.cocktails._menuFetched = true;
@@ -3707,24 +3695,15 @@ const HolidayMenu = {
     el('cfg-menu-url').value = state.url || '';
     if (state.page_seconds) el('cfg-menu-seconds').value = state.page_seconds;
     // Only a menu longer than one screen pages, so only then is the speed worth setting.
-    const paged = (state.collection?.drinks.length || 0) > state.per_page;
+    const paged = (state.menu?.drinks.length || 0) > state.per_page;
     el('cfg-menu-seconds-row').style.display = paged ? 'flex' : 'none';
-    if (state.collection_error) {
-      status.className = 'cfg-status err';
-      status.textContent = `Couldn't load the menu collection: ${state.collection_error}`;
-    }
-    this._showDrinks(state.collection);
+    this._showDrinks(state.menu);
   },
 
-  // The drinks on the menu collection, each removable, plus a search to add more.
+  // The drinks on the menu, each removable, plus a search to add more.
   _showDrinks(col) {
     const list = el('hm-drinks');
     if (!list) return;
-    el('hm-add').style.display = col ? '' : 'none';
-    if (!col) {
-      list.innerHTML = '<div class="cfg-status">Choose or create a collection to add drinks.</div>';
-      return;
-    }
     list.innerHTML = col.drinks.length
       ? col.drinks
           .map(
@@ -3732,7 +3711,7 @@ const HolidayMenu = {
               <button class="btn btn-ghost" title="Take off the menu" onclick="App.holidayMenu.setDrink(${d.id}, false)">✕</button></div>`
           )
           .join('')
-      : `<div class="cfg-status">“${escHtml(col.name)}” has no drinks yet. Add some below.</div>`;
+      : `<div class="cfg-status">“${escHtml(col.title)}” has no drinks yet. Add some below.</div>`;
   },
 
   search() {
@@ -3743,7 +3722,7 @@ const HolidayMenu = {
   async _search() {
     const q = el('hm-search').value.replace(/,/g, ' ').trim();
     const out = el('hm-results');
-    const on = new Set(App.cocktails._menu?.collection?.cocktail_ids || []);
+    const on = new Set(App.cocktails._menu?.menu?.cocktail_ids || []);
     if (q.length < 2) {
       out.innerHTML = '';
       return;
@@ -3793,14 +3772,11 @@ const HolidayMenu = {
   },
 
   async publishMenu() {
-    const id = parseInt(el('cfg-menu-collection').value, 10);
     const status = el('cfg-menu-status');
-    if (!id) return;
     status.className = 'cfg-status';
     status.textContent = 'Publishing…';
     try {
       const state = await post('/api/menu/publish', {
-        collection_id: id,
         public_base: location.origin,
       });
       this._showMenu(state);
