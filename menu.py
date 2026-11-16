@@ -5,6 +5,7 @@ with a secret key, not a login, so they serve only this snapshot: what the
 owner published, copied to disk, never a live Bar Assistant call.
 """
 
+import html
 import json
 import os
 import re
@@ -68,6 +69,12 @@ def fmt_amount(amount, amount_max, units):
     return f"{lo} {unit}".strip()
 
 
+def _text(v):
+    """Imported recipes can carry HTML entities ("America&#039;s"); decode them
+    so pages show the character, not the code."""
+    return html.unescape(v or "").strip()
+
+
 def _named(v):
     return (v.get("name") if isinstance(v, dict) else v) or ""
 
@@ -78,9 +85,9 @@ def slim_cocktail(c):
     return {
         "slug": c.get("slug") or str(c.get("id")),
         "name": c.get("name") or "",
-        "description": (c.get("description") or "").strip(),
-        "instructions": (c.get("instructions") or "").strip(),
-        "garnish": (c.get("garnish") or "").strip(),
+        "description": _text(c.get("description")),
+        "instructions": _text(c.get("instructions")),
+        "garnish": _text(c.get("garnish")),
         "glass": _named(c.get("glass")),
         "method": _named(c.get("method")),
         "abv": c.get("abv"),
@@ -92,6 +99,7 @@ def slim_cocktail(c):
                 ),
                 "optional": bool(i.get("optional")),
                 "note": (i.get("note") or "").strip(),
+                "strength": (i.get("ingredient") or {}).get("strength") or 0,
             }
             for i in ings
         ],
@@ -99,8 +107,24 @@ def slim_cocktail(c):
     }
 
 
-def key_ingredients(cocktail, limit=4):
-    return [i["name"] for i in cocktail["ingredients"] if not i["optional"]][:limit]
+def blurb(cocktail, limit=3):
+    """The board's description: the drink's own, else "Made with …" from its
+    main ingredients, spirits first, so the bourbon isn't lost behind sugar."""
+    if cocktail.get("description"):
+        return _text(cocktail["description"])  # snapshots from before _text existed
+    names, seen = [], set()
+    required = [i for i in cocktail["ingredients"] if not i["optional"] and i["name"]]
+    for i in sorted(required, key=lambda i: -(i.get("strength") or 0)):
+        if i["name"].lower() not in seen:
+            seen.add(i["name"].lower())
+            names.append(i["name"])
+    names = names[:limit]
+    if not names:
+        return ""
+    listed = (
+        names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    )
+    return f"Made with {listed}."
 
 
 def image_name(slug):

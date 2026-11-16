@@ -813,7 +813,7 @@ def _menu_public(fn):
 @app.route("/menu")
 @_menu_public
 def menu_board(key, snap):
-    cards = [{**c, "key_ingredients": menu.key_ingredients(c),
+    cards = [{**c, "blurb": menu.blurb(c),
               "qr": menu.qr_svg(f"{snap['public_base']}/menu/r/{c['slug']}?key={key}")}
              for c in (snap or {}).get("cocktails", [])]
     return render_template("menu.html", snap=snap, cards=cards, key=key,

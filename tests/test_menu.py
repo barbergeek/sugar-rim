@@ -206,9 +206,8 @@ def test_board_shows_menu_with_qr_to_recipe(owner, guest):
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "Thanksgiving 2026" in html and "Maple Old Fashioned" in html
-    assert (
-        "Bourbon · Lemon Juice" in html and "Angostura" not in html
-    )  # optional left off
+    # The board shows the drink's own description, not an ingredient list.
+    assert "Bright and appley." in html and "Lemon Juice" not in html
     assert "<svg" in html
     assert r.headers["Referrer-Policy"] == "no-referrer"
     assert r.headers["Cache-Control"] == "no-store"
@@ -371,6 +370,45 @@ def test_choose_or_create_the_menu_collection(owner, ba):
 def test_new_owner_routes_need_login(guest):
     assert guest.post("/api/menu/collection", json={"name": "x"}).status_code == 401
     assert toggle(guest, 1, True).status_code == 401
+
+
+def test_blurb_prefers_the_description_then_spirits_first():
+    assert menu.blurb({"description": "America&#039;s best", "ingredients": []}) == (
+        "America's best"
+    )
+
+    def i(name, strength=0, optional=False):
+        return {"name": name, "strength": strength, "optional": optional}
+
+    c = {
+        "description": "",
+        "ingredients": [
+            i("Cranberries"),
+            i("Orange juice"),
+            i("Sugar"),
+            i("Bourbon Whiskey", 40),
+            i("Apple"),
+            i("Apple"),
+            i("Bitters", 45, optional=True),
+        ],
+    }
+    assert menu.blurb(c) == "Made with Bourbon Whiskey, Cranberries and Orange juice."
+    assert menu.blurb({"description": "", "ingredients": [i("Apple"), i("apple")]}) == (
+        "Made with Apple."
+    )
+    assert menu.blurb({"description": "", "ingredients": []}) == ""
+
+
+def test_publish_decodes_entities_and_keeps_strength(env):
+    slim = menu.slim_cocktail(
+        {
+            "slug": "x",
+            "description": "Test Kitchen&#039;s &amp; more",
+            "ingredients": [{"ingredient": {"name": "Rye", "strength": 45}}],
+        }
+    )
+    assert slim["description"] == "Test Kitchen's & more"
+    assert slim["ingredients"][0]["strength"] == 45
 
 
 def test_fmt_amount():
