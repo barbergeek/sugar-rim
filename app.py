@@ -45,7 +45,7 @@ if not _secret:
     set_key(ENV_PATH, "SECRET_KEY", _secret, follow_symlinks=True)
     os.environ["SECRET_KEY"] = _secret
 
-APP_VERSION = "1.15.0"
+APP_VERSION = "1.15.1"
 
 app = Flask(__name__)
 app.secret_key = _secret
@@ -331,17 +331,17 @@ def get_user_id():
 @app.route("/api/users", methods=["GET", "POST"])
 def users():
     if request.method == "POST":
-        return proxy("POST", "/users", bar_ctx=False, json=request.get_json(force=True))
-    return proxy("GET", "/users", bar_ctx=False)
+        return proxy("POST", "/users", json=request.get_json(force=True))
+    return proxy("GET", "/users")
 
 
 @app.route("/api/users/<uid>", methods=["GET", "PUT", "DELETE"])
 def user(uid):
     if request.method == "PUT":
-        return proxy("PUT", f"/users/{uid}", bar_ctx=False, json=request.get_json(force=True))
+        return proxy("PUT", f"/users/{uid}", json=request.get_json(force=True))
     if request.method == "DELETE":
-        return proxy("DELETE", f"/users/{uid}", bar_ctx=False)
-    return proxy("GET", f"/users/{uid}", bar_ctx=False)
+        return proxy("DELETE", f"/users/{uid}")
+    return proxy("GET", f"/users/{uid}")
 
 @app.route("/api/bars")
 def bars():
