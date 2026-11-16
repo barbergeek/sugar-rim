@@ -1,3 +1,5 @@
+import json
+import time
 from datetime import date
 
 import pytest
@@ -110,8 +112,9 @@ def test_pick_reserves_roles_and_varies_base():
     ]
     picks, alternates, unfilled = ms.pick(ds)
     assert [p["id"] for p in picks] == [5, 4, 1, 3]
-    assert [p["role"] for p in picks] == ["zero_proof", "batchable", None, None]
-    assert [a["id"] for a in alternates] == [2]
+    # 3 is picked over the higher-scoring 2 only for its different spirit
+    assert [p["role"] for p in picks] == ["zero_proof", "batchable", None, "variety"]
+    assert [a["id"] for a in alternates] == [2, 6]  # the clash is offered last
     assert unfilled == []
 
 
@@ -124,6 +127,16 @@ def test_pick_says_which_slots_went_unfilled_and_still_fills():
     assert any("Only 3 drinks" in u for u in unfilled)
 
 
+def test_alternates_are_every_other_fitting_drink_best_first():
+    ds = [drink(i, base=f"b{i}", fit=(0, 1 - i / 20, i / 20)) for i in range(1, 15)]
+    ds.append(drink(99, fit=(0.9, 0.1, 0)))  # clashes: offered, never picked
+    picks, alternates, _ = ms.pick(ds, size=1)
+    assert len(picks) + len(alternates) == 15 and alternates[-1]["id"] == 99
+    assert [a["value"] for a in alternates] == sorted(
+        (a["value"] for a in alternates), reverse=True
+    )
+
+
 def test_missing_ingredients_lower_the_rank():
     picks, alternates, _ = ms.pick(
         [drink(1, missing=2, base="rum"), drink(2, base="gin")], size=1
@@ -134,8 +147,8 @@ def test_missing_ingredients_lower_the_rank():
 # ── Asking TypeSafe ───────────────────────────────────────────────────────────
 
 
-def TS(occasion, pool):
-    return ms.judge("k", occasion, pool)
+def TS(occasion, pool, on_answers=None):
+    return ms.judge("k", occasion, pool, on_answers)
 
 
 @pytest.fixture
@@ -252,12 +265,12 @@ def chat(reply):
     return Resp(json_data={"choices": [{"message": {"content": _json.dumps(reply)}}]})
 
 
-def entry(i, fit=2, base="whiskey", **kw):
+def entry(i, fit=9, base="whiskey", **kw):
     return {
         "id": i,
         "fit": fit,
         "batchable": False,
-        "approachable": True,
+        "approachable": 8,
         "alcoholic": True,
         "base": base,
         **kw,
@@ -277,8 +290,28 @@ def test_llm_answers_read_like_typesafe_answers():
     assert d["clash"] and d["zero_proof"] and d["base"] is None
     d = ms.assess({"id": 2, "abv": 20}, [], ms.llm_answers(entry(2)))
     assert d["base"] == "whiskey" and not d["clash"] and "Seasonal" in d["tags"]
-    with pytest.raises(ValueError):
-        ms.llm_answers(entry(3, fit=5))
+    for bad in ({"fit": 11}, {"fit": True}, {"approachable": None}):
+        with pytest.raises(ValueError):
+            ms.llm_answers(entry(3, **bad))
+
+
+def test_llm_ratings_spread_the_scores():
+    def value(fit, easy):
+        a = ms.llm_answers(entry(1, fit=fit, approachable=easy))
+        return ms.assess({"id": 1, "abv": 20}, [], a)
+
+    assert value(10, 10)["value"] == 10  # made for the occasion, anyone would enjoy it
+    assert value(10, 8)["value"] == 9.6  # an easy-drinking 8 costs a little
+    assert value(9, 10)["value"] < value(10, 10)["value"]
+    assert value(5, 10)["value"] == 5  # suits it like any other time of year
+    assert value(5, 0)["fit"] == 0  # ...and is still eligible
+    assert value(0, 10)["value"] == -5  # out of place
+    assert value(2, 10)["clash"] and value(2, 10)["value"] < 0
+    assert not value(3, 10)["clash"] and value(3, 10)["value"] > 0
+
+
+def test_score_deducts_for_each_ingredient_to_buy():
+    assert drink(1, missing=2)["value"] == drink(2)["value"] - 2
 
 
 def test_judge_llm_batches_and_sends_the_drinks(monkeypatch):
@@ -336,9 +369,26 @@ def test_suggest_route_uses_shelf_and_library(owner, ba, monkeypatch, jev):
 
     monkeypatch.setattr(app_module.http, "get", get)
     r = owner.post("/api/menu/suggest", json={"occasion": "  Thanksgiving   dinner "})
-    assert r.status_code == 200, r.get_json()
-    assert r.get_json()["occasion"] == "Thanksgiving dinner"
-    assert [p["id"] for p in r.get_json()["picks"]] == [3]
+    assert r.status_code == 200, r.get_data(as_text=True)
+    events = [json.loads(line) for line in r.get_data(as_text=True).splitlines()]
+    assert [e["type"] for e in events] == ["start", "judged", "done"]
+    assert events[0]["engine"] == "TypeSafe Jev" and events[0]["considered"] == 1
+    assert events[1]["picks"] == [{"id": 3, "role": None}] and events[1]["drinks"][0]["name"] == "Drink 3"
+    assert events[-1]["occasion"] == "Thanksgiving dinner"
+    assert [p["id"] for p in events[-1]["picks"]] == [3]
+
+
+def test_suggest_route_streams_a_failure_as_an_error_event(owner, ba, monkeypatch):
+    def fail(occasion, pool, on_answers=None):
+        raise ms.SuggestError("TypeSafe error 500: boom")
+
+    monkeypatch.setenv("BA_BAR_ID", "1")
+    monkeypatch.setattr(app_module, "_suggest_engine", lambda: ("Fake", fail))
+    monkeypatch.setattr(app_module, "_ba_all", lambda path, *a: [CATALOG[1]])
+    r = owner.post("/api/menu/suggest", json={"occasion": "x"})
+    events = [json.loads(line) for line in r.get_data(as_text=True).splitlines()]
+    assert [e["type"] for e in events] == ["start", "error"]
+    assert "500" in events[-1]["error"]
 
 
 def test_set_replaces_the_menu_and_publishes(owner, ba):
@@ -359,6 +409,37 @@ def test_typesafe_key_is_write_only(owner, monkeypatch, env):
     cfg = owner.get("/config").get_json()
     assert cfg["typesafe_key_set"] is True and "sk-1" not in str(cfg)
     assert app_module.os.environ["TYPESAFE_API_KEY"] == "sk-1"
+
+
+def test_stream_reports_each_drink_as_it_is_judged(jev):
+    pool = [{**CATALOG[1], "id": i, "name": f"Drink {i}"} for i in range(5)]
+    events = list(ms.suggest_stream(TS, "x", pool, set()))
+    assert events[0] == {"type": "start", "occasion": "x", "considered": 5, "total": 5}
+    judged = [e for e in events if e["type"] == "judged"]
+    assert [e["judged"] for e in judged] == [1, 2, 3, 4, 5]
+    assert sorted(d["id"] for e in judged for d in e["drinks"]) == list(range(5))
+    assert events[-1]["type"] == "done"
+    final = [{"id": p["id"], "role": p["role"]} for p in events[-1]["picks"]]
+    assert judged[-1]["picks"] == final
+
+
+def test_closing_the_stream_stops_the_questions(monkeypatch):
+    calls = []
+
+    def post(*a, **k):
+        calls.append(1)
+        time.sleep(0.02)  # a real call takes a while
+        return Resp(json_data={"answers": answers()})
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "WORKERS", 1)
+    pool = [{**CATALOG[1], "id": i} for i in range(30)]
+    stream = ms.suggest_stream(TS, "x", pool, set())
+    next(stream)  # start
+    next(stream)  # first drink judged
+    stream.close()  # the page cancelled
+    time.sleep(0.8)  # long enough for all 30 if nothing stopped them
+    assert len(calls) < 5  # the rest were never asked
 
 
 def test_first_failure_cancels_the_rest(monkeypatch):

@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import base64
 import io
@@ -10,8 +11,8 @@ import ipaddress
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlparse
-from flask import (Flask, jsonify, request, render_template, session, redirect, url_for,
-                   send_from_directory)
+from flask import (Flask, Response, jsonify, request, render_template, session, redirect,
+                   url_for, send_from_directory)
 import requests as http
 from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
@@ -626,7 +627,8 @@ def _suggest_engine():
     is set; otherwise the chat model of the AI provider set up for images."""
     key = os.getenv("TYPESAFE_API_KEY", "")
     if key:
-        return "TypeSafe Jev", lambda occasion, pool: menu_suggest.judge(key, occasion, pool)
+        return "TypeSafe Jev", lambda occasion, pool, on_answers=None: menu_suggest.judge(
+            key, occasion, pool, on_answers)
     provider = os.getenv("AI_IMAGE_PROVIDER", "")
     ai_key = os.getenv("AI_IMAGE_API_KEY", "")
     base = (os.getenv("AI_IMAGE_BASE_URL", "") if provider == "compatible"
@@ -637,7 +639,8 @@ def _suggest_engine():
         return None
     name = {"openai": "OpenAI", "gemini": "Gemini"}.get(provider, "AI provider")
     llm = {"base_url": base, "api_key": ai_key, "model": model, "label": f"{name} {model}"}
-    return llm["label"], lambda occasion, pool: menu_suggest.judge_llm(llm, occasion, pool)
+    return llm["label"], lambda occasion, pool, on_answers=None: menu_suggest.judge_llm(
+        llm, occasion, pool, on_answers)
 
 
 def _public_base(body):
@@ -810,7 +813,10 @@ def _ba_all(path, headers, params=None):
 @app.route("/api/menu/suggest", methods=["POST"])
 @_menu_route
 def menu_suggest_route(body):
-    """Ask a model about every nearly-makeable drink; code picks a menu to approve."""
+    """Ask a model about every nearly-makeable drink; code picks a menu to approve.
+    Streams newline-delimited JSON events (see menu_suggest.suggest_stream) so
+    the page can fill in as drinks are judged; an "error" event ends a failed
+    run. A client that disconnects stops the questions."""
     engine = _suggest_engine()
     if not engine:
         raise MenuError("Suggestions need a TypeSafe key (Manage → Holiday Menu) or an "
@@ -824,11 +830,24 @@ def menu_suggest_route(body):
     shelf = {i.get("id") for i in _ba_all(f"/bars/{bid}/ingredients", auth_headers())}
     cocktails = _ba_all("/cocktails", ba_headers(),
                         {"include": "ingredients.ingredient,glass,method"})
-    try:
-        return jsonify({**menu_suggest.suggest(engine[1], occasion, cocktails, shelf),
-                        "engine": engine[0]})
-    except menu_suggest.SuggestError as e:
-        raise MenuError(str(e), 502) from e
+    stream = menu_suggest.suggest_stream(engine[1], occasion, cocktails, shelf)
+
+    def events():
+        try:
+            for ev in stream:
+                if ev["type"] == "start":
+                    ev["engine"] = engine[0]
+                yield json.dumps(ev) + "\n"
+        except menu_suggest.SuggestError as e:
+            yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+        except Exception:
+            app.logger.exception("Menu suggestion failed")
+            yield json.dumps({"type": "error", "error": "Suggestion failed; try again"}) + "\n"
+        finally:
+            stream.close()
+
+    return Response(events(), mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 def _menu_public(fn):

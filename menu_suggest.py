@@ -21,6 +21,8 @@ a base spirit.
 
 import json
 import logging
+import queue
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -41,13 +43,14 @@ DEADLINE = 60  # seconds for a whole suggestion; Cloudflare gives up near 100
 MENU_SIZE = 4
 MAX_MISSING = 2  # drinks needing more than this many purchases are left out
 MAX_POOL = 250  # cap on drinks judged per suggestion (fewest missing first)
-ALTERNATES = 8
 
 YES, NO = 0.7, 0.3  # Noul thresholds; between them is "not settled"
 CLASH_MAX = 0.5  # P(out of place) above this drops a drink
 BASE_SURE = 0.5  # base spirit counts for variety only when this sure
-W_APPROACHABLE = 0.3
-W_MISSING = 0.15
+# Score: fit on a -5..10 scale (10 made for the occasion, 5 suits it like any
+# other time of year, below 0 out of place), less these deductions.
+W_HARD = 2.0  # most an acquired taste loses (scaled by how unlikely a novice enjoys it)
+W_MISSING = 1.0  # per ingredient to buy
 
 # ── Questions ─────────────────────────────────────────────────────────────────
 
@@ -214,7 +217,7 @@ def _ask(api_key, payload):
     raise SuggestError("TypeSafe is rate limiting; try again in a minute")
 
 
-def judge(api_key, occasion, pool):
+def judge(api_key, occasion, pool, on_answers=None):
     """{cocktail id: answers} for every drink in pool, or SuggestError."""
 
     def one(c):
@@ -226,20 +229,24 @@ def judge(api_key, occasion, pool):
         return {c["id"]: _ask(api_key, payload)}
 
     return _parallel(
-        [lambda c=c: one(c) for c, _ in pool], WORKERS, DEADLINE, "TypeSafe"
+        [lambda c=c: one(c) for c, _ in pool], WORKERS, DEADLINE, "TypeSafe", on_answers
     )
 
 
-def _parallel(jobs, workers, deadline, who):
-    """Run jobs (each returns {id: answers}) and merge them. Stop at the first
-    failure or the deadline and drop what's still queued, so a stuck API can't
-    hold a web worker (the same one serving the TV board)."""
+def _parallel(jobs, workers, deadline, who, on_answers=None):
+    """Run jobs (each returns {id: answers}) and merge them, handing each job's
+    answers to on_answers as it lands. Stop at the first failure (including one
+    raised by on_answers) or the deadline and drop what's still queued, so a
+    stuck API can't hold a web worker (the same one serving the TV board)."""
     ex = ThreadPoolExecutor(workers)
     futures = [ex.submit(job) for job in jobs]
     out = {}
     try:
         for f in as_completed(futures, timeout=deadline):
-            out.update(f.result())
+            got = f.result()
+            out.update(got)
+            if on_answers:
+                on_answers(got)
         return out
     except TimeoutError as e:
         raise SuggestError(f"{who} took too long; try again in a minute") from e
@@ -270,10 +277,15 @@ def llm_prompt():
         "You judge cocktails for a holiday drinks menu. `occasion` names the "
         "occasion; answer every question below for each drink in `drinks`.",
         "",
-        f"fit: {fit['instructions']} Answer 0, 1 or 2:",
-        *(f"  {i}: {level}" for i, level in enumerate(fit["criteria"])),
+        f"fit: {fit['instructions']} Rate it from 0 to 10:",
+        *(f"  {n}: {level}" for n, level in zip((0, 5, 10), fit["criteria"])),
+        "approachable: " + QUESTIONS["approachable"]["instructions"] + " Rate it from 0 to 10:",
+        f"  0: {QUESTIONS['approachable']['criteria']['false']}",
+        f"  10: {QUESTIONS['approachable']['criteria']['true']}",
+        "Use the whole 0-10 scale for fit and approachable, so the drinks that suit "
+        "best stand apart from those that merely suit.",
     ]
-    for key in ("batchable", "approachable", "alcoholic"):
+    for key in ("batchable", "alcoholic"):
         q = QUESTIONS[key]
         lines += [
             f"{key}: {q['instructions']} Answer true or false.",
@@ -285,20 +297,30 @@ def llm_prompt():
     lines += [
         "  none: the drink has no alcohol",
         "",
-        'Reply with JSON only: {"drinks": [{"id": <id>, "fit": 0|1|2, '
-        '"batchable": bool, "approachable": bool, "alcoholic": bool, '
+        'Reply with JSON only: {"drinks": [{"id": <id>, "fit": 0-10, '
+        '"approachable": 0-10, "batchable": bool, "alcoholic": bool, '
         '"base": "<option>"}]}, one entry for every drink.',
     ]
     return "\n".join(lines)
 
 
+def _rating(v):
+    """A 0-10 rating, or None (a bool is not a rating)."""
+    ok = isinstance(v, int | float) and not isinstance(v, bool) and 0 <= v <= 10
+    return v if ok else None
+
+
 def llm_answers(d):
-    """One model reply for a drink → the answers shape TypeSafe returns."""
-    fit = d.get("fit")
-    flags = [d.get(k) for k in ("batchable", "approachable", "alcoholic")]
+    """One model reply for a drink → the answers shape TypeSafe returns.
+
+    The 0-10 ratings keep scores apart: 5 is "suits it like any other time of
+    year", so below 5 is the chance it clashes and above 5 the chance it's
+    strongly tied to the occasion."""
+    fit, easy = _rating(d.get("fit")), _rating(d.get("approachable"))
+    flags = [d.get(k) for k in ("batchable", "alcoholic")]
     options = list(QUESTIONS["base"]["criteria"])
     base = d.get("base")
-    if fit not in (0, 1, 2) or not all(isinstance(f, bool) for f in flags):
+    if fit is None or easy is None or not all(isinstance(f, bool) for f in flags):
         raise ValueError(f"unusable answer: {d}")
     if base not in options:
         base = None  # "none", or something off-list: no base for variety
@@ -306,16 +328,16 @@ def llm_answers(d):
     def noul(v):
         return {"type": "noul", "noul": LLM_SURE if v else LLM_UNSURE}
 
-    rest = (1 - LLM_SURE) / 2
+    clash, strong = max(0, 5 - fit) / 5, max(0, fit - 5) / 5
     other = (1 - LLM_SURE) / (len(options) - 1)
     return {
         "fit": {
             "type": "score",
-            "probabilities": {str(i): LLM_SURE if i == fit else rest for i in range(3)},
+            "probabilities": {"0": clash, "1": 1 - clash - strong, "2": strong},
         },
         "batchable": noul(flags[0]),
-        "approachable": noul(flags[1]),
-        "alcoholic": noul(flags[2]),
+        "approachable": {"type": "noul", "noul": easy / 10},
+        "alcoholic": noul(flags[1]),
         "base": {
             "type": "choice",
             "probabilities": {
@@ -376,11 +398,11 @@ def _ask_llm(llm, occasion, drinks):
     raise SuggestError(f"{llm['label']} didn't answer for every drink; try again")
 
 
-def judge_llm(llm, occasion, pool):
+def judge_llm(llm, occasion, pool, on_answers=None):
     drinks = [c for c, _ in pool]
     batches = [drinks[i : i + LLM_BATCH] for i in range(0, len(drinks), LLM_BATCH)]
     jobs = [lambda b=b: _ask_llm(llm, occasion, b) for b in batches]
-    return _parallel(jobs, LLM_WORKERS, LLM_DEADLINE, llm["label"])
+    return _parallel(jobs, LLM_WORKERS, LLM_DEADLINE, llm["label"], on_answers)
 
 
 # ── Deciding (code) ───────────────────────────────────────────────────────────
@@ -419,23 +441,35 @@ def assess(c, missing, a):
         "fit": strong - clash,
         "zero_proof": zero_proof,
         "batchable": batchable,
-        "value": strong
-        - clash
-        + W_APPROACHABLE * approachable
-        - W_MISSING * len(missing),
+        # Expected fit, weighting the levels 10 / 5 / -5, so a drink sure to
+        # clash scores -5 and one sure to be made for the occasion scores 10.
+        "value": round(
+            10 * strong
+            + 5 * (1 - strong - clash)
+            - 5 * clash
+            - W_HARD * (1 - approachable)
+            - W_MISSING * len(missing),
+            1,
+        ),
     }
 
 
 def pick(assessed, size=MENU_SIZE):
     """Choose the menu. Returns (picks, alternates, unfilled notes).
 
-    1. Drop drinks that clash with the occasion.
+    1. Never pick drinks that clash with the occasion.
     2. Reserve a slot for the best zero-proof drink that fits at least as well
        as any other time of year, and one for the best batchable drink.
-    3. Fill the rest by value without repeating a base spirit.
-    4. If variety runs out, fill by value anyway.
+    3. Fill the rest by score without repeating a base spirit.
+    4. If variety runs out, fill by score anyway.
+
+    Each pick's role says why it's there when a higher score was passed over:
+    "zero_proof", "batchable" or "variety" (a spirit not yet on the menu);
+    None when it simply scored best. Alternates are everything else, clashing
+    drinks included, best score first.
     """
-    ranked = sorted((d for d in assessed if not d["clash"]), key=lambda d: -d["value"])
+    by_score = sorted(assessed, key=lambda d: -d["value"])
+    ranked = [d for d in by_score if not d["clash"]]
     picks, unfilled = [], []
 
     def take(d, role=None):
@@ -457,28 +491,78 @@ def pick(assessed, size=MENU_SIZE):
             break
         bases = {p["base"] for p in picks if p["base"]}
         if d["base"] is None or d["base"] not in bases:
-            take(d)
+            passed_over = ranked and ranked[0]["value"] > d["value"]
+            take(d, "variety" if passed_over else None)
     for d in list(ranked):
         if len(picks) >= size:
             break
         take(d)
     if len(picks) < size:
         unfilled.append(f"Only {len(picks)} drinks fit; buy more or widen the shelf")
-    return picks, ranked[:ALTERNATES], unfilled
+    taken = {p["id"] for p in picks}
+    return picks, [d for d in by_score if d["id"] not in taken], unfilled
 
 
-def suggest(judge_fn, occasion, cocktails, shelf_ids):
-    """judge_fn(occasion, pool) -> {id: answers}: TypeSafe or a chat model."""
+def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
+    """Yield events while the drinks are judged: "start" (how many will be),
+    "judged" for each batch of answers (those drinks assessed, plus the menu
+    picked so far), then "done" (the suggestion). judge_fn(occasion, pool,
+    on_answers) is TypeSafe or a chat model. Closing the generator stops any
+    further questions; a failure raises SuggestError."""
     pool = candidates(cocktails, shelf_ids)
     considered = pool[:MAX_POOL]
-    answers = judge_fn(occasion, considered) if considered else {}
-    assessed = [assess(c, missing, answers[c["id"]]) for c, missing in considered]
+    by_id = {c["id"]: (c, missing) for c, missing in considered}
+    head = {"occasion": occasion, "considered": len(considered), "total": len(cocktails)}
+    yield {"type": "start", **head}
+    events = queue.Queue()
+    stop = threading.Event()
+
+    def on_answers(got):
+        if stop.is_set():
+            raise SuggestError("Cancelled")  # ends _parallel, dropping queued calls
+        events.put(("answers", got))
+
+    def run():
+        try:
+            judge_fn(occasion, considered, on_answers)
+            events.put(("end", None))
+        except Exception as e:  # handed to the generator, which re-raises it
+            events.put(("error", e))
+
+    if considered:
+        threading.Thread(target=run, daemon=True).start()
+    else:
+        events.put(("end", None))
+    assessed = []
+    try:
+        while True:
+            kind, val = events.get()
+            if kind == "error":
+                raise val
+            if kind == "end":
+                break
+            new = [assess(*by_id[i], a) for i, a in val.items() if i in by_id]
+            assessed += new
+            picks, _, _ = pick(assessed)
+            yield {
+                "type": "judged",
+                "judged": len(assessed),
+                "drinks": new,
+                "picks": [{"id": p["id"], "role": p["role"]} for p in picks],
+            }
+    finally:
+        stop.set()
     picks, alternates, unfilled = pick(assessed)
-    return {
-        "occasion": occasion,
-        "considered": len(considered),
-        "total": len(cocktails),
+    yield {
+        "type": "done",
+        **head,
         "picks": picks,
         "alternates": alternates,
         "unfilled": unfilled,
     }
+
+
+def suggest(judge_fn, occasion, cocktails, shelf_ids):
+    """The finished suggestion, without the progress events."""
+    *_, done = suggest_stream(judge_fn, occasion, cocktails, shelf_ids)
+    return {k: v for k, v in done.items() if k != "type"}

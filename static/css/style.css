@@ -124,6 +124,23 @@ body {
   }
 }
 
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.15em;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .view.active {
   display: flex;
 }
@@ -3237,4 +3254,62 @@ hr {
 }
 .sl-row.got .sl-check {
   color: var(--accent);
+}
+
+/* Menu suggestion: the banner pinned to the top while drinks are judged */
+.sg-working {
+  position: sticky;
+  top: -24px; /* the modal body's padding */
+  z-index: 1;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: -24px -24px 0;
+  padding: 14px 24px;
+  background: #0f1025;
+  border-bottom: 1px solid var(--border);
+}
+
+.sg-working.err {
+  color: var(--accent);
+}
+
+.sg-working-icon {
+  font-size: 2rem;
+  color: var(--accent2);
+}
+
+.sg-working.running .sg-working-icon {
+  animation: sg-shake 0.9s ease-in-out infinite;
+}
+
+@keyframes sg-shake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-18deg) translateY(-2px);
+  }
+  75% {
+    transform: rotate(18deg) translateY(-2px);
+  }
+}
+
+.sg-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-glass-heavy);
+  overflow: hidden;
+}
+
+.sg-progress > div {
+  height: 100%;
+  background: var(--accent2);
+  transition: width 0.3s ease;
+}
+
+.kiosk-mode .sg-working {
+  background: #1a1206;
 }
