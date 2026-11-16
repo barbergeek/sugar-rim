@@ -41,13 +41,19 @@ def test_missing_counts_like_the_shelf_dots():
     assert ms.missing_ingredients(c, {1}) == [{"id": 4, "name": "Maple"}]
 
 
-def test_candidates_drop_far_drinks_and_sort_by_missing():
-    near = {"id": 1, "name": "B", "ingredients": [ing(9, "X")]}
-    ready = {"id": 2, "name": "A", "ingredients": [ing(1, "Gin")]}
-    far = {"id": 3, "name": "C", "ingredients": [ing(7, "P"), ing(8, "Q"), ing(9, "X")]}
-    empty = {"id": 4, "name": "D", "ingredients": []}
-    pool = ms.candidates([near, far, ready, empty], {1})
-    assert [c["id"] for c, _ in pool] == [2, 1]
+def test_candidates_drop_far_drinks_and_put_the_newest_first():
+    def c(i, made, ings):
+        return {"id": i, "name": f"D{i}", "created_at": made, "ingredients": ings}
+
+    old = c(1, "2024-01-05T10:00:00.000000Z", [ing(1, "Gin")])
+    new = c(2, "2026-11-10T09:00:00.000000Z", [ing(9, "X")])
+    mid = c(5, "2025-06-01T12:00:00.000000Z", [ing(1, "Gin")])
+    far = c(3, "2026-11-12T00:00:00.000000Z", [ing(7, "P"), ing(8, "Q"), ing(9, "X")])
+    empty = c(4, "2026-11-13T00:00:00.000000Z", [])
+    pool = ms.candidates([old, far, mid, new, empty], {1})
+    assert [d["id"] for d, _ in pool] == [2, 5, 1]
+    undated = [{"id": i, "ingredients": [ing(1, "Gin")]} for i in (7, 9, 8)]
+    assert [d["id"] for d, _ in ms.candidates(undated, {1})] == [9, 8, 7]
 
 
 def test_drink_state_is_what_a_person_would_read():
@@ -373,7 +379,10 @@ def test_suggest_route_uses_shelf_and_library(owner, ba, monkeypatch, jev):
     events = [json.loads(line) for line in r.get_data(as_text=True).splitlines()]
     assert [e["type"] for e in events] == ["start", "judged", "done"]
     assert events[0]["engine"] == "TypeSafe Jev" and events[0]["considered"] == 1
-    assert events[1]["picks"] == [{"id": 3, "role": None}] and events[1]["drinks"][0]["name"] == "Drink 3"
+    assert (
+        events[1]["picks"] == [{"id": 3, "role": None}]
+        and events[1]["drinks"][0]["name"] == "Drink 3"
+    )
     assert events[-1]["occasion"] == "Thanksgiving dinner"
     assert [p["id"] for p in events[-1]["picks"]] == [3]
 
