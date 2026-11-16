@@ -42,7 +42,7 @@ DEADLINE = 60  # seconds for a whole suggestion; Cloudflare gives up near 100
 
 MENU_SIZE = 4
 MAX_MISSING = 2  # drinks needing more than this many purchases are left out
-MAX_POOL = 250  # cap on drinks judged per suggestion (fewest missing first)
+MAX_POOL = 250  # cap on drinks judged per suggestion (newest first)
 
 YES, NO = 0.7, 0.3  # Noul thresholds; between them is "not settled"
 CLASH_MAX = 0.5  # P(out of place) above this drops a drink
@@ -157,7 +157,9 @@ def missing_ingredients(cocktail, shelf_ids):
 
 
 def candidates(cocktails, shelf_ids):
-    """Drinks at most MAX_MISSING purchases away, fewest missing first."""
+    """Drinks at most MAX_MISSING purchases away, newest first: recent additions
+    are the likeliest to be meant for the occasion, so they're judged (and
+    shown) first and are the ones kept when the pool is capped."""
     pool = []
     for c in cocktails:
         if not c.get("ingredients"):
@@ -165,7 +167,9 @@ def candidates(cocktails, shelf_ids):
         missing = missing_ingredients(c, shelf_ids)
         if len(missing) <= MAX_MISSING:
             pool.append((c, missing))
-    pool.sort(key=lambda p: (len(p[1]), p[0].get("name") or ""))
+    pool.sort(
+        key=lambda p: (p[0].get("created_at") or "", p[0].get("id") or 0), reverse=True
+    )
     return pool
 
 
@@ -279,7 +283,9 @@ def llm_prompt():
         "",
         f"fit: {fit['instructions']} Rate it from 0 to 10:",
         *(f"  {n}: {level}" for n, level in zip((0, 5, 10), fit["criteria"])),
-        "approachable: " + QUESTIONS["approachable"]["instructions"] + " Rate it from 0 to 10:",
+        "approachable: "
+        + QUESTIONS["approachable"]["instructions"]
+        + " Rate it from 0 to 10:",
         f"  0: {QUESTIONS['approachable']['criteria']['false']}",
         f"  10: {QUESTIONS['approachable']['criteria']['true']}",
         "Use the whole 0-10 scale for fit and approachable, so the drinks that suit "
@@ -512,7 +518,11 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
     pool = candidates(cocktails, shelf_ids)
     considered = pool[:MAX_POOL]
     by_id = {c["id"]: (c, missing) for c, missing in considered}
-    head = {"occasion": occasion, "considered": len(considered), "total": len(cocktails)}
+    head = {
+        "occasion": occasion,
+        "considered": len(considered),
+        "total": len(cocktails),
+    }
     yield {"type": "start", **head}
     events = queue.Queue()
     stop = threading.Event()
