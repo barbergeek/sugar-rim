@@ -3462,6 +3462,9 @@ const HolidayMenu = {
               <button class="btn btn-ghost" onclick="App.holidayMenu.saveTitle()">Save</button>
             </div>
           </label>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Theme
+            <select id="cfg-menu-theme" class="text-input"></select>
+          </label>
           <div id="hm-drinks" style="margin-top:12px"></div>
           <div id="hm-add" style="margin-top:8px">
             <input type="search" id="hm-search" class="text-input" style="width:100%" placeholder="Add a drink: type its name" autocomplete="off" oninput="App.holidayMenu.search()">
@@ -3504,6 +3507,15 @@ const HolidayMenu = {
       if (!el('cfg-menu-title')) return;
       el('cfg-menu-title').value = state.menu.title;
       el('cfg-menu-subtitle').value = state.menu.subtitle;
+      const option = (t) => `<option value="${escHtml(t.id)}">${escHtml(t.name)}</option>`;
+      const group = (label, key) =>
+        `<optgroup label="${label}">${state.themes
+          .filter((t) => t.group === key)
+          .map(option)
+          .join('')}</optgroup>`;
+      el('cfg-menu-theme').innerHTML =
+        group('Holidays and events', 'holiday') + group('Any time of year', 'generic');
+      el('cfg-menu-theme').value = state.menu.theme;
       el('cfg-menu-occasion').value = state.suggest?.occasion || '';
       el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
       el('cfg-suggest-model').value = state.suggest?.model || '';
@@ -3528,6 +3540,7 @@ const HolidayMenu = {
       const state = await post('/api/menu/title', {
         title,
         subtitle: el('cfg-menu-subtitle').value.trim(),
+        theme: el('cfg-menu-theme').value,
       });
       this._showMenu(state, 'Saved. Publish to put it on the board.');
     } catch (e) {

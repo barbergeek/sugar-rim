@@ -1,0 +1,7 @@
+{# A theme's 24 x 24 emblem (menu.MOTIFS) as inline SVG. #}
+{% macro emblem(paths, cls="ic", color=None) -%}
+<svg class="{{ cls }}" viewBox="0 0 24 24"{% if color %} style="color:{{ color }}"{% endif %} aria-hidden="true">
+  {%- if paths.f %}<path d="{{ paths.f }}" fill="currentColor"{% if paths.rule %} fill-rule="{{ paths.rule }}"{% endif %}/>{% endif %}
+  {%- if paths.s %}<path d="{{ paths.s }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{% endif -%}
+</svg>
+{%- endmacro %}

@@ -1,3 +1,4 @@
+{% from "_emblem.html" import emblem -%}
 <!doctype html>
 <html lang="en">
 <head>
@@ -19,12 +20,22 @@
   </script>
   <title>{{ snap.title if snap else "Menu" }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,400&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <link href="{{ theme.font_url }}" rel="stylesheet">
   <style>
     :root {
-      --gold: #c9a24a;
-      --gold-text: #e2bd6b;
-      --shade: 10, 6, 4;
+      /* From the menu's theme (menu.THEMES); Classic is the original look. */
+      --gold: {{ theme.line[0] }};
+      --gold-text: {{ theme.accent }};
+      --shade: {{ theme.shade }};
+      --lines: {{ theme.line_bg }};
+      --badge-a: {{ theme.badge[0] }};
+      --badge-b: {{ theme.badge[1] }};
+      --ring: {{ theme.ring }};
+      --tile-a: {{ theme.tile[0] }};
+      --tile-b: {{ theme.tile[1] }};
+      --font: '{{ theme.font }}', serif;
+      --font-w: {{ theme.weight }};
+      --font-scale: {{ theme.scale }};
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; overflow: hidden; }
@@ -36,14 +47,14 @@
     .page {
       position: fixed; inset: 0;
       display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 1fr 1fr;
-      gap: 4px; background: var(--gold);
+      gap: 4px; background: var(--lines);
       opacity: 0;
     }
     .fading .page { transition: opacity 0.8s ease; }
     .page.active { opacity: 1; }
 
     .tile { position: relative; overflow: hidden;
-      background: linear-gradient(135deg, #4a2414, #1a0d07); }
+      background: linear-gradient(135deg, var(--tile-a), var(--tile-b)); }
     .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 45%; }
     .initial { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       font-family: 'Fraunces', serif; font-size: 30vh; color: rgba(255, 255, 255, 0.08); }
@@ -71,9 +82,9 @@
 
     .ings { font-size: 1.8vh; letter-spacing: .16em; text-transform: uppercase; color: var(--gold-text); font-weight: 700; }
     .narrow .ings { letter-spacing: .1em; }
-    .name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 5.4vh; line-height: 1.05; }
-    .hero .name { font-size: 6.8vh; }
-    .narrow .name { font-size: 4.4vh; }
+    .name { font-family: var(--font); font-weight: var(--font-w); font-size: calc(5.4vh * var(--font-scale)); line-height: 1.05; }
+    .hero .name { font-size: calc(6.8vh * var(--font-scale)); }
+    .narrow .name { font-size: calc(4.4vh * var(--font-scale)); }
     .tag { font-size: 2.2vh; line-height: 1.4; color: rgba(255, 255, 255, .8);
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
     .hero .tag { font-size: 2.5vh; }
@@ -100,20 +111,31 @@
     /* The title badge, where the tiles meet. */
     .badge { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%);
       width: var(--m); height: var(--m); border-radius: 50%;
-      background: radial-gradient(circle at 50% 35%, #3b1f12, #1a0d07);
-      border: .5vh solid var(--gold); box-shadow: 0 0 0 1.1vh rgba(26, 13, 7, .85), 0 2vh 6vh rgba(0, 0, 0, .7);
+      background: radial-gradient(circle at 50% 35%, var(--badge-a), var(--badge-b));
+      border: .5vh solid var(--gold); box-shadow: 0 0 0 1.1vh rgba(var(--ring), .85), 0 2vh 6vh rgba(0, 0, 0, .7);
       display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
     .page { --m: 34vh; }
     .page.n5, .page.n6 { --m: 28vh; }
     /* One drink fills the screen, so the badge moves out of its way. */
     .page.n1 .badge { left: auto; top: calc(var(--inset) * 1vh); right: calc(var(--inset) * 1vw); transform: none; }
     .badge small { font-size: calc(var(--m) * .05); letter-spacing: .4em; text-transform: uppercase; color: var(--gold-text); }
-    .badge h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: calc(var(--m) * var(--t, .126)); line-height: 1.05;
+    .badge h1 { font-family: var(--font); font-weight: var(--font-w); font-size: calc(var(--m) * var(--t, .126) * var(--font-scale)); line-height: 1.05;
       max-width: 82%; margin: .6vh 0; }
     .badge h1.long { --t: .1; }
     .badge h1.longer { --t: .08; }
     .badge i { font-family: 'Fraunces', serif; font-style: italic; font-size: calc(var(--m) * .065); color: rgba(255, 255, 255, .8); max-width: 75%; }
     .badge .rule { width: calc(var(--m) * .24); height: 2px; background: var(--gold); margin: 1.2vh 0; }
+    /* Themed boards: a drawn emblem above the badge line, and optionally a ring
+       of small ones around the badge. Classic has neither. */
+    .themed .badge small { font-size: calc(var(--m) * .045); letter-spacing: .3em; max-width: 78%; line-height: 1.3; }
+    .badge .emblem { width: calc(var(--m) * .17); height: calc(var(--m) * .17); color: var(--gold-text); margin-bottom: .4vh; }
+    .page.n1 .halo { display: none; } /* the badge sits in a corner there */
+    .halo { position: absolute; inset: 0; pointer-events: none; }
+    .halo span { position: absolute; }
+    .halo svg { display: block; width: calc(var(--m) * .1); height: calc(var(--m) * .1); color: var(--gold-text); opacity: .9;
+      transform: translate(-50%, -50%) rotate(var(--r)); filter: drop-shadow(0 .3vh .6vh rgba(0, 0, 0, .6)); }
+    .glow .badge .emblem, .glow .badge h1, .glow .ings { filter: drop-shadow(0 0 .6vh var(--gold-text)); }
+    .glow .badge h1 { text-shadow: 0 0 1.2vh var(--gold); }
     .dots { display: flex; gap: .8vh; }
     .dots b { width: 1vh; height: 1vh; border-radius: 50%; background: rgba(255, 255, 255, .25); }
     .dots b.on { background: var(--gold-text); }
@@ -122,7 +144,7 @@
       color: rgba(255, 255, 255, .75); font-size: 3.5vmin; }
   </style>
 </head>
-<body style="--inset: {{ inset }}">
+<body class="{{ "themed" if theme.id != "classic" }}{{ " glow" if theme.glow }}" style="--inset: {{ inset }}">
   <main class="board" data-menu-board>
     {% if pages %}
       {% set tl = snap.title|length %}
@@ -150,7 +172,13 @@
             </article>
           {% endfor %}
           <div class="badge">
-            <small>The bar is open</small>
+            {% if theme.halo_paths %}
+              <div class="halo">
+                {%- for h in theme.halo_spots %}<span style="left: calc(50% + {{ h.cos }} * var(--m) * .64); top: calc(50% + {{ h.sin }} * var(--m) * .64); --r: {{ h.rot }}deg">{{ emblem(theme.halo_paths, "ic", h.color) }}</span>{% endfor -%}
+              </div>
+            {% endif %}
+            {% if theme.motif_paths %}{{ emblem(theme.motif_paths, "emblem") }}{% endif %}
+            <small>{{ theme.eyebrow }}</small>
             <div class="rule"></div>
             <h1 class="{{ 'longer' if tl > 26 else 'long' if tl > 14 else '' }}">{{ snap.title }}</h1>
             {% if snap.subtitle %}<i>{{ snap.subtitle }}</i>{% endif %}

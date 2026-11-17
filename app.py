@@ -567,7 +567,7 @@ def _menu_list():
         return stored
     snap = menu.load(directory)
     if not snap:
-        return {"title": "Menu", "subtitle": "", "cocktail_ids": []}
+        return {"title": "Menu", "subtitle": "", "theme": "classic", "cocktail_ids": []}
     ids = []
     for c in snap.get("cocktails", []):
         r = http.get(ba_url(f"/cocktails/{c['slug']}"), headers=ba_headers(), timeout=10)
@@ -579,7 +579,8 @@ def _menu_list():
         if isinstance(cid, int) and cid not in ids:
             ids.append(cid)
     seeded = {"title": snap.get("title") or "Menu",
-              "subtitle": snap.get("subtitle") or "", "cocktail_ids": ids}
+              "subtitle": snap.get("subtitle") or "",
+              "theme": menu.theme(snap.get("theme"))["id"], "cocktail_ids": ids}
     menu.save_list(directory, seeded)
     return seeded
 
@@ -612,7 +613,10 @@ def _menu_state():
     stored = _menu_list()
     drinks = [{"id": c["id"], "name": c.get("name") or ""}
               for c in _menu_cocktails(stored["cocktail_ids"])]
+    out["themes"] = [{"id": k, "name": v["name"], "group": v["group"]}
+                     for k, v in menu.THEMES.items()]
     out["menu"] = {"title": stored["title"], "subtitle": stored["subtitle"],
+                   "theme": menu.theme(stored.get("theme"))["id"],
                    "drinks": drinks, "cocktail_ids": [d["id"] for d in drinks]}
     engine = _suggest_engine()
     out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None,
@@ -691,6 +695,7 @@ def _publish(base):
     menu.save(directory, {
         "title": stored["title"] or "Menu",
         "subtitle": (stored["subtitle"] or "").strip(),
+        "theme": menu.theme(stored.get("theme"))["id"],
         "public_base": base,
         "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cocktails": cocktails,
@@ -731,15 +736,21 @@ def menu_status(body):
 @app.route("/api/menu/title", methods=["POST"])
 @_menu_route
 def menu_set_title(body):
-    """Rename the menu (title and subtitle)."""
+    """Rename the menu (title, subtitle and board theme)."""
     title = str(body.get("title") or "").strip()
     if not title:
         raise MenuError("The menu needs a title")
     stored = _menu_list()
+    theme_id = body.get("theme")
+    if theme_id is None:
+        theme_id = menu.theme(stored.get("theme"))["id"]
+    elif not isinstance(theme_id, str) or theme_id not in menu.THEMES:
+        raise MenuError("Unknown theme")
     # Resolving first drops cocktails deleted in BA from the saved list.
     ids = [c["id"] for c in _menu_cocktails(stored["cocktail_ids"])]
     menu.save_list(menu.menu_dir(ENV_PATH), {
-        **stored, "cocktail_ids": ids, "title": title, "subtitle": str(body.get("subtitle") or "").strip()})
+        **stored, "cocktail_ids": ids, "title": title,
+        "subtitle": str(body.get("subtitle") or "").strip(), "theme": theme_id})
     return jsonify(_menu_state())
 
 
@@ -873,7 +884,7 @@ def menu_board(snap):
     seconds = menu.page_seconds(request.args.get("seconds")
                                 or os.getenv("MENU_PAGE_SECONDS"))
     return render_template("menu.html", snap=snap, pages=menu.board_pages(cards),
-                           seconds=seconds,
+                           seconds=seconds, theme=menu.theme((snap or {}).get("theme")),
                            inset=menu.inset(request.args.get("inset")))
 
 
@@ -893,7 +904,8 @@ def menu_recipe(snap, slug):
     c = menu.find(snap, slug)
     if not c:
         return "Not found", 404
-    return render_template("menu_recipe.html", c=c, title=snap["title"])
+    return render_template("menu_recipe.html", c=c, title=snap["title"],
+                           theme=menu.theme(snap.get("theme")))
 
 
 @app.route("/menu/img/<slug>")

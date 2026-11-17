@@ -308,6 +308,7 @@ def test_fresh_install_is_an_empty_menu_called_menu(owner, guest):
     assert state["menu"] == {
         "title": "Menu",
         "subtitle": "",
+        "theme": "classic",
         "drinks": [],
         "cocktail_ids": [],
     }
@@ -354,6 +355,7 @@ def test_state_lists_the_drinks_in_list_order(owner, env):
             {"id": 2, "name": "Maple Old Fashioned"},
             {"id": 1, "name": "Cider Sour"},
         ],
+        "theme": "classic",
         "cocktail_ids": [2, 1],
     }
 
@@ -541,3 +543,88 @@ def test_qr_codes_use_short_links_to_each_recipe(owner, guest, listed):
     assert guest.get("/m/2").headers["Location"].endswith("/menu/r/maple-old-fashioned")
     assert guest.get("/m/3").status_code == 404
     assert guest.get("/m/0").status_code == 404
+
+
+# ── Themes ──
+
+
+def set_theme(owner, theme):
+    return owner.post("/api/menu/title", json={"title": "T", "theme": theme})
+
+
+def test_theme_is_saved_with_the_title_and_listed_for_the_dropdown(owner, listed):
+    r = set_theme(owner, "halloween")
+    assert r.status_code == 200
+    state = r.get_json()
+    assert state["menu"]["theme"] == "halloween"
+    assert len(state["themes"]) == 21
+    assert {t["group"] for t in state["themes"]} == {"holiday", "generic"}
+    assert menu.load_list(menu.menu_dir(str(listed / ".env")))["theme"] == "halloween"
+
+
+def test_unknown_theme_is_refused_and_nothing_saved(owner, listed):
+    assert set_theme(owner, "nope").status_code == 400
+    assert set_theme(owner, ["x"]).status_code == 400
+    assert owner.get("/api/menu").get_json()["menu"]["theme"] == "classic"
+
+
+def test_title_without_a_theme_keeps_the_existing_one(owner, listed):
+    set_theme(owner, "christmas")
+    r = owner.post("/api/menu/title", json={"title": "Again"})
+    assert r.get_json()["menu"]["theme"] == "christmas"
+
+
+def test_theme_reaches_the_board_only_on_publish(owner, guest, listed):
+    publish(owner)
+    set_theme(owner, "halloween")
+    assert "Trick or treat" not in guest.get("/menu").get_data(as_text=True)
+    owner.post("/api/menu/publish", json={"public_base": BASE})
+    html = guest.get("/menu").get_data(as_text=True)
+    assert "Trick or treat" in html and 'class="emblem"' in html and "Creepster" in html
+
+
+def test_classic_and_old_snapshots_render_as_before(owner, guest, listed):
+    publish(owner)
+    html = guest.get("/menu").get_data(as_text=True)
+    assert "The bar is open" in html and "#c9a24a" in html and "Fraunces" in html
+    assert 'class="emblem"' not in html and 'class="halo"' not in html
+    directory = menu.menu_dir(str(listed / ".env"))
+    snap = menu.load(directory)
+    snap.pop("theme", None)
+    menu.save(directory, snap)
+    assert "The bar is open" in guest.get("/menu").get_data(as_text=True)
+    snap["theme"] = "removed-theme"
+    menu.save(directory, snap)
+    assert guest.get("/menu").status_code == 200
+
+
+def test_striped_themes_stripe_the_lines(owner, guest, listed):
+    set_theme(owner, "christmas")
+    publish(owner)
+    html = guest.get("/menu").get_data(as_text=True)
+    assert "repeating-linear-gradient(45deg, #c0262d 0vh 1.6vh, #f5efe6 1.6vh 3.2vh)" in html
+    assert "--gold: #c0262d" in html
+    assert "Merry and bright" in html and "Playfair+Display" in html
+
+
+def test_every_theme_renders_and_its_motifs_exist(owner, guest, listed):
+    publish(owner)
+    directory = menu.menu_dir(str(listed / ".env"))
+    snap = menu.load(directory)
+    for tid, t in menu.THEMES.items():
+        assert not t["motif"] or t["motif"] in menu.MOTIFS
+        assert not t["halo"] or t["halo"] in menu.MOTIFS
+        menu.save(directory, {**snap, "theme": tid})
+        assert guest.get("/menu").status_code == 200, tid
+        assert guest.get("/menu/r/cider-sour").status_code == 200, tid
+
+
+def test_recipe_page_takes_the_theme_but_classic_is_unchanged(owner, guest, listed):
+    set_theme(owner, "halloween")
+    publish(owner)
+    html = guest.get("/menu/r/cider-sour").get_data(as_text=True)
+    assert "Creepster" in html and "--bg: #0c0412" in html and "<svg" in html
+    set_theme(owner, "classic")
+    owner.post("/api/menu/publish", json={"public_base": BASE})
+    html = guest.get("/menu/r/cider-sour").get_data(as_text=True)
+    assert "--bg: #0a0b1e" in html and "--accent: #ff2e63" in html and "<svg" not in html

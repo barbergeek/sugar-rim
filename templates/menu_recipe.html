@@ -1,3 +1,5 @@
+{% from "_emblem.html" import emblem -%}
+{% set themed = theme.id != "classic" -%}
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,15 +9,16 @@
   <title>{{ c.name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  {% if themed %}<link href="https://fonts.googleapis.com/css2?family={{ theme.font|replace(' ', '+') }}:wght@{{ theme.weight }}&display=swap" rel="stylesheet">{% endif %}
   <style>
     :root {
-      --bg: #0a0b1e;
+      --bg: {{ theme.badge[1] if themed else "#0a0b1e" }};
       --card: rgba(255, 255, 255, 0.05);
       --border: rgba(255, 255, 255, 0.1);
       --text: #fff;
       --dim: rgba(255, 255, 255, 0.65);
-      --accent: #ff2e63;
-      --accent2: #f9d423;
+      --accent: {{ theme.accent if themed else "#ff2e63" }};
+      --accent2: {{ theme.accent if themed else "#f9d423" }};
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -29,6 +32,11 @@
     .photo { margin: 12px 0 16px; border-radius: 16px; overflow: hidden; aspect-ratio: 1; }
     .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
     h1 { font-size: 2rem; font-weight: 700; line-height: 1.15; margin-top: 4px; }
+    {% if themed -%}
+    .from { display: flex; align-items: center; gap: 8px; }
+    .from svg { flex: none; width: 1.6rem; height: 1.6rem; color: var(--accent); }
+    h1 { font-family: '{{ theme.font }}', Georgia, serif; font-weight: {{ theme.weight }}; font-size: calc(2rem * {{ theme.scale }}); }
+    {%- endif %}
     .desc { margin-top: 8px; color: var(--dim); font-weight: 300; white-space: pre-line; }
     .meta { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; color: var(--dim); }
     .meta strong { color: var(--text); font-weight: 600; }
@@ -47,7 +55,7 @@
 </head>
 <body>
   <main>
-    <p class="from">{{ title }}</p>
+    <p class="from">{% if theme.motif_paths %}{{ emblem(theme.motif_paths, "mark") }}{% endif %}{{ title }}</p>
     <h1>{{ c.name }}</h1>
     {% if c.description %}<p class="desc">{{ c.description }}</p>{% endif %}
     {% if c.image %}
