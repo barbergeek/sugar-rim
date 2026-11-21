@@ -154,7 +154,7 @@
             {% set t = c.tile %}
             <article class="tile h-{{ t.h }} v-{{ t.v }} {{ t.size }}" style="grid-column: {{ t.cols }}; grid-row: {{ t.rows }}">
               {% if c.image %}
-                <img src="/menu/img/{{ c.slug }}" alt="">
+                <img src="/menu/img/{{ c.slug }}{% if c.image_v %}?v={{ c.image_v }}{% endif %}" alt="">
               {% else %}
                 <div class="initial">{{ c.name[:1] }}</div>
               {% endif %}

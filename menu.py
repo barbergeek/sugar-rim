@@ -5,6 +5,7 @@ Admins and moderators manage the list; the public menu pages (/menu,
 published snapshot of it, copied to disk, never a live Bar Assistant call.
 """
 
+import hashlib
 import html
 import json
 import math
@@ -179,6 +180,11 @@ def board_pages(cards):
 
 def image_name(slug):
     return re.sub(r"[^a-z0-9-]", "-", slug.lower()) + ".jpg"
+
+
+def image_version(content):
+    """A short content hash for the photo URL, so a replaced photo is refetched."""
+    return hashlib.sha256(content).hexdigest()[:12]
 
 
 def load(directory):

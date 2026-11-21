@@ -70,6 +70,14 @@ class FakeBA:
         self.deleted = set()  # cocktail ids BA no longer returns
         self.uploads_down = False
         self.lookup_down = False
+        self.images = {}  # cocktail id -> images after a save
+        self.files = {}  # extra /uploads paths -> bytes
+        self.put_status = 200
+        self.detail_down = False
+
+    def request(self, method, url, **kw):
+        assert method == "PUT" and url.startswith(f"{BA}/api/cocktails/"), url
+        return Resp(self.put_status, json_data={"data": {}})
 
     def get(self, url, **kw):
         if url == f"{BA}/api/bars/1":
@@ -91,11 +99,21 @@ class FakeBA:
                 }
             )
         if url.startswith(f"{BA}/api/cocktails/"):
-            slug = url.rsplit("/", 1)[-1]
+            key = url.rsplit("/", 1)[-1]
+            if isinstance(self.detail_down, Exception):
+                raise self.detail_down
+            if self.detail_down:
+                return Resp(500, json_data={})
             for c in CATALOG.values():
-                if c["slug"] == slug and c["id"] not in self.deleted:
-                    return Resp(json_data={"data": c})
+                if key in (c["slug"], str(c["id"])) and c["id"] not in self.deleted:
+                    images = self.images.get(c["id"], c["images"])
+                    return Resp(json_data={"data": {**c, "images": images}})
             return Resp(404, json_data={})
+        path = url.removeprefix(f"{BA}/uploads/")
+        if path in self.files:
+            r = Resp()
+            r.content = self.files[path]
+            return r
         if url == f"{BA}/uploads/cocktails/1/cider-sour_Ab12Cd.jpg":
             if self.uploads_down:
                 return Resp(404)
@@ -106,13 +124,15 @@ class FakeBA:
             r = Resp()
             r.content = b"\xff\xd8thumb"
             return r
+        if url.startswith(f"{BA}/uploads/") or url.startswith(f"{BA}/api/images/"):
+            return Resp(404)
         raise AssertionError(f"unexpected GET {url}")
 
 
 @pytest.fixture
 def ba(monkeypatch):
     fake = FakeBA()
-    for verb in ("get",):
+    for verb in ("get", "request"):
         monkeypatch.setattr(app_module.http, verb, getattr(fake, verb))
     return fake
 
@@ -628,3 +648,144 @@ def test_recipe_page_takes_the_theme_but_classic_is_unchanged(owner, guest, list
     owner.post("/api/menu/publish", json={"public_base": BASE})
     html = guest.get("/menu/r/cider-sour").get_data(as_text=True)
     assert "--bg: #0a0b1e" in html and "--accent: #ff2e63" in html and "<svg" not in html
+
+
+# ── Photo refresh on cocktail save ────────────────────────────────────────────
+
+NEW_IMG = {"id": 88, "file_path": "cocktails/2/maple_New.jpg"}
+
+
+def save_cocktail(owner, cid, **body):
+    return owner.put(f"/api/cocktails/{cid}", json={"name": "x", **body})
+
+
+def snap_of(env):
+    return menu.load(menu.menu_dir(str(env / ".env")))
+
+
+def test_a_photo_added_after_publishing_reaches_the_board(owner, guest, ba, listed):
+    publish(owner)
+    board = guest.get("/menu").get_data(as_text=True)
+    assert "/menu/img/maple-old-fashioned" not in board
+    ba.images[2] = [NEW_IMG]
+    ba.files[NEW_IMG["file_path"]] = b"\xff\xd8maple"
+    assert save_cocktail(owner, 2).status_code == 200
+    html = guest.get("/menu").get_data(as_text=True)
+    v = menu.image_version(b"\xff\xd8maple")
+    assert f'src="/menu/img/maple-old-fashioned?v={v}"' in html
+    assert guest.get("/menu/img/maple-old-fashioned").data == b"\xff\xd8maple"
+    page = guest.get("/menu/r/maple-old-fashioned").get_data(as_text=True)
+    assert f"/menu/img/maple-old-fashioned?v={v}" in page
+    assert "id" not in snap_of(listed)["cocktails"][1]
+
+
+def test_a_replaced_photo_gets_a_new_version(owner, guest, ba, listed):
+    publish(owner)
+    old_v = snap_of(listed)["cocktails"][0]["image_v"]
+    board = guest.get("/menu").get_data(as_text=True)
+    assert f"/menu/img/cider-sour?v={old_v}" in board
+    ba.images[1] = [NEW_IMG]
+    ba.files[NEW_IMG["file_path"]] = b"\xff\xd8regenerated"
+    save_cocktail(owner, 1)
+    new_v = snap_of(listed)["cocktails"][0]["image_v"]
+    assert new_v != old_v
+    board = guest.get("/menu").get_data(as_text=True)
+    assert f"/menu/img/cider-sour?v={new_v}" in board
+    assert guest.get("/menu/img/cider-sour").data == b"\xff\xd8regenerated"
+
+
+def test_a_regenerated_photo_wins_over_the_old_one_still_attached(
+    owner, guest, ba, listed
+):
+    publish(owner)
+    # BA keeps the old image (same sort) until the SPA deletes it after the PUT.
+    ba.images[1] = [COCKTAILS[0]["images"][0], NEW_IMG]
+    ba.files[NEW_IMG["file_path"]] = b"\xff\xd8regenerated"
+    save_cocktail(owner, 1, images=[NEW_IMG["id"]])
+    assert guest.get("/menu/img/cider-sour").data == b"\xff\xd8regenerated"
+
+
+def test_a_removed_photo_shows_the_initial(owner, guest, ba, listed):
+    publish(owner)
+    ba.images[1] = []
+    save_cocktail(owner, 1)
+    entry = snap_of(listed)["cocktails"][0]
+    assert entry["image"] is None and "image_v" not in entry
+    assert not (listed / "menu" / "cider-sour.jpg").exists()
+    assert guest.get("/menu/img/cider-sour").status_code == 404
+    assert '<div class="initial">C</div>' in guest.get("/menu").get_data(as_text=True)
+
+
+def test_saving_a_cocktail_off_the_menu_leaves_the_snapshot(owner, ba, listed):
+    publish(owner)
+    path = listed / "menu" / "menu.json"
+    before = path.read_bytes()
+    ba.images[3] = [NEW_IMG]
+    ba.files[NEW_IMG["file_path"]] = b"\xff\xd8other"
+    assert save_cocktail(owner, 3).status_code == 200
+    assert path.read_bytes() == before
+
+
+def test_saving_before_any_publish_writes_nothing(owner, ba, env):
+    ba.images[1] = [NEW_IMG]
+    assert save_cocktail(owner, 1).status_code == 200
+    assert not (env / "menu").exists()
+
+
+def test_a_failed_save_does_not_refresh(owner, ba, listed):
+    publish(owner)
+    before = (listed / "menu" / "menu.json").read_bytes()
+    ba.put_status = 422
+    ba.images[1] = []
+    assert save_cocktail(owner, 1).status_code == 422
+    assert (listed / "menu" / "menu.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("failure", ["detail", "unreachable", "download", "disk"])
+def test_a_failed_refresh_keeps_the_old_photo(
+    owner, guest, ba, listed, failure, monkeypatch
+):
+    publish(owner)
+    before = (listed / "menu" / "menu.json").read_bytes()
+    if failure == "detail":
+        ba.detail_down = True
+    elif failure == "unreachable":
+        ba.detail_down = app_module.http.exceptions.ConnectionError("down")
+    elif failure == "download":
+        ba.images[1] = [NEW_IMG]  # neither the original nor a thumbnail downloads
+    else:
+
+        def full_disk(*a):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(menu, "save", full_disk)
+    r = save_cocktail(owner, 1)
+    assert r.status_code == 200 and r.get_json() == {"data": {}}
+    assert (listed / "menu" / "menu.json").read_bytes() == before
+    assert guest.get("/menu/img/cider-sour").data == b"\xff\xd8full-size"
+
+
+def test_a_save_changes_only_the_photo_not_unpublished_edits(owner, guest, ba, listed):
+    publish(owner)
+    published_at = snap_of(listed)["published_at"]
+    put_list(listed, [2, 1])
+    set_theme(owner, "halloween")  # also retitles the list "T"
+    ba.images[2] = [NEW_IMG]
+    ba.files[NEW_IMG["file_path"]] = b"\xff\xd8maple"
+    save_cocktail(owner, 2)
+    snap = snap_of(listed)
+    assert snap["published_at"] == published_at and snap["title"] == "Thanksgiving 2026"
+    slugs = [c["slug"] for c in snap["cocktails"]]
+    assert slugs == ["cider-sour", "maple-old-fashioned"]
+    html = guest.get("/menu").get_data(as_text=True)
+    assert "Trick or treat" not in html and "Thanksgiving 2026" in html
+    assert "/menu/img/maple-old-fashioned?v=" in html
+
+
+def test_old_snapshots_without_a_version_render_as_before(owner, guest, listed):
+    publish(owner)
+    directory = menu.menu_dir(str(listed / ".env"))
+    snap = menu.load(directory)
+    snap["cocktails"][0].pop("image_v")
+    menu.save(directory, snap)
+    assert 'src="/menu/img/cider-sour"' in guest.get("/menu").get_data(as_text=True)

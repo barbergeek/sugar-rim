@@ -435,7 +435,14 @@ def create_cocktail():
 
 @app.route("/api/cocktails/<cid>", methods=["PUT"])
 def update_cocktail(cid):
-    return proxy("PUT", f"/cocktails/{cid}", json=request.get_json(force=True))
+    body = request.get_json(force=True)
+    resp = proxy("PUT", f"/cocktails/{cid}", json=body)
+    if 200 <= resp[1] < 300:
+        try:
+            _refresh_menu_photo(cid, body.get("images") if isinstance(body, dict) else None)
+        except (*BA_ERRORS, OSError):
+            app.logger.warning("Menu photo refresh failed for cocktail %s", cid, exc_info=True)
+    return resp
 
 
 @app.route("/api/cocktails/<cid>", methods=["DELETE"])
@@ -689,6 +696,7 @@ def _publish(base):
         content = _menu_photo(img) if img and img.get("id") else None
         if content:
             slim["image"] = menu.image_name(slim["slug"])
+            slim["image_v"] = menu.image_version(content)
             with open(os.path.join(directory, slim["image"]), "wb") as f:
                 f.write(content)
         cocktails.append(slim)
@@ -700,6 +708,53 @@ def _publish(base):
         "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cocktails": cocktails,
     })
+
+
+def _refresh_menu_photo(cid, image_ids=None):
+    """After a cocktail save, re-copy its photo into the published snapshot
+    (if it is on it). Only the photo changes; everything else waits for a
+    republish. A failed download keeps the old photo. image_ids is the saved
+    body's list: BA keeps the old image attached until the SPA deletes it, so
+    the photo is the first id saved, not BA's first image."""
+    directory = menu.menu_dir(ENV_PATH)
+    if not menu.load(directory):
+        return
+    r = http.get(ba_url(f"/cocktails/{cid}"), headers=ba_headers(), timeout=15,
+                 params={"include": "images"})
+    if not r.ok:
+        app.logger.warning("Menu photo refresh: cocktail %s lookup failed (%s)",
+                           cid, r.status_code)
+        return
+    c = r.json().get("data") or {}
+    slug = c.get("slug")
+    if not menu.find(menu.load(directory), slug):
+        return
+    images = c.get("images") or []
+    img = images[0] if images else None
+    if isinstance(image_ids, list) and image_ids:
+        img = next((i for i in images if str(i.get("id")) == str(image_ids[0])), img)
+    content = None
+    if img and img.get("id"):
+        content = _menu_photo(img)
+        if not content:
+            app.logger.warning("Menu photo refresh: cocktail %s photo download failed", cid)
+            return
+    # No network from here on, so a publish finishing meanwhile isn't overwritten.
+    snap = menu.load(directory)
+    entry = menu.find(snap, slug)
+    if not entry:
+        return
+    if content:
+        entry["image"] = menu.image_name(entry["slug"])
+        entry["image_v"] = menu.image_version(content)
+        path = os.path.join(directory, entry["image"])
+        with open(path + ".tmp", "wb") as f:
+            f.write(content)
+        os.replace(path + ".tmp", path)
+    else:
+        entry["image"] = None
+        entry.pop("image_v", None)
+    menu.save(directory, snap)
 
 
 def _menu_route(fn):
