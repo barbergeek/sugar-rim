@@ -759,13 +759,15 @@ select.text-input option {
   font-size: 1.2rem;
 }
 .hm-drink {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
 }
-.hm-drink span {
+.hm-drink-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hm-drink-row > span {
   flex: 1;
 }
 

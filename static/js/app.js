@@ -3446,6 +3446,7 @@ const Importer = {
 
 const HolidayMenu = {
   show() {
+    this._mr = { open: new Set(), recipeErr: new Map() };
     Modal.open('Holiday Menu', this._html());
     this._loadMenu();
   },
@@ -3811,25 +3812,38 @@ const HolidayMenu = {
     </div>`;
   },
 
-  // Show or hide a drink's full recipe under its row, fetching it the first time.
-  async toggleRecipe(id) {
-    const sg = this._sg;
-    if (sg.open.has(id)) sg.open.delete(id);
-    else sg.open.add(id);
-    this._renderSuggestion();
-    if (!sg.open.has(id) || App.cocktails._cache.has(id)) return;
-    try {
-      App.cocktails._cache.set(id, (await get(`/api/cocktails/${id}`)).data);
-      sg.recipeErr.delete(id);
-    } catch (e) {
-      sg.recipeErr.set(id, e.message);
-    }
-    if (sg === this._sg) this._renderSuggestion();
+  // The menu's drink list keeps its own open recipes, apart from the suggestion view's.
+  _mr: { open: new Set(), recipeErr: new Map() },
+
+  // A list's recipe state and how to redraw it: 'menu' is the drink list, otherwise the suggestion view.
+  _recipeList(list) {
+    return list === 'menu'
+      ? [this._mr, () => App.cocktails._menu?.menu && this._showDrinks(App.cocktails._menu.menu)]
+      : [this._sg, () => this._renderSuggestion()];
   },
 
-  _recipeHtml(id) {
+  // Show or hide a drink's full recipe under its row, fetching it the first time.
+  async toggleRecipe(id, list) {
+    const [st, render] = this._recipeList(list);
+    if (st.open.has(id)) st.open.delete(id);
+    else {
+      st.open.add(id);
+      st.recipeErr.delete(id); // a retry shows "Loading recipe…", not the last error
+    }
+    render();
+    if (!st.open.has(id) || App.cocktails._cache.has(id)) return;
+    try {
+      App.cocktails._cache.set(id, (await get(`/api/cocktails/${id}`)).data);
+      st.recipeErr.delete(id);
+    } catch (e) {
+      st.recipeErr.set(id, e.message);
+    }
+    if (st === this._recipeList(list)[0]) render();
+  },
+
+  _recipeHtml(id, recipeErr = this._sg.recipeErr) {
     const c = App.cocktails._cache.get(id);
-    const err = this._sg.recipeErr.get(id);
+    const err = recipeErr.get(id);
     if (!c)
       return `<div class="cfg-status${err ? ' err' : ''}" style="margin:8px 0 0 28px">${err ? escHtml(err) : 'Loading recipe…'}</div>`;
     const ings = (c.ingredients || [])
@@ -4078,11 +4092,16 @@ const HolidayMenu = {
   _showDrinks(col) {
     const list = el('hm-drinks');
     if (!list) return;
+    const { open, recipeErr } = this._mr;
+    const ids = new Set(col.drinks.map((d) => d.id));
+    for (const id of open) if (!ids.has(id)) open.delete(id); // a drink taken off closes its recipe
     list.innerHTML = col.drinks.length
       ? col.drinks
           .map(
-            (d) => `<div class="hm-drink"><span>${escHtml(d.name)}</span>
-              <button class="btn btn-ghost" title="Take off the menu" onclick="App.holidayMenu.setDrink(${d.id}, false)">✕</button></div>`
+            (d) => `<div class="hm-drink"><div class="hm-drink-row"><span>${escHtml(d.name)}</span>
+              <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 10px;font-size:0.8rem" onclick="App.holidayMenu.toggleRecipe(${d.id}, 'menu')">Recipe ${open.has(d.id) ? '▴' : '▾'}</button>
+              <button class="btn btn-ghost" title="Take off the menu" onclick="App.holidayMenu.setDrink(${d.id}, false)">✕</button></div>
+              ${open.has(d.id) ? this._recipeHtml(d.id, recipeErr) : ''}</div>`
           )
           .join('')
       : `<div class="cfg-status">“${escHtml(col.title)}” has no drinks yet. Add some below.</div>`;
