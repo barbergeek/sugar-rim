@@ -22,20 +22,31 @@ COCKTAILS = [
         "created_user": {"name": "Secret Person"},
         "images": [{"id": 77, "file_path": "cocktails/1/cider-sour_Ab12Cd.jpg"}],
         "ingredients": [
+            # Shelf flags as BA's cocktail detail gives them.
             {
                 "sort": 2,
                 "amount": 22.5,
                 "units": "ml",
-                "ingredient": {"name": "Lemon Juice"},
+                "ingredient": {"id": 102, "name": "Lemon Juice"},
+                "in_bar_shelf": False,
             },
-            {"sort": 1, "amount": 45, "units": "ml", "ingredient": {"name": "Bourbon"}},
+            {
+                "sort": 1,
+                "amount": 45,
+                "units": "ml",
+                "ingredient": {"id": 101, "name": "Bourbon"},
+                "in_bar_shelf": False,
+                "in_bar_shelf_as_variant": True,
+                "variants_in_shelf": [{"id": 201, "name": "Buffalo Trace"}],
+            },
             {
                 "sort": 3,
                 "amount": 1,
                 "amount_max": 2,
                 "units": "dashes",
-                "ingredient": {"name": "Angostura"},
+                "ingredient": {"id": 103, "name": "Angostura"},
                 "optional": True,
+                "in_bar_shelf": True,
             },
         ],
     },
@@ -196,6 +207,7 @@ ROUTES = [
     ("post", "/api/menu/cocktails", {"cocktail_id": 3, "on": True, "public_base": BASE}),
     ("post", "/api/menu/cocktails/set", {"cocktail_ids": [1], "public_base": BASE}),
     ("post", "/api/menu/suggest", {"occasion": "x"}),
+    ("get", "/api/menu/ingredients", None),
 ]
 
 
@@ -789,3 +801,350 @@ def test_old_snapshots_without_a_version_render_as_before(owner, guest, listed):
     snap["cocktails"][0].pop("image_v")
     menu.save(directory, snap)
     assert 'src="/menu/img/cider-sour"' in guest.get("/menu").get_data(as_text=True)
+
+
+# ── Ingredient checklist ──────────────────────────────────────────────────────
+
+
+def line(iid, name, optional=False, **flags):
+    return {"ingredient": {"id": iid, "name": name}, "optional": optional, **flags}
+
+
+def drink(name, *lines):
+    return {"name": name, "ingredients": list(lines)}
+
+
+def amt(line_, amount, units, amount_max=None):
+    return {**line_, "amount": amount, "amount_max": amount_max, "units": units}
+
+
+def test_checklist_has_one_row_per_ingredient_with_each_drinks_amount():
+    rows = menu.ingredient_checklist(
+        [
+            drink("Cider Sour", amt(line(1, "Lemon Juice", in_bar_shelf=True), 22.5, "ml")),
+            drink("Whiskey Sour", amt(line(1, "Lemon Juice", in_bar_shelf=True), 1, "oz")),
+        ]
+    )
+    assert rows == [
+        {
+            "id": 1,
+            "name": "Lemon Juice",
+            "drinks": ["Cider Sour", "Whiskey Sour"],
+            "uses": [
+                {"drink": "Cider Sour", "amount": 22.5, "amount_max": None,
+                 "units": "ml", "optional": False, "batch": False},
+                {"drink": "Whiskey Sour", "amount": 1, "amount_max": None,
+                 "units": "oz", "optional": False, "batch": False},
+            ],
+            "optional": False,
+            "status": "on_shelf",
+            "via": "",
+        }
+    ]
+
+
+def test_checklist_keeps_ranges_and_missing_amounts_as_the_recipe_gives_them():
+    rows = menu.ingredient_checklist(
+        [
+            drink(
+                "A",
+                amt(line(1, "Angostura"), 1, " dashes ", amount_max=2),
+                line(2, "Mint"),
+            )
+        ]
+    )
+    uses = {r["name"]: r["uses"][0] for r in rows}
+    assert (uses["Angostura"]["amount"], uses["Angostura"]["amount_max"]) == (1, 2)
+    assert uses["Angostura"]["units"] == "dashes"
+    assert uses["Mint"]["amount"] is None and uses["Mint"]["units"] == ""
+
+
+# Real recipes from the bar (BA v5.15.4).
+PUNCH = drink(
+    "Spiced Cranberry-Orange Punch",
+    *[
+        amt(line(i, name), n, units)
+        for i, (n, units, name) in enumerate(
+            [
+                (7, "oz", "Water"),
+                (1, "cup", "Sugar"),
+                (1, "piece", "Ginger"),
+                (1, "sprigs", "Rosemary"),
+                (1, "stick", "Cinnamon"),
+                (2, "whole", "Star Anise"),
+                (12, "oz", "Cranberries"),
+                (68, "oz", "Club Soda"),
+                (12, "oz", "Cranberry Juice"),
+                (12, "oz", "Orange Juice"),
+            ],
+            1,
+        )
+    ],
+)
+PUNCH["tags"] = [{"name": "Punch"}]
+SANGRIA = drink(
+    "Sangria",
+    amt(line(20, "Red Wine"), 1, "bottle"),
+    amt(line(21, "Orange"), 1, "whole"),
+)
+HIGHBALL = drink(
+    "Highball",
+    amt(line(30, "Whisky"), 60, "ml"),
+    amt(line(31, "Club Soda"), 210, "ml"),
+    amt(line(32, "Bitters"), 2, "dashes"),
+)
+
+
+def test_batch_drinks_are_told_apart_from_single_ones():
+    assert menu.is_batch(PUNCH)
+    assert menu.is_batch({**PUNCH, "tags": []})  # by volume too: about 3.6 l
+    assert not menu.is_batch(HIGHBALL)  # about 270 ml
+    assert menu.is_batch(drink("Nog", amt(line(1, "Milk"), 1000, "ml")))
+    assert menu.is_batch(drink("Jug", amt(line(1, "Lemonade"), 1, "Pitcher")))
+    assert menu.is_batch(drink("Tub", amt(line(1, "Cider"), 1, "quart")))
+    assert not menu.is_batch(drink("Odd", amt(line(1, "Rum"), "a splash", "oz")))
+    assert not menu.is_batch(drink("Empty"))
+
+
+def test_a_bottle_or_ice_alone_doesnt_make_a_batch():
+    michelada = drink(
+        "Michelada",
+        amt(line(1, "Beer"), 1, "bottle"),
+        amt(line(2, "Lime Juice"), 15, "ml"),
+    )
+    mai_tai = drink(
+        "Disgruntled Mai Tai",
+        amt(line(3, "Underberg"), 1, "bottle"),
+        amt(line(4, "Orgeat"), 0.5, "oz"),
+    )
+    tiki = drink(
+        "Spindrift",
+        amt(line(5, "Crushed ice"), 600, "ml"),
+        amt(line(6, "Rum"), 2, "fl oz"),
+    )
+    small = drink("Small", amt(line(7, "Wine"), 0.2, "liter"))
+    for d in (michelada, mai_tai, tiki, small, SANGRIA):
+        assert not menu.is_batch(d), d["name"]
+
+
+def test_a_batch_or_punch_tag_makes_a_batch():
+    assert menu.is_batch({**SANGRIA, "tags": [{"name": "Punch"}]})
+    assert menu.is_batch({**HIGHBALL, "tags": [{"name": "Party batch"}]})
+    assert not menu.is_batch({**HIGHBALL, "tags": [{"name": "Highball"}]})
+
+
+def test_checklist_lines_say_per_drink_or_per_batch():
+    rows = menu.ingredient_checklist([PUNCH, SANGRIA, HIGHBALL])
+    soda = next(r for r in rows if r["name"] == "Club Soda" and r["id"] == 8)
+    assert [(u["drink"], u["amount"], u["units"], u["batch"]) for u in soda["uses"]] == [
+        ("Spiced Cranberry-Orange Punch", 68, "oz", True)
+    ]
+    by_drink = {u["drink"]: u["batch"] for r in rows for u in r["uses"]}
+    assert by_drink == {
+        "Spiced Cranberry-Orange Punch": True,
+        "Sangria": False,
+        "Highball": False,
+    }
+
+
+def test_checklist_decodes_entities_in_drink_names():
+    rows = menu.ingredient_checklist([drink("America&#039;s Punch", line(1, "Rum"))])
+    assert rows[0]["drinks"] == ["America's Punch"]
+    assert rows[0]["uses"][0]["drink"] == "America's Punch"
+
+
+def test_checklist_via_falls_back_when_ba_names_nothing():
+    rows = menu.ingredient_checklist(
+        [
+            drink(
+                "A",
+                line(1, "Bourbon", in_bar_shelf_as_variant=True, variants_in_shelf=[]),
+                line(
+                    2,
+                    "Rye",
+                    in_bar_shelf_as_substitute=True,
+                    substitutes=[{"ingredient": {"name": "Scotch"}, "in_bar_shelf": False}],
+                ),
+            )
+        ]
+    )
+    assert {r["name"]: (r["status"], r["via"]) for r in rows} == {
+        "Bourbon": ("probably", "you have a variant"),
+        "Rye": ("probably", "a substitute"),
+    }
+
+
+def test_checklist_joins_different_reasons_once_each():
+    complex_ = {"in_bar_shelf_as_complex_ingredient": True}
+    variant = {
+        "in_bar_shelf_as_variant": True,
+        "variants_in_shelf": [{"name": "Buffalo Trace"}],
+    }
+    rows = menu.ingredient_checklist(
+        [
+            drink("A", line(1, "Bourbon", **variant)),
+            drink("B", line(1, "Bourbon", **complex_)),
+            drink("C", line(1, "Bourbon", **variant)),
+        ]
+    )
+    assert rows[0]["via"] == (
+        "you have Buffalo Trace; can be made from what's on the shelf"
+    )
+
+
+def test_checklist_status_follows_ba_shelf_matching():
+    variant = line(
+        1,
+        "Bourbon",
+        in_bar_shelf_as_variant=True,
+        variants_in_shelf=[{"name": "Buffalo Trace"}],
+    )
+    substitute = line(
+        2,
+        "Bourbon Whiskey",
+        in_bar_shelf_as_substitute=True,
+        substitutes=[
+            {"ingredient": {"name": "Rye"}, "in_bar_shelf": True},
+            {"ingredient": {"name": "Scotch"}, "in_bar_shelf": False},
+        ],
+    )
+    complex_ = line(3, "Honey Syrup", in_bar_shelf_as_complex_ingredient=True)
+    missing = line(4, "Cranberries", in_bar_shelf_as_substitute=False)
+    on = line(5, "Angostura", in_bar_shelf=True)
+    rows = menu.ingredient_checklist(
+        [drink("A", variant, substitute, complex_, missing, on)]
+    )
+    by = {r["name"]: (r["status"], r["via"]) for r in rows}
+    assert by == {
+        "Bourbon": ("probably", "you have Buffalo Trace"),
+        "Bourbon Whiskey": ("probably", "substitute: Rye"),
+        "Honey Syrup": ("probably", "can be made from what's on the shelf"),
+        "Cranberries": ("missing", ""),
+        "Angostura": ("on_shelf", ""),
+    }
+
+
+def test_checklist_takes_the_worst_line():
+    rows = menu.ingredient_checklist(
+        [
+            drink(
+                "A",
+                line(
+                    1,
+                    "Rye",
+                    in_bar_shelf_as_substitute=True,
+                    substitutes=[
+                        {"ingredient": {"name": "Bourbon"}, "in_bar_shelf": True}
+                    ],
+                ),
+            ),
+            drink("B", line(1, "Rye")),
+            drink("C", line(2, "Gin", in_bar_shelf=True)),
+            drink(
+                "D",
+                line(
+                    2,
+                    "Gin",
+                    in_bar_shelf_as_complex_ingredient=True,
+                ),
+            ),
+        ]
+    )
+    assert [(r["name"], r["status"], r["via"]) for r in rows] == [
+        ("Rye", "missing", ""),
+        ("Gin", "probably", "can be made from what's on the shelf"),
+    ]
+
+
+def test_checklist_marks_optional_only_when_every_drink_does():
+    rows = menu.ingredient_checklist(
+        [
+            drink("A", line(1, "Bitters", True), line(2, "Soda", True)),
+            drink("B", line(1, "Bitters", True), line(2, "Soda", False)),
+        ]
+    )
+    assert {r["name"]: r["optional"] for r in rows} == {"Bitters": True, "Soda": False}
+
+
+def test_checklist_puts_missing_and_probable_first_alphabetically():
+    rows = menu.ingredient_checklist(
+        [
+            drink(
+                "A",
+                line(1, "apple", in_bar_shelf=True),
+                line(2, "Zest"),
+                line(3, "Bourbon", in_bar_shelf_as_complex_ingredient=True),
+                line(4, "Amaro", in_bar_shelf_as_complex_ingredient=True),
+                line(5, "cherry"),
+                line(6, "Banana", in_bar_shelf=True),
+            )
+        ]
+    )
+    assert [r["name"] for r in rows] == [
+        "cherry",
+        "Zest",
+        "Amaro",
+        "Bourbon",
+        "apple",
+        "Banana",
+    ]
+
+
+def test_checklist_of_no_drinks_is_empty():
+    assert menu.ingredient_checklist([]) == []
+    assert menu.ingredient_checklist([drink("A")]) == []
+
+
+def test_ingredients_route_reads_each_drink_detail(owner, ba, listed, monkeypatch):
+    monkeypatch.setitem(
+        CATALOG,
+        2,
+        {
+            **CATALOG[2],
+            "ingredients": [
+                line(102, "Lemon Juice", in_bar_shelf=True),
+                line(104, "Maple Syrup", True, in_bar_shelf=True),
+            ],
+        },
+    )
+    r = owner.get("/api/menu/ingredients")
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d["drinks"] == 2
+    assert [(x["name"], x["status"], x["optional"]) for x in d["rows"]] == [
+        ("Lemon Juice", "missing", False),
+        ("Bourbon", "probably", False),
+        ("Angostura", "on_shelf", True),
+        ("Maple Syrup", "on_shelf", True),
+    ]
+    assert d["rows"][0]["drinks"] == ["Cider Sour", "Maple Old Fashioned"]
+    assert [(u["drink"], u["amount"], u["units"], u["batch"]) for u in d["rows"][0]["uses"]] == [
+        ("Cider Sour", 22.5, "ml", False),
+        ("Maple Old Fashioned", None, "", False),
+    ]
+    assert d["rows"][2]["uses"][0]["amount_max"] == 2
+    assert d["rows"][1]["via"] == "you have Buffalo Trace"
+
+
+def test_ingredients_route_with_an_empty_menu(owner, env):
+    put_list(env, [])
+    r = owner.get("/api/menu/ingredients")
+    assert r.status_code == 200 and r.get_json() == {"rows": [], "drinks": 0}
+
+
+def test_ingredients_route_skips_a_drink_deleted_in_ba(owner, ba, listed):
+    ba.deleted.add(1)
+    r = owner.get("/api/menu/ingredients")
+    assert r.status_code == 200 and r.get_json() == {"rows": [], "drinks": 1}
+
+
+@pytest.mark.parametrize("failure", ["5xx", "unreachable"])
+def test_ingredients_route_fails_loudly_when_ba_does(owner, ba, listed, failure):
+    ba.detail_down = (
+        True
+        if failure == "5xx"
+        else app_module.http.exceptions.ConnectionError("down")
+    )
+    r = owner.get("/api/menu/ingredients")
+    assert r.status_code == 502 and "rows" not in r.get_json()
+    assert r.get_json()["error"]

@@ -122,6 +122,137 @@ def key_ingredients(cocktail, limit=3):
     return names[:limit]
 
 
+# Checklist status, worst first: a row takes the worst of its lines.
+MISSING, PROBABLY, ON_SHELF = "missing", "probably", "on_shelf"
+_RANK = {MISSING: 0, PROBABLY: 1, ON_SHELF: 2}
+
+
+def _shelf_status(line):
+    """(status, via) for one recipe line, by Bar Assistant's own shelf matching."""
+    if line.get("in_bar_shelf"):
+        return ON_SHELF, ""
+    if line.get("in_bar_shelf_as_variant"):
+        names = [v.get("name") for v in line.get("variants_in_shelf") or []]
+        names = [n for n in names if n]
+        return (
+            PROBABLY,
+            f"you have {', '.join(names)}" if names else "you have a variant",
+        )
+    if line.get("in_bar_shelf_as_substitute"):
+        names = [
+            _named(s.get("ingredient"))
+            for s in line.get("substitutes") or []
+            if s.get("in_bar_shelf")
+        ]
+        names = [n for n in names if n]
+        return PROBABLY, f"substitute: {', '.join(names)}" if names else "a substitute"
+    if line.get("in_bar_shelf_as_complex_ingredient"):
+        return PROBABLY, "can be made from what's on the shelf"
+    return MISSING, ""
+
+
+# Batch rule: BA has no servings field, so a drink is a batch when it is
+# tagged as one, any line is measured in a bulk unit, or its liquids come to
+# more than BATCH_ML. A bottle isn't bulk: "1 bottle" of beer is one drink.
+BATCH_ML = 500
+BATCH_TAGS = ("batch", "punch")
+BULK_UNITS = {"quart", "quarts", "gallon", "gallons", "pitcher", "pitchers"}
+LIQUID_ML = {
+    "ml": 1,
+    "cl": 10,
+    "dl": 100,
+    "oz": 30,
+    "fl oz": 30,
+    "ounce": 30,
+    "ounces": 30,
+    "cup": 240,
+    "cups": 240,
+    "tbsp": 15,
+    "tsp": 5,
+    "shot": 45,
+    "shots": 45,
+    "l": 1000,
+    "liter": 1000,
+    "liters": 1000,
+    "litre": 1000,
+    "litres": 1000,
+}
+_ICE = re.compile(r"\bice\b", re.IGNORECASE)
+
+
+def is_batch(cocktail):
+    """True when the recipe makes a batch (a punch, a pitcher), not one drink."""
+    tags = [_named(t).lower() for t in cocktail.get("tags") or []]
+    if any(word in t for t in tags for word in BATCH_TAGS):
+        return True
+    total = 0
+    for line in cocktail.get("ingredients") or []:
+        unit = (line.get("units") or "").strip().lower()
+        if unit in BULK_UNITS:
+            return True
+        if _ICE.search(_named(line.get("ingredient")) or line.get("name") or ""):
+            continue  # crushed ice fills the glass but isn't a drink's volume
+        try:
+            total += float(line.get("amount") or 0) * LIQUID_ML.get(unit, 0)
+        except (TypeError, ValueError):
+            pass
+    return total > BATCH_ML
+
+
+def ingredient_checklist(cocktails):
+    """One row per ingredient across the cocktails (BA detail responses):
+    {id, name, drinks, uses, optional, status, via}. uses has one entry per
+    recipe line, {drink, amount, amount_max, units, optional, batch}, as the
+    recipe gives it (never summed). Optional only if every line using it is;
+    status is the worst across its lines. Missing, then probably, then on the
+    shelf; alphabetical within each."""
+    rows = {}
+    for c in cocktails:
+        batch = is_batch(c)
+        for line in c.get("ingredients") or []:
+            ing = line.get("ingredient") or {}
+            iid = ing.get("id")
+            if iid is None:
+                continue
+            row = rows.setdefault(
+                iid,
+                {
+                    "id": iid,
+                    "name": _text(ing.get("name") or line.get("name")),
+                    "drinks": [],
+                    "uses": [],
+                    "optional": True,
+                    "status": ON_SHELF,
+                    "via": [],
+                },
+            )
+            name = _text(c.get("name"))
+            if name not in row["drinks"]:
+                row["drinks"].append(name)
+            row["uses"].append(
+                {
+                    "drink": name,
+                    "amount": line.get("amount"),
+                    "amount_max": line.get("amount_max"),
+                    "units": (line.get("units") or "").strip(),
+                    "optional": bool(line.get("optional")),
+                    "batch": batch,
+                }
+            )
+            row["optional"] = row["optional"] and bool(line.get("optional"))
+            status, via = _shelf_status(line)
+            if _RANK[status] < _RANK[row["status"]]:
+                row["status"] = status
+            if via and via not in row["via"]:
+                row["via"].append(via)
+    out = []
+    for row in rows.values():
+        # The via text explains a "probably"; it would mislead on the others.
+        via = "; ".join(row["via"]) if row["status"] == PROBABLY else ""
+        out.append({**row, "via": via})
+    return sorted(out, key=lambda r: (_RANK[r["status"]], r["name"].lower()))
+
+
 PER_PAGE = 6  # drinks on one board screen; a longer menu pages through screens
 
 # Board tiles on a 6-column x 2-row grid, by how many drinks a screen shows:

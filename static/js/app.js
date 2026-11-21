@@ -3466,6 +3466,7 @@ const HolidayMenu = {
             <select id="cfg-menu-theme" class="text-input"></select>
           </label>
           <div id="hm-drinks" style="margin-top:12px"></div>
+          <button class="btn btn-ghost btn-wide" style="margin-top:8px" onclick="App.holidayMenu.openChecklist()">Ingredient Checklist</button>
           <div id="hm-add" style="margin-top:8px">
             <input type="search" id="hm-search" class="text-input" style="width:100%" placeholder="Add a drink: type its name" autocomplete="off" oninput="App.holidayMenu.search()">
             <div id="hm-results"></div>
@@ -3682,6 +3683,106 @@ const HolidayMenu = {
   backFromSuggestion() {
     this.cancelSuggestion();
     this.show();
+  },
+
+  // ── Ingredient checklist: everything the menu's drinks need, with BA's shelf judgment ──
+  CHECK_KEY: 'hm-ing-checked',
+  _ck: null,
+
+  _loadChecked() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(this.CHECK_KEY) || '[]'));
+    } catch (e) {
+      return new Set();
+    }
+  },
+  _saveChecked() {
+    try {
+      localStorage.setItem(this.CHECK_KEY, JSON.stringify([...this._ck.checked]));
+    } catch (e) {
+      /* private window or blocked storage: checks last until the view closes */
+    }
+  },
+
+  async openChecklist() {
+    Modal.open(
+      'Ingredient Checklist',
+      '<div id="hm-ck"><div class="loading-row"><div class="spinner"></div></div></div>',
+      '<button class="btn btn-ghost" onclick="App.holidayMenu.show()">Back</button>'
+    );
+    try {
+      const d = await get('/api/menu/ingredients');
+      if (!el('hm-ck')) return;
+      // Drop checks for ingredients no longer on the menu.
+      const ids = new Set(d.rows.map((r) => r.id));
+      this._ck = {
+        rows: d.rows,
+        drinks: d.drinks,
+        checked: new Set([...this._loadChecked()].filter((id) => ids.has(id))),
+      };
+      this._saveChecked();
+      this._renderChecklist();
+    } catch (e) {
+      if (el('hm-ck'))
+        el('hm-ck').innerHTML = `<div class="cfg-status err">${escHtml(e.message)}</div>`;
+    }
+  },
+
+  _renderChecklist() {
+    const box = el('hm-ck');
+    if (!box) return;
+    const { rows, drinks, checked } = this._ck;
+    if (!rows.length) {
+      box.innerHTML = `<div class="cfg-status">${
+        drinks ? 'The menu’s drinks list no ingredients.' : 'The menu has no drinks yet.'
+      }</div>`;
+      return;
+    }
+    const got = rows.filter((r) => checked.has(r.id)).length;
+    const groups = [
+      ['missing', 'Not on the shelf'],
+      ['probably', 'Probably on the shelf'],
+      ['on_shelf', 'On the shelf'],
+    ];
+    // "Cider Sour: ¾ oz per drink", "Punch: 68 oz per batch", or just the drink
+    // when the recipe gives no amount. Each recipe's own amount, never summed.
+    const use = (u) => {
+      if (!u.amount) return escHtml(u.drink);
+      const lo = UnitPref.convert(u.amount, u.units);
+      const hi = u.amount_max ? UnitPref.convert(u.amount_max, u.units) : null;
+      const amt = hi && hi.amount !== lo.amount ? `${lo.amount}–${hi.amount}` : lo.amount;
+      const qty = `${amt} ${lo.unit}`.trim();
+      return `${escHtml(u.drink)}: ${escHtml(qty)} ${u.batch ? 'per batch' : 'per drink'}`;
+    };
+    const row = (r) => {
+      const on = checked.has(r.id);
+      const uses = r.uses.map((u) => `<span class="hm-ck-meta">${use(u)}</span>`).join('');
+      return `<div class="sl-row${on ? ' got' : ''}" onclick="App.holidayMenu.toggleChecked(${r.id})">
+          <span class="sl-check material-symbols-rounded">${on ? 'check_circle' : 'radio_button_unchecked'}</span>
+          <span class="sl-name">${escHtml(r.name)}${r.optional ? ' <span class="tag">optional</span>' : ''}
+            ${uses}
+            ${r.via ? `<span class="hm-ck-via">${escHtml(r.via)}</span>` : ''}
+          </span>
+        </div>`;
+    };
+    box.innerHTML =
+      `<div class="sl-got">${got} of ${rows.length} checked</div>` +
+      groups
+        .map(([status, label]) => {
+          const these = rows.filter((r) => r.status === status);
+          return these.length
+            ? `<div class="hm-ck-group hm-ck-${status}">${label}</div><div class="sl-rows">${these.map(row).join('')}</div>`
+            : '';
+        })
+        .join('');
+  },
+
+  toggleChecked(id) {
+    const { checked } = this._ck;
+    if (checked.has(id)) checked.delete(id);
+    else checked.add(id);
+    this._saveChecked();
+    this._renderChecklist();
   },
 
   _suggestRow(d, checked, note = '') {

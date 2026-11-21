@@ -3256,6 +3256,29 @@ hr {
   color: var(--accent);
 }
 
+/* Holiday menu ingredient checklist: reuses the .sl-* rows */
+.hm-ck-group {
+  margin: 16px 2px 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.hm-ck-missing {
+  color: var(--accent);
+}
+.hm-ck-meta,
+.hm-ck-via {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.hm-ck-via {
+  font-style: italic;
+}
+
 /* Menu suggestion: the banner pinned to the top while drinks are judged */
 .sg-working {
   position: sticky;

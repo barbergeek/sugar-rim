@@ -788,6 +788,23 @@ def menu_status(body):
     return jsonify(_menu_state())
 
 
+@app.route("/api/menu/ingredients")
+@_menu_route
+def menu_ingredients(body):
+    """Every ingredient the saved menu's drinks use, with BA's shelf judgment.
+    Read from each drink's detail: only it carries the variant, substitute and
+    complex-ingredient flags. A drink deleted in BA is skipped."""
+    cocktails = []
+    for cid in _menu_list()["cocktail_ids"]:
+        r = http.get(ba_url(f"/cocktails/{cid}"), headers=ba_headers(), timeout=15)
+        if r.status_code == 404:
+            continue
+        if not r.ok:
+            raise MenuError("Bar Assistant cocktail lookup failed", 502)
+        cocktails.append(r.json().get("data") or {})
+    return jsonify({"rows": menu.ingredient_checklist(cocktails), "drinks": len(cocktails)})
+
+
 @app.route("/api/menu/title", methods=["POST"])
 @_menu_route
 def menu_set_title(body):
