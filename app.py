@@ -788,6 +788,24 @@ def menu_status(body):
     return jsonify(_menu_state())
 
 
+@app.route("/api/menu/drinks")
+def menu_drinks():
+    """The saved menu list's drinks (full cocktails, in menu order) for the
+    kiosk Menu tab; every drink edit republishes them to the board. Any
+    logged-in user may read it: the kiosk's user may be a plain member, and
+    the board already shows these drinks publicly."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        stored = _menu_list()
+        return jsonify({"title": stored["title"],
+                        "data": _menu_cocktails(stored["cocktail_ids"], include="images,ratings")})
+    except MenuError as e:
+        return jsonify({"error": str(e)}), e.status
+    except BA_ERRORS as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @app.route("/api/menu/ingredients")
 @_menu_route
 def menu_ingredients(body):

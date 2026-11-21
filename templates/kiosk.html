@@ -99,6 +99,15 @@
       <div id="favorites-empty" class="empty-state hidden"><p>No favorites yet.</p></div>
     </section>
 
+    <!-- ── HOLIDAY MENU (kiosk: the menu's drinks as recipe cards) ──── -->
+    <section id="view-holiday-menu" class="view">
+      <div class="view-toolbar">
+        <span class="toolbar-title" id="hm-kiosk-title">Holiday Menu</span>
+      </div>
+      <div id="holiday-menu-list" class="card-grid"></div>
+      <div id="holiday-menu-empty" class="empty-state hidden"><p></p></div>
+    </section>
+
     <!-- ── SHELF / INGREDIENTS (kiosk: compact rows + shelf/list toggles) ─ -->
     <section id="view-shelf" class="view">
       <div class="ksh-bar">
@@ -259,6 +268,10 @@
     <button class="nav-btn" data-view="favorites" onclick="App.nav.go('favorites')">
       <span class="nav-icon material-symbols-rounded">star</span>
       <span class="nav-label">Favorites</span>
+    </button>
+    <button class="nav-btn" data-view="holiday-menu" onclick="App.nav.go('holiday-menu');KioskMenu.load()">
+      <span class="nav-icon material-symbols-rounded">celebration</span>
+      <span class="nav-label">Menu</span>
     </button>
     <button class="nav-btn" data-view="shelf" onclick="App.nav.go('shelf')">
       <span class="nav-icon material-symbols-rounded">liquor</span>
@@ -712,8 +725,39 @@
       el.addEventListener('pointercancel', end);
     },
     enableAll() {
-      ['kf-results', 'favorites-list', 'ksh-list', 'shopping-list-items', 'detail-body', 'modal-body', 'km-scroll']
+      ['kf-results', 'favorites-list', 'holiday-menu-list', 'ksh-list', 'shopping-list-items', 'detail-body', 'modal-body', 'km-scroll']
         .forEach(id => this.enable(document.getElementById(id)));
+    },
+  };
+
+  // ── KioskMenu: the holiday menu's drinks as cards, reloaded on every open ──
+  const KioskMenu = {
+    _seq: 0,                // drops a load superseded by a newer one
+
+    async load() {
+      const seq = ++this._seq;
+      const grid = document.getElementById('holiday-menu-list');
+      const empty = document.getElementById('holiday-menu-empty');
+      grid.innerHTML = '<div class="loading-row"><div class="spinner"></div></div>';
+      empty.classList.add('hidden');
+      try {
+        const d = await get('/api/menu/drinks');
+        if (seq !== this._seq) return;
+        document.getElementById('hm-kiosk-title').textContent = d.title || 'Holiday Menu';
+        const items = d.data || [];
+        if (!items.length) {
+          grid.innerHTML = '';
+          empty.querySelector('p').textContent = 'No drinks on the holiday menu yet.';
+          empty.classList.remove('hidden');
+          return;
+        }
+        grid.innerHTML = items.map(c => Cocktails._card(c)).join('');
+      } catch (e) {
+        if (seq !== this._seq) return;
+        grid.innerHTML = '';
+        empty.querySelector('p').textContent = e.message;
+        empty.classList.remove('hidden');
+      }
     },
   };
 

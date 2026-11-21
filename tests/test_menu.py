@@ -1148,3 +1148,62 @@ def test_ingredients_route_fails_loudly_when_ba_does(owner, ba, listed, failure)
     r = owner.get("/api/menu/ingredients")
     assert r.status_code == 502 and "rows" not in r.get_json()
     assert r.get_json()["error"]
+
+
+def test_kiosk_drinks_list_is_open_to_members_in_menu_order(
+    owner, ba, env, monkeypatch
+):
+    ba.role = 3
+    put_list(env, [2, 1, 3])
+    seen = []
+    fake_get = app_module.http.get
+
+    def spy(url, **kw):
+        seen.append(kw.get("params"))
+        return fake_get(url, **kw)
+
+    monkeypatch.setattr(app_module.http, "get", spy)
+    r = owner.get("/api/menu/drinks")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["title"] == "Thanksgiving 2026"
+    assert [c["id"] for c in body["data"]] == [2, 1, 3]
+    assert body["data"][1]["name"] == "Cider Sour"
+    lookup = next(p for p in seen if p and p.get("filter[id]") == "2,1,3")
+    assert lookup["include"] == "images,ratings"
+
+
+def test_kiosk_drinks_leave_out_ones_deleted_in_ba(owner, ba, env):
+    put_list(env, [3, 1, 2])
+    ba.deleted = {1}
+    data = owner.get("/api/menu/drinks").get_json()["data"]
+    assert [c["id"] for c in data] == [3, 2]
+
+
+def test_kiosk_drinks_empty_when_never_set_up_or_emptied(owner, env):
+    r = owner.get("/api/menu/drinks")
+    assert r.status_code == 200 and r.get_json()["data"] == []
+    put_list(env, [])
+    r = owner.get("/api/menu/drinks")
+    assert r.status_code == 200 and r.get_json()["data"] == []
+
+
+def test_kiosk_drinks_need_login(guest, listed):
+    r = guest.get("/api/menu/drinks")
+    assert r.status_code == 401 and r.get_json() == {"error": "unauthorized"}
+
+
+@pytest.mark.parametrize("failure", ["5xx", "unreachable"])
+def test_kiosk_drinks_report_a_failed_lookup(owner, ba, listed, monkeypatch, failure):
+    if failure == "5xx":
+        ba.lookup_down = True
+    else:
+
+        def down(url, **kw):
+            if url == f"{BA}/api/cocktails":
+                raise app_module.http.exceptions.ConnectionError("down")
+            return ba.get(url, **kw)
+
+        monkeypatch.setattr(app_module.http, "get", down)
+    r = owner.get("/api/menu/drinks")
+    assert r.status_code == 502 and r.get_json()["error"]

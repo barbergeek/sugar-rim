@@ -1577,6 +1577,7 @@ hr {
 /* Mobile-first: a single scrolling column. Desktop: a dense, scrollable
    multi-column grid holding the complete set — no pagination, no clipping. */
 #view-favorites .card-grid,
+#view-holiday-menu .card-grid,
 #view-ingredients .card-grid,
 #view-cocktails .card-grid {
   gap: 8px;
@@ -1587,7 +1588,8 @@ hr {
 
 @media (min-width: 900px) {
   #view-cocktails .card-grid,
-  #view-favorites .card-grid {
+  #view-favorites .card-grid,
+  #view-holiday-menu .card-grid {
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   }
   #view-ingredients .card-grid {
@@ -1609,7 +1611,8 @@ hr {
    instead of the collapsing min/max range, so short ingredient lists don't
    shrink cards. (Kiosk keeps the denser range via the base rule above.) */
 #view-cocktails .cocktail-card,
-#view-favorites .cocktail-card {
+#view-favorites .cocktail-card,
+#view-holiday-menu .cocktail-card {
   height: var(--card-max-h, 130px);
 }
 
@@ -1714,7 +1717,8 @@ hr {
 /* Tablet: 2-column cocktail/favorites grid */
 @media (min-width: 481px) and (max-width: 899px) {
   #view-cocktails .card-grid,
-  #view-favorites .card-grid {
+  #view-favorites .card-grid,
+  #view-holiday-menu .card-grid {
     grid-template-columns: repeat(2, 1fr);
   }
   .cocktail-thumb-wrap {
@@ -1725,7 +1729,8 @@ hr {
 /* Phone: 1-column cocktail/favorites grid */
 @media (max-width: 480px) {
   #view-cocktails .card-grid,
-  #view-favorites .card-grid {
+  #view-favorites .card-grid,
+  #view-holiday-menu .card-grid {
     grid-template-columns: 1fr;
   }
   .cocktail-thumb-wrap {
