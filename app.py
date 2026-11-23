@@ -209,14 +209,16 @@ def get_config():
         "bar_id":       os.getenv("BA_BAR_ID", ""),
         "is_logged_in": "ba_token" in session,
         "app_version":  APP_VERSION,
-        "ai_provider":  os.getenv("AI_IMAGE_PROVIDER", ""),
-        "ai_model":     os.getenv("AI_IMAGE_MODEL", ""),
-        "ai_base_url":  os.getenv("AI_IMAGE_BASE_URL", ""),
-        "ai_key_set":   bool(os.getenv("AI_IMAGE_API_KEY")),
         "ai_prompt_ingredient": os.getenv("AI_PROMPT_INGREDIENT", ""),
         "ai_prompt_cocktail":   os.getenv("AI_PROMPT_COCKTAIL", ""),
-        "typesafe_key_set":     bool(os.getenv("TYPESAFE_API_KEY")),
     })
+
+
+# Every AI setting; only bar admins and moderators may change them.
+AI_FIELDS = ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
+             "ai_prompt_ingredient", "ai_prompt_cocktail",
+             "typesafe_api_key", "menu_suggest_model")
+AI_DENIED = "Only bar admins and moderators can change AI settings"
 
 
 @app.route("/config", methods=["POST"])
@@ -228,16 +230,14 @@ def set_config():
     if _configured() and not _logged_in():
         return jsonify({"error": "Log in to change server settings. " + URL_FIX_HINT}), 401
     body = request.get_json(force=True)
-    if not _logged_in() and any(
-            k in body for k in ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
-                                "ai_prompt_ingredient", "ai_prompt_cocktail",
-                                "typesafe_api_key", "menu_suggest_model",
-                                "menu_page_seconds")):
+    if not _logged_in() and any(k in body for k in (*AI_FIELDS, "menu_page_seconds")):
         return jsonify({"error": "unauthorized"}), 401
-    if _logged_in() and any(
-            k in body for k in ("typesafe_api_key", "menu_suggest_model",
-                                "menu_page_seconds")):
+    if _logged_in() and "menu_page_seconds" in body:
         denied = _menu_role_denied()
+        if denied:
+            return denied
+    if _logged_in() and any(k in body for k in AI_FIELDS):
+        denied = _menu_role_denied(AI_DENIED)
         if denied:
             return denied
     if not os.path.exists(ENV_PATH):
@@ -548,10 +548,10 @@ class MenuError(Exception):
 MENU_DENIED = "Only bar admins and moderators can manage the holiday menu"
 
 
-def _menu_role_denied():
+def _menu_role_denied(message=MENU_DENIED):
     """None if the session user is an Admin (1) or Moderator (2) of the bar,
-    else the error response. Checked live on every call so role changes apply
-    at once."""
+    else the error response (with message). Checked live on every call so role
+    changes apply at once."""
     bid, err = bar_id_or_err()
     if err:
         return err
@@ -562,7 +562,7 @@ def _menu_role_denied():
         role = None
     if role in (1, 2):
         return None
-    return jsonify({"error": MENU_DENIED}), 403
+    return jsonify({"error": message}), 403
 
 
 def _menu_list():
@@ -627,8 +627,6 @@ def _menu_state():
                    "drinks": drinks, "cocktail_ids": [d["id"] for d in drinks]}
     engine = _suggest_engine()
     out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None,
-                      "typesafe_key_set": bool(os.getenv("TYPESAFE_API_KEY")),
-                      "model": os.getenv("MENU_SUGGEST_MODEL", ""),
                       "occasion": menu_suggest.default_occasion()}
     return out
 
@@ -920,8 +918,7 @@ def menu_suggest_route(body):
     run. A client that disconnects stops the questions."""
     engine = _suggest_engine()
     if not engine:
-        raise MenuError("Suggestions need a TypeSafe key (Manage → Holiday Menu) or an "
-                        "AI provider and key (Settings → AI Images)")
+        raise MenuError("Set up a TypeSafe key or an AI provider in Manage → AI")
     occasion = " ".join(str(body.get("occasion") or "").split())[:120]
     if not occasion:
         raise MenuError("Say what the occasion is, e.g. Thanksgiving dinner")
@@ -1239,10 +1236,35 @@ def _list_image_models(provider, key, base):
     raise AIImageError("Choose a provider first.", 400)
 
 
+@app.route("/api/ai/settings")
+def ai_settings():
+    """Every AI setting for the Manage → AI card. Keys are reported only as set."""
+    if not _logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    denied = _menu_role_denied(AI_DENIED)
+    if denied:
+        return denied
+    engine = _suggest_engine()
+    return jsonify({
+        "ai_provider":          os.getenv("AI_IMAGE_PROVIDER", ""),
+        "ai_model":             os.getenv("AI_IMAGE_MODEL", ""),
+        "ai_base_url":          os.getenv("AI_IMAGE_BASE_URL", ""),
+        "ai_key_set":           bool(os.getenv("AI_IMAGE_API_KEY")),
+        "ai_prompt_ingredient": os.getenv("AI_PROMPT_INGREDIENT", ""),
+        "ai_prompt_cocktail":   os.getenv("AI_PROMPT_COCKTAIL", ""),
+        "typesafe_key_set":     bool(os.getenv("TYPESAFE_API_KEY")),
+        "menu_suggest_model":   os.getenv("MENU_SUGGEST_MODEL", ""),
+        "engine":               engine[0] if engine else None,
+    })
+
+
 @app.route("/api/ai/models", methods=["POST"])
 def ai_models():
     if not _logged_in():
         return jsonify({"error": "unauthorized"}), 401
+    denied = _menu_role_denied(AI_DENIED)
+    if denied:
+        return denied
     body = request.get_json(force=True, silent=True) or {}
     provider = str(body.get("provider") or "").strip()
     base = str(body.get("base_url") or "").strip()

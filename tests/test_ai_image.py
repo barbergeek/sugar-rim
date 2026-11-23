@@ -19,6 +19,8 @@ def client(monkeypatch):
     c = app_module.app.test_client()
     with c.session_transaction() as s:
         s["ba_token"] = "tok"
+    # An admin: AI settings are role-gated (tests/test_menu.py covers the gate).
+    monkeypatch.setattr(app_module, "_menu_role_denied", lambda *a: None)
     return c
 
 
@@ -171,7 +173,7 @@ def test_config_never_returns_key(client, monkeypatch, tmp_path):
     r = client.post("/config", json={"ai_provider": "openai", "ai_model": "m",
                                      "ai_api_key": "sk-supersecret"})
     assert r.status_code == 200
-    out = client.get("/config")
+    out = client.get("/api/ai/settings")
     assert "sk-supersecret" not in out.get_data(as_text=True)
     cfg = out.get_json()
     assert cfg["ai_key_set"] is True and cfg["ai_provider"] == "openai"
@@ -182,14 +184,14 @@ def test_blank_key_same_provider_keeps(client, monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     client.post("/config", json={"ai_provider": "openai", "ai_api_key": "k"})
     client.post("/config", json={"ai_provider": "openai", "ai_model": "m", "ai_api_key": ""})
-    assert client.get("/config").get_json()["ai_key_set"] is True
+    assert client.get("/api/ai/settings").get_json()["ai_key_set"] is True
 
 
 def test_provider_change_clears_key(client, monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "ENV_PATH", str(tmp_path / ".env"))
     client.post("/config", json={"ai_provider": "openai", "ai_api_key": "k"})
     client.post("/config", json={"ai_provider": "gemini", "ai_api_key": ""})
-    cfg = client.get("/config").get_json()
+    cfg = client.get("/api/ai/settings").get_json()
     assert cfg["ai_key_set"] is False and cfg["ai_provider"] == "gemini"
 
 
@@ -198,7 +200,8 @@ def test_ai_config_requires_login(monkeypatch, tmp_path):
     monkeypatch.delenv("BA_API_URL", raising=False)
     c = app_module.app.test_client()
     assert c.post("/config", json={"ai_provider": "openai"}).status_code == 401
-    assert c.get("/config").get_json()["ai_provider"] == ""
+    assert app_module.os.getenv("AI_IMAGE_PROVIDER", "") == ""
+    assert not (tmp_path / ".env").exists()
 
 
 @pytest.mark.parametrize("kind", ["ingredient", "cocktail"])

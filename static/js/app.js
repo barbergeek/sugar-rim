@@ -485,33 +485,6 @@ const Settings = {
           </div>
         </div>
         <hr>
-        <div>
-          <div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">AI Images</div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Provider
-              <select id="cfg-ai-provider" class="text-input" onchange="App.settings._providerChanged()">
-                <option value="">None</option>
-                <option value="openai">OpenAI</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="compatible">OpenAI-compatible</option>
-              </select>
-            </label>
-            <label id="cfg-ai-base-wrap" style="display:none;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Base URL
-              <input type="url" id="cfg-ai-base" class="text-input" placeholder="http://192.168.1.x:8080/v1" onchange="App.settings._loadModels()">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">API key
-              <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off" onchange="App.settings._loadModels()">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Model
-              <select id="cfg-ai-model-select" class="text-input" style="display:none"></select>
-              <input type="text" id="cfg-ai-model" class="text-input">
-            </label>
-            <div id="cfg-ai-model-msg" class="cfg-status"></div>
-          </div>
-          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.settings.saveAi()">Save AI Settings</button>
-          <div id="cfg-ai-message" class="cfg-status" style="margin-top:6px"></div>
-        </div>
-        <hr>
         <div style="display:flex;flex-direction:column;gap:4px">
           <div id="server-version" class="header-subtitle">API Version: Loading…</div>
           <div id="app-version" class="header-subtitle">App Version: Loading…</div>
@@ -523,12 +496,6 @@ const Settings = {
     try {
       const cfg = await get('/config');
       el('cfg-url').value = cfg.api_url || '';
-      el('cfg-ai-provider').value = cfg.ai_provider || '';
-      el('cfg-ai-model').value = cfg.ai_model || '';
-      el('cfg-ai-base').value = cfg.ai_base_url || '';
-      el('cfg-ai-key').placeholder = cfg.ai_key_set ? '•••• (saved)' : '';
-      this._syncAi();
-      if (cfg.ai_provider) this._loadModels();
       if (cfg.is_logged_in) {
         await this._loadBars(cfg.bar_id);
       }
@@ -575,98 +542,6 @@ const Settings = {
       v.textContent = `API Version: ${d.data?.version || 'Unknown'}`;
     } catch (e) {
       v.textContent = 'API Version: Error';
-    }
-  },
-
-  _syncAi() {
-    const p = el('cfg-ai-provider').value;
-    el('cfg-ai-base-wrap').style.display = p === 'compatible' ? 'flex' : 'none';
-    const defaults = { openai: 'gpt-image-2', gemini: 'gemini-2.5-flash-image' };
-    el('cfg-ai-model').placeholder = defaults[p] || (p === 'compatible' ? 'required' : '');
-  },
-
-  _providerChanged() {
-    el('cfg-ai-model').value = '';
-    el('cfg-ai-model-select').style.display = 'none';
-    this._syncAi();
-    this._loadModels();
-  },
-
-  _aiModel() {
-    const sel = el('cfg-ai-model-select');
-    return sel.style.display === 'none' ? el('cfg-ai-model').value.trim() : sel.value;
-  },
-
-  // Fill the model dropdown with the provider's image models; fall back to the
-  // text box (with the reason) when the list can't be loaded.
-  async _loadModels() {
-    const provider = el('cfg-ai-provider').value;
-    const sel = el('cfg-ai-model-select');
-    const input = el('cfg-ai-model');
-    const msg = el('cfg-ai-model-msg');
-    const current = this._aiModel();
-    const req = (this._modelsReq = {});
-    const stale = () => req !== this._modelsReq || !el('cfg-ai-model-select');
-    const useInput = (text) => {
-      sel.style.display = 'none';
-      input.style.display = '';
-      input.value = current;
-      msg.textContent = text;
-      msg.className = 'cfg-status' + (text ? ' err' : '');
-    };
-    if (!provider) return useInput('');
-    msg.textContent = 'Loading models…';
-    msg.className = 'cfg-status';
-    try {
-      const d = await post('/api/ai/models', {
-        provider,
-        base_url: el('cfg-ai-base').value.trim(),
-        api_key: el('cfg-ai-key').value,
-      });
-      if (stale()) return;
-      const models = d.models || [];
-      const pick = current || d.default;
-      if (pick && !models.includes(pick)) models.unshift(pick);
-      if (!models.length) return useInput('No models found — type one.');
-      sel.innerHTML = models
-        .map(
-          (m) =>
-            `<option value="${escHtml(m)}" ${m === pick ? 'selected' : ''}>${escHtml(m)}</option>`
-        )
-        .join('');
-      sel.style.display = '';
-      input.style.display = 'none';
-      msg.textContent = '';
-    } catch (e) {
-      if (!stale()) useInput(e.message);
-    }
-  },
-
-  async saveAi() {
-    const msg = el('cfg-ai-message');
-    const provider = el('cfg-ai-provider').value;
-    const model = this._aiModel();
-    const base = el('cfg-ai-base').value.trim();
-    if (provider === 'compatible' && (!base || !model)) {
-      msg.textContent = '✗ Base URL and model are required';
-      msg.className = 'cfg-status err';
-      return;
-    }
-    const keyInput = el('cfg-ai-key');
-    try {
-      await post('/config', {
-        ai_provider: provider,
-        ai_model: model,
-        ai_base_url: base,
-        ai_api_key: keyInput.value,
-      });
-      if (keyInput.value) keyInput.placeholder = '•••• (saved)';
-      keyInput.value = '';
-      msg.textContent = '✓ Saved';
-      msg.className = 'cfg-status ok';
-    } catch (e) {
-      msg.textContent = '✗ ' + e.message;
-      msg.className = 'cfg-status err';
     }
   },
 
@@ -3492,13 +3367,6 @@ const HolidayMenu = {
             </label>
             <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.suggestMenu()">Suggest a Menu</button>
             <div id="hm-engine" class="cfg-status"></div>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">TypeSafe API key (optional; used first when set)
-              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Chat model when using the AI Images provider (blank = default)
-              <input type="text" id="cfg-suggest-model" class="text-input" autocomplete="off" placeholder="e.g. gpt-5.4-mini">
-            </label>
-            <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.saveSuggestSettings()">Save</button>
           </div>
         </div>`;
   },
@@ -3519,8 +3387,6 @@ const HolidayMenu = {
         group('Holidays and events', 'holiday') + group('Any time of year', 'generic');
       el('cfg-menu-theme').value = state.menu.theme;
       el('cfg-menu-occasion').value = state.suggest?.occasion || '';
-      el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
-      el('cfg-suggest-model').value = state.suggest?.model || '';
       this._showEngine(state.suggest);
       this._showMenu(state);
     } catch (e) {
@@ -3566,23 +3432,7 @@ const HolidayMenu = {
   _showEngine(s) {
     el('hm-engine').textContent = s?.ready
       ? `Suggestions use ${s.engine}.`
-      : 'Suggestions need a TypeSafe key below, or an AI provider and key in Settings → AI Images.';
-  },
-
-  async saveSuggestSettings() {
-    const key = el('cfg-typesafe-key').value.trim();
-    const body = { menu_suggest_model: el('cfg-suggest-model').value.trim() };
-    if (key) body.typesafe_api_key = key; // write-only; blank keeps the saved key
-    try {
-      await post('/config', body);
-      el('cfg-typesafe-key').value = '';
-      const state = await get('/api/menu');
-      el('cfg-typesafe-key').placeholder = state.suggest?.typesafe_key_set ? '•••• (saved)' : '';
-      this._showEngine(state.suggest);
-      Toast.show('Saved');
-    } catch (e) {
-      Toast.err(e.message);
-    }
+      : 'Suggestions need a TypeSafe key or an AI provider. Set one up in Manage → AI.';
   },
 
   // ── Menu suggestions: a model judges each drink, the server picks a set, you approve ──
@@ -4180,10 +4030,10 @@ const HolidayMenu = {
   },
 };
 
-// ── AI prompt templates (Manage) ───────────────────────────────────────────
+// ── AI settings (Manage → AI): provider, menu suggestions, image prompts ────
 
-const AiPrompts = {
-  // One section per template.
+const Ai = {
+  // One section per prompt template.
   SECTIONS: [
     {
       kind: 'ingredient',
@@ -4197,43 +4047,215 @@ const AiPrompts = {
     },
   ],
 
-  show() {
-    const sections = this.SECTIONS.map(
+  async show() {
+    Modal.open('AI', '<div id="ai-wrap" class="cfg-status">Loading…</div>');
+    let cfg;
+    try {
+      cfg = await get('/api/ai/settings');
+    } catch (e) {
+      // Not allowed (or failed): the message replaces the form.
+      const wrap = el('ai-wrap');
+      if (wrap) {
+        wrap.className = 'cfg-status err';
+        wrap.textContent = e.message;
+      }
+      return;
+    }
+    // Closed (or replaced) while loading: don't reopen it.
+    if (!el('ai-wrap') || el('modal-overlay').classList.contains('hidden')) return;
+    Modal.open(
+      'AI',
+      this._html(cfg),
+      `<button class="btn btn-ghost" onclick="App.modal.close()">Close</button>
+       <button class="btn btn-primary" id="ai-save" onclick="App.ai.save()">Save</button>`
+    );
+    el('cfg-ai-provider').value = cfg.ai_provider || '';
+    this._fill(cfg);
+    this._syncAi();
+    if (cfg.ai_provider) this._loadModels();
+  },
+
+  _html(cfg) {
+    const head = (t) =>
+      `<div style="font-size:0.85rem;font-weight:700;color:var(--accent2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">${t}</div>`;
+    const lbl = 'display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)';
+    const prompts = this.SECTIONS.map(
       (s) => `<div class="form-group">
         <label class="form-label">${escHtml(s.label)}</label>
-        <textarea class="text-input" id="aip-${s.kind}" rows="5">${escHtml(AiImage.templates[s.kind] || AiImage.DEFAULTS[s.kind])}</textarea>
+        <textarea class="text-input" id="aip-${s.kind}" rows="5">${escHtml(cfg[`ai_prompt_${s.kind}`] || AiImage.DEFAULTS[s.kind])}</textarea>
         <div class="cfg-status">${escHtml(s.hint)}</div>
-        <button class="btn btn-ghost" onclick="App.aiPrompts.reset('${s.kind}')">Reset to default</button>
+        <button class="btn btn-ghost" onclick="App.ai.reset('${s.kind}')">Reset to default</button>
       </div>`
     );
-    Modal.open(
-      'AI Prompts',
-      sections.join(''),
-      `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
-       <button class="btn btn-primary" id="aip-save" onclick="App.aiPrompts.save()">Save</button>`
-    );
+    return `
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div>
+          ${head('Provider')}
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <label style="${lbl}">Provider
+              <select id="cfg-ai-provider" class="text-input" onchange="App.ai._providerChanged()">
+                <option value="">None</option>
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="compatible">OpenAI-compatible</option>
+              </select>
+            </label>
+            <label id="cfg-ai-base-wrap" style="display:none;${lbl.replace('display:flex;', '')}">Base URL
+              <input type="url" id="cfg-ai-base" class="text-input" placeholder="http://192.168.1.x:8080/v1" value="${escHtml(cfg.ai_base_url || '')}" onchange="App.ai._loadModels()">
+            </label>
+            <label style="${lbl}">API key
+              <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off" onchange="App.ai._loadModels()">
+            </label>
+            <label style="${lbl}">Image model
+              <select id="cfg-ai-model-select" class="text-input" style="display:none"></select>
+              <input type="text" id="cfg-ai-model" class="text-input" value="${escHtml(cfg.ai_model || '')}">
+            </label>
+            <div id="cfg-ai-model-msg" class="cfg-status"></div>
+            <label style="${lbl}">Chat model for menu suggestions, used when no TypeSafe key is set (blank = default)
+              <input type="text" id="cfg-suggest-model" class="text-input" autocomplete="off" placeholder="e.g. gpt-5.4-mini" value="${escHtml(cfg.menu_suggest_model || '')}">
+            </label>
+          </div>
+        </div>
+        <hr>
+        <div>
+          ${head('Menu suggestions')}
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <label style="${lbl}">TypeSafe API key (optional; used first when set)
+              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
+            </label>
+            <div id="ai-engine" class="cfg-status"></div>
+          </div>
+        </div>
+        <hr>
+        <div>
+          ${head('Image prompts')}
+          ${prompts.join('')}
+        </div>
+        <div id="cfg-ai-message" class="cfg-status"></div>
+      </div>`;
+  },
+
+  // Key placeholders and the engine line, from /api/ai/settings.
+  _fill(cfg) {
+    el('cfg-ai-key').placeholder = cfg.ai_key_set ? '•••• (saved)' : '';
+    el('cfg-typesafe-key').placeholder = cfg.typesafe_key_set ? '•••• (saved)' : '';
+    el('ai-engine').textContent = cfg.engine
+      ? `Suggestions use ${cfg.engine}.`
+      : 'Suggestions need a TypeSafe key here or an AI provider above.';
+  },
+
+  _syncAi() {
+    const p = el('cfg-ai-provider').value;
+    el('cfg-ai-base-wrap').style.display = p === 'compatible' ? 'flex' : 'none';
+    const defaults = { openai: 'gpt-image-2', gemini: 'gemini-2.5-flash-image' };
+    el('cfg-ai-model').placeholder = defaults[p] || (p === 'compatible' ? 'required' : '');
+  },
+
+  _providerChanged() {
+    el('cfg-ai-model').value = '';
+    el('cfg-ai-model-select').style.display = 'none';
+    this._syncAi();
+    this._loadModels();
+  },
+
+  _aiModel() {
+    const sel = el('cfg-ai-model-select');
+    return sel.style.display === 'none' ? el('cfg-ai-model').value.trim() : sel.value;
+  },
+
+  // Fill the model dropdown with the provider's image models; fall back to the
+  // text box (with the reason) when the list can't be loaded.
+  async _loadModels() {
+    const provider = el('cfg-ai-provider').value;
+    const sel = el('cfg-ai-model-select');
+    const input = el('cfg-ai-model');
+    const msg = el('cfg-ai-model-msg');
+    const current = this._aiModel();
+    const req = (this._modelsReq = {});
+    const stale = () => req !== this._modelsReq || !el('cfg-ai-model-select');
+    const useInput = (text) => {
+      sel.style.display = 'none';
+      input.style.display = '';
+      input.value = current;
+      msg.textContent = text;
+      msg.className = 'cfg-status' + (text ? ' err' : '');
+    };
+    if (!provider) return useInput('');
+    msg.textContent = 'Loading models…';
+    msg.className = 'cfg-status';
+    try {
+      const d = await post('/api/ai/models', {
+        provider,
+        base_url: el('cfg-ai-base').value.trim(),
+        api_key: el('cfg-ai-key').value,
+      });
+      if (stale()) return;
+      const models = d.models || [];
+      const pick = current || d.default;
+      if (pick && !models.includes(pick)) models.unshift(pick);
+      if (!models.length) return useInput('No models found — type one.');
+      sel.innerHTML = models
+        .map(
+          (m) =>
+            `<option value="${escHtml(m)}" ${m === pick ? 'selected' : ''}>${escHtml(m)}</option>`
+        )
+        .join('');
+      sel.style.display = '';
+      input.style.display = 'none';
+      msg.textContent = '';
+    } catch (e) {
+      if (!stale()) useInput(e.message);
+    }
   },
 
   reset(kind) {
     el(`aip-${kind}`).value = AiImage.DEFAULTS[kind];
   },
 
+  // One save for the whole card. Keys are write-only: blank keeps the saved key
+  // (a provider change with a blank key clears it, server side).
   async save() {
-    const body = {};
+    const msg = el('cfg-ai-message');
+    const provider = el('cfg-ai-provider').value;
+    const model = this._aiModel();
+    const base = el('cfg-ai-base').value.trim();
+    if (provider === 'compatible' && (!base || !model)) {
+      msg.textContent = '✗ Base URL and model are required';
+      msg.className = 'cfg-status err';
+      return;
+    }
+    const body = {
+      ai_provider: provider,
+      ai_model: model,
+      ai_base_url: base,
+      ai_api_key: el('cfg-ai-key').value,
+      menu_suggest_model: el('cfg-suggest-model').value.trim(),
+    };
+    const typesafe = el('cfg-typesafe-key').value.trim();
+    if (typesafe) body.typesafe_api_key = typesafe;
     for (const { kind } of this.SECTIONS) {
       const val = el(`aip-${kind}`).value.split(/\s+/).join(' ').trim();
       // Saving the default text stores '' so later default changes still apply.
       body[`ai_prompt_${kind}`] = val === AiImage.DEFAULTS[kind] ? '' : val;
     }
-    el('aip-save').disabled = true;
+    el('ai-save').disabled = true;
     try {
       await post('/config', body);
       for (const { kind } of this.SECTIONS) AiImage.templates[kind] = body[`ai_prompt_${kind}`];
-      Modal.close();
-      Toast.show('Prompts saved');
+      el('cfg-ai-key').value = '';
+      el('cfg-typesafe-key').value = '';
+      msg.textContent = '✓ Saved';
+      msg.className = 'cfg-status ok';
+      try {
+        this._fill(await get('/api/ai/settings'));
+      } catch (e) {
+        /* saved; placeholders and engine line refresh on reopen */
+      }
     } catch (e) {
-      el('aip-save').disabled = false;
-      Toast.err(e.message);
+      msg.textContent = '✗ ' + e.message;
+      msg.className = 'cfg-status err';
+    } finally {
+      if (el('ai-save')) el('ai-save').disabled = false;
     }
   },
 };
@@ -4258,7 +4280,7 @@ const App = {
   settings: Settings,
   holidayMenu: HolidayMenu,
   stats: Stats,
-  aiPrompts: AiPrompts,
+  ai: Ai,
 
   _loggedIn: false,
   _initialized: false,

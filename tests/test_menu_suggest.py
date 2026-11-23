@@ -232,7 +232,7 @@ def no_engines(monkeypatch):
 
 def test_suggest_needs_a_key(owner, no_engines):
     r = owner.post("/api/menu/suggest", json={"occasion": "Thanksgiving dinner"})
-    assert r.status_code == 400 and "Suggestions need" in r.get_json()["error"]
+    assert r.status_code == 400 and "Manage → AI" in r.get_json()["error"]
 
 
 def test_engine_prefers_typesafe_then_the_image_provider(no_engines, monkeypatch):
@@ -415,7 +415,7 @@ def test_set_replaces_the_menu_and_publishes(owner, ba):
 def test_typesafe_key_is_write_only(owner, monkeypatch, env):
     monkeypatch.setenv("TYPESAFE_API_KEY", "")
     assert owner.post("/config", json={"typesafe_api_key": " sk-1 "}).status_code == 200
-    cfg = owner.get("/config").get_json()
+    cfg = owner.get("/api/ai/settings").get_json()
     assert cfg["typesafe_key_set"] is True and "sk-1" not in str(cfg)
     assert app_module.os.environ["TYPESAFE_API_KEY"] == "sk-1"
 

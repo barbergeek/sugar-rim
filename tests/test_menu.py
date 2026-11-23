@@ -7,6 +7,7 @@ from tests.test_import_routes import Resp
 BA = "http://ba.test"
 BASE = "https://sugar.example"
 DENIED = "Only bar admins and moderators can manage the holiday menu"
+AI_DENIED = "Only bar admins and moderators can change AI settings"
 
 COCKTAILS = [
     {
@@ -219,10 +220,18 @@ def test_other_roles_are_refused_and_nothing_is_written(owner, ba, env, role):
         assert r.status_code == 403, path
         assert r.get_json()["error"] == DENIED
     assert not (env / "menu").exists()
-    for key in ("menu_page_seconds", "menu_suggest_model", "typesafe_api_key"):
-        assert owner.post("/config", json={key: "9"}).status_code == 403
+    r = owner.post("/config", json={"menu_page_seconds": "9"})
+    assert r.status_code == 403 and r.get_json()["error"] == DENIED
+    for key in app_module.AI_FIELDS:
+        r = owner.post("/config", json={key: "9"})
+        assert r.status_code == 403, key
+        assert r.get_json()["error"] == AI_DENIED
     assert app_module.os.getenv("MENU_PAGE_SECONDS") != "9"
     assert not (env / ".env").exists() or "9" not in (env / ".env").read_text()
+    r = owner.get("/api/ai/settings")
+    assert r.status_code == 403 and r.get_json()["error"] == AI_DENIED
+    r = owner.post("/api/ai/models", json={"provider": "compatible", "base_url": "http://x/v1"})
+    assert r.status_code == 403 and r.get_json()["error"] == AI_DENIED
 
 
 def test_moderator_manages_the_menu(owner, ba, listed):
@@ -248,7 +257,65 @@ def test_no_bar_selected_is_not_permitted(owner, monkeypatch):
 
 def test_other_settings_stay_login_only(owner, ba):
     ba.role = 4
-    assert owner.post("/config", json={"ai_model": "x"}).status_code == 200
+    assert owner.post("/config", json={"bar_id": "1"}).status_code == 200
+
+
+def test_ai_settings_never_return_a_key(owner, ba, monkeypatch):
+    for k, v in {"AI_IMAGE_PROVIDER": "openai", "AI_IMAGE_MODEL": "m",
+                 "AI_IMAGE_BASE_URL": "", "AI_IMAGE_API_KEY": "sk-secret",
+                 "AI_PROMPT_INGREDIENT": "pi", "AI_PROMPT_COCKTAIL": "pc",
+                 "TYPESAFE_API_KEY": "ts-secret", "MENU_SUGGEST_MODEL": "chat"}.items():
+        monkeypatch.setenv(k, v)
+    ba.role = 2
+    r = owner.get("/api/ai/settings")
+    assert r.status_code == 200
+    assert "sk-secret" not in r.get_data(as_text=True)
+    assert "ts-secret" not in r.get_data(as_text=True)
+    assert r.get_json() == {
+        "ai_provider": "openai", "ai_model": "m", "ai_base_url": "", "ai_key_set": True,
+        "ai_prompt_ingredient": "pi", "ai_prompt_cocktail": "pc",
+        "typesafe_key_set": True, "menu_suggest_model": "chat", "engine": "TypeSafe Jev",
+    }
+
+
+def test_ai_settings_show_no_engine(owner, ba, monkeypatch):
+    for k in ("AI_IMAGE_PROVIDER", "AI_IMAGE_API_KEY", "TYPESAFE_API_KEY"):
+        monkeypatch.setenv(k, "")
+    cfg = owner.get("/api/ai/settings").get_json()
+    assert cfg["engine"] is None and cfg["ai_key_set"] is False
+    assert cfg["typesafe_key_set"] is False
+
+
+def test_ai_settings_need_login(guest):
+    assert guest.get("/api/ai/settings").status_code == 401
+
+
+def test_admin_saves_ai_settings(owner, ba, env, monkeypatch):
+    for k in ("AI_IMAGE_PROVIDER", "AI_IMAGE_API_KEY", "MENU_SUGGEST_MODEL"):
+        monkeypatch.setenv(k, "")  # so teardown restores what the app writes
+    r = owner.post("/config", json={"ai_provider": "openai", "ai_api_key": "k",
+                                    "menu_suggest_model": "chat"})
+    assert r.status_code == 200
+    assert app_module.os.environ["MENU_SUGGEST_MODEL"] == "chat"
+
+
+def test_one_save_keeps_saved_keys(owner, ba, env, monkeypatch):
+    # The exact body App.ai.save() sends with both key fields left blank.
+    monkeypatch.setenv("AI_IMAGE_PROVIDER", "openai")
+    monkeypatch.setenv("AI_IMAGE_API_KEY", "sk-old")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-old")
+    for k in ("AI_IMAGE_MODEL", "AI_IMAGE_BASE_URL", "MENU_SUGGEST_MODEL",
+              "AI_PROMPT_INGREDIENT", "AI_PROMPT_COCKTAIL"):
+        monkeypatch.setenv(k, "x")
+    r = owner.post("/config", json={
+        "ai_provider": "openai", "ai_model": "m", "ai_base_url": "", "ai_api_key": "",
+        "menu_suggest_model": "chat", "ai_prompt_ingredient": "", "ai_prompt_cocktail": "",
+    })
+    assert r.status_code == 200
+    cfg = owner.get("/api/ai/settings").get_json()
+    assert cfg["ai_key_set"] is True and cfg["typesafe_key_set"] is True
+    assert cfg["ai_model"] == "m" and cfg["menu_suggest_model"] == "chat"
+    assert cfg["ai_prompt_ingredient"] == "" and cfg["ai_prompt_cocktail"] == ""
 
 
 def test_publish_snapshots_the_list_in_order(owner, env, ba):
