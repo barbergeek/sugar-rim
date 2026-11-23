@@ -42,7 +42,6 @@ DEADLINE = 60  # seconds for a whole suggestion; Cloudflare gives up near 100
 
 MENU_SIZE = 4
 MAX_MISSING = 2  # drinks needing more than this many purchases are left out
-MAX_POOL = 250  # cap on drinks judged per suggestion (newest first)
 
 YES, NO = 0.7, 0.3  # Noul thresholds; between them is "not settled"
 CLASH_MAX = 0.5  # P(out of place) above this drops a drink
@@ -159,7 +158,7 @@ def missing_ingredients(cocktail, shelf_ids):
 def candidates(cocktails, shelf_ids):
     """Drinks at most MAX_MISSING purchases away, newest first: recent additions
     are the likeliest to be meant for the occasion, so they're judged (and
-    shown) first and are the ones kept when the pool is capped."""
+    shown) first. Every one is judged; there is no cap."""
     pool = []
     for c in cocktails:
         if not c.get("ingredients"):
@@ -516,7 +515,7 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
     on_answers) is TypeSafe or a chat model. Closing the generator stops any
     further questions; a failure raises SuggestError."""
     pool = candidates(cocktails, shelf_ids)
-    considered = pool[:MAX_POOL]
+    considered = pool
     by_id = {c["id"]: (c, missing) for c, missing in considered}
     head = {
         "occasion": occasion,

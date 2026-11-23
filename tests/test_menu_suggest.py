@@ -176,6 +176,13 @@ def jev(monkeypatch):
     return calls
 
 
+def test_every_candidate_is_judged_no_cap(jev, monkeypatch):
+    monkeypatch.setattr(ms, "WORKERS", 32)
+    many = [{**CATALOG[1], "id": 1000 + n, "name": f"Drink {1000 + n}"} for n in range(300)]
+    out = ms.suggest(TS, "Thanksgiving dinner", many, set())
+    assert out["considered"] == 300 and len(jev) == 300
+
+
 def test_suggest_asks_one_request_per_drink(jev):
     # Cider Sour is 2 purchases away (optional bitters don't count); Drink 3
     # lists no ingredients, so it isn't judged at all.
