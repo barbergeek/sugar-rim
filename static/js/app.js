@@ -3467,6 +3467,9 @@ const HolidayMenu = {
   async suggestMenu() {
     const occasion = el('cfg-menu-occasion').value.trim();
     if (!occasion) return;
+    // Read the dialog before the suggestion popup replaces it.
+    const theme = el('cfg-menu-theme').value;
+    const fresh = this._takeFresh();
     this._menuName = App.cocktails._menu?.menu?.title || '';
     const sg = (this._sg = {
       occasion,
@@ -3494,8 +3497,8 @@ const HolidayMenu = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           occasion,
-          theme: el('cfg-menu-theme').value,
-          fresh: this._takeFresh(),
+          theme,
+          fresh,
         }),
         signal: sg.ctrl.signal,
       });
