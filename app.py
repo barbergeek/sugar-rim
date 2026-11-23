@@ -918,7 +918,8 @@ def menu_suggest_route(body):
     run. A client that disconnects stops the questions."""
     engine = _suggest_engine()
     if not engine:
-        raise MenuError("Set up a TypeSafe key or an AI provider in Manage → AI")
+        raise MenuError("Menu suggestions need an AI provider and chat model. "
+                        "Set them up in Manage → AI")
     occasion = " ".join(str(body.get("occasion") or "").split())[:120]
     if not occasion:
         raise MenuError("Say what the occasion is, e.g. Thanksgiving dinner")
@@ -1210,29 +1211,41 @@ def _cut_out_background(data, mime):
     return buf.getvalue(), "image/png"
 
 
-def _list_image_models(provider, key, base):
-    """Model ids the provider offers for image generation, sorted."""
+# Model ids that can't do chat, by substring (OpenAI lists everything together).
+_NOT_CHAT = ("image", "audio", "realtime", "tts", "transcribe", "search", "embedding",
+             "instruct", "moderation", "whisper", "dall-e", "davinci", "babbage", "aqa")
+
+
+def _list_models(provider, key, base):
+    """(image model ids, chat model ids) the provider offers, each sorted."""
     if provider == "openai":
         r = http.get("https://api.openai.com/v1/models",
                      headers={"Authorization": f"Bearer {key}"}, timeout=20)
         if not r.ok:
             raise AIImageError(_provider_error(r))
         ids = [m.get("id", "") for m in r.json().get("data") or []]
-        return sorted(i for i in ids if i.startswith(("gpt-image", "chatgpt-image", "dall-e")))
+        image = [i for i in ids if i.startswith(("gpt-image", "chatgpt-image", "dall-e"))]
+        chat = [i for i in ids if i.startswith(("gpt-", "chatgpt-", "o1", "o3", "o4"))
+                and not any(x in i for x in _NOT_CHAT)]
+        return sorted(image), sorted(chat)
     if provider == "gemini":
         r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
                      headers={"x-goog-api-key": key}, params={"pageSize": 1000}, timeout=20)
         if not r.ok:
             raise AIImageError(_provider_error(r))
-        return sorted(m["name"].removeprefix("models/") for m in r.json().get("models") or []
-                      if "image" in m.get("name", "")
-                      and "generateContent" in (m.get("supportedGenerationMethods") or []))
-    if provider == "compatible":  # no way to tell image models apart; list them all
+        names = [m["name"].removeprefix("models/") for m in r.json().get("models") or []
+                 if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+        image = [n for n in names if "image" in n]
+        chat = [n for n in names if n.startswith(("gemini", "gemma"))
+                and not any(x in n for x in _NOT_CHAT)]
+        return sorted(image), sorted(chat)
+    if provider == "compatible":  # no way to tell model kinds apart; list them all
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         r = http.get(f"{base.rstrip('/')}/models", headers=headers, timeout=20)
         if not r.ok:
             raise AIImageError(_provider_error(r))
-        return sorted(m.get("id", "") for m in r.json().get("data") or [] if m.get("id"))
+        ids = sorted(m.get("id", "") for m in r.json().get("data") or [] if m.get("id"))
+        return ids, ids
     raise AIImageError("Choose a provider first.", 400)
 
 
@@ -1276,12 +1289,14 @@ def ai_models():
     if provider == "compatible" and not base:
         return jsonify({"error": "Enter a base URL to load models."}), 400
     try:
-        models = _list_image_models(provider, key, base)
+        image, chat = _list_models(provider, key, base)
     except AIImageError as e:
         return jsonify({"error": str(e)}), e.status
     except (http.exceptions.RequestException, ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 502
-    return jsonify({"models": models, "default": AI_DEFAULT_MODELS.get(provider, "")})
+    return jsonify({"models": image, "default": AI_DEFAULT_MODELS.get(provider, ""),
+                    "chat_models": chat,
+                    "chat_default": menu_suggest.LLM_DEFAULT_MODELS.get(provider, "")})
 
 
 @app.route("/api/ai/image", methods=["POST"])

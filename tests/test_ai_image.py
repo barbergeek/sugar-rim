@@ -355,11 +355,15 @@ def models(client, **body):
 
 def test_models_openai_filters_image_models(client, monkeypatch):
     data = {"data": [{"id": i} for i in
-                     ("gpt-5", "gpt-image-2", "dall-e-3", "whisper-1", "gpt-image-1-mini", "chatgpt-image-latest")]}
+                     ("gpt-5", "gpt-image-2", "dall-e-3", "whisper-1", "gpt-image-1-mini", "chatgpt-image-latest",
+                      "gpt-5.4-mini", "gpt-4o-realtime-preview", "gpt-4o-mini-tts", "o3", "text-embedding-3-small",
+                      "gpt-3.5-turbo-instruct")]}
     calls = capture_get(monkeypatch, Resp(json_data=data))
     r = models(client, provider="openai", api_key="sk-typed")
     assert r.get_json() == {"models": ["chatgpt-image-latest", "dall-e-3", "gpt-image-1-mini", "gpt-image-2"],
-                            "default": "gpt-image-2"}
+                            "default": "gpt-image-2",
+                            "chat_models": ["gpt-5", "gpt-5.4-mini", "o3"],
+                            "chat_default": "gpt-5.4-mini"}
     assert calls[0][1]["headers"]["Authorization"] == "Bearer sk-typed"
 
 
@@ -370,8 +374,14 @@ def test_models_gemini_filters_image_generate_content(client, monkeypatch):
         {"name": "models/imagen-4.0-generate-001", "supportedGenerationMethods": ["predict"]},
     ]}
     capture_get(monkeypatch, Resp(json_data=data))
+    data["models"].append({"name": "models/gemini-2.5-flash-preview-tts",
+                           "supportedGenerationMethods": ["generateContent"]})
+    data["models"].append({"name": "models/text-embedding-004",
+                           "supportedGenerationMethods": ["embedContent"]})
     r = models(client, provider="gemini", api_key="gk")
     assert r.get_json()["models"] == ["gemini-2.5-flash-image"]
+    assert r.get_json()["chat_models"] == ["gemini-2.5-flash"]
+    assert r.get_json()["chat_default"] == "gemini-2.5-flash"
 
 
 def test_models_uses_saved_key_only_for_saved_provider(client, monkeypatch):
@@ -388,6 +398,7 @@ def test_models_compatible_lists_all(client, monkeypatch):
     calls = capture_get(monkeypatch, Resp(json_data={"data": [{"id": "flux"}, {"id": "sdxl"}]}))
     r = models(client, provider="compatible", base_url="http://h:8080/v1/")
     assert r.get_json()["models"] == ["flux", "sdxl"]
+    assert r.get_json()["chat_models"] == ["flux", "sdxl"] and r.get_json()["chat_default"] == ""
     assert calls[0][0] == "http://h:8080/v1/models"
 
 

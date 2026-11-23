@@ -3432,7 +3432,7 @@ const HolidayMenu = {
   _showEngine(s) {
     el('hm-engine').textContent = s?.ready
       ? `Suggestions use ${s.engine}.`
-      : 'Suggestions need a TypeSafe key or an AI provider. Set one up in Manage → AI.';
+      : 'Suggestions need an AI provider and chat model. Set them up in Manage → AI.';
   },
 
   // ── Menu suggestions: a model judges each drink, the server picks a set, you approve ──
@@ -4087,6 +4087,13 @@ const Ai = {
         <button class="btn btn-ghost" onclick="App.ai.reset('${s.kind}')">Reset to default</button>
       </div>`
     );
+    // A model picker: a dropdown once the provider's list loads, else a text box.
+    const picker = (kind, label, hint, value) => `
+            <label style="${lbl}">${label}
+              <select id="cfg-${kind}-model-select" class="text-input" style="display:none"></select>
+              <input type="text" id="cfg-${kind}-model" class="text-input" autocomplete="off" value="${escHtml(value || '')}">
+            </label>
+            <div class="cfg-status" style="margin-top:-4px">${hint}</div>`;
     return `
       <div style="display:flex;flex-direction:column;gap:20px">
         <div>
@@ -4106,23 +4113,15 @@ const Ai = {
             <label style="${lbl}">API key
               <input type="password" id="cfg-ai-key" class="text-input" autocomplete="off" onchange="App.ai._loadModels()">
             </label>
-            <label style="${lbl}">Image model
-              <select id="cfg-ai-model-select" class="text-input" style="display:none"></select>
-              <input type="text" id="cfg-ai-model" class="text-input" value="${escHtml(cfg.ai_model || '')}">
-            </label>
-            <div id="cfg-ai-model-msg" class="cfg-status"></div>
-            <label style="${lbl}">Chat model for menu suggestions, used when no TypeSafe key is set (blank = default)
-              <input type="text" id="cfg-suggest-model" class="text-input" autocomplete="off" placeholder="e.g. gpt-5.4-mini" value="${escHtml(cfg.menu_suggest_model || '')}">
-            </label>
           </div>
         </div>
         <hr>
         <div>
-          ${head('Menu suggestions')}
+          ${head('Models')}
           <div style="display:flex;flex-direction:column;gap:10px">
-            <label style="${lbl}">TypeSafe API key (optional; used first when set)
-              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
-            </label>
+            <div id="cfg-ai-model-msg" class="cfg-status"></div>
+            ${picker('image', 'Image model', 'Makes the cocktail and ingredient photos.', cfg.ai_model)}
+            ${picker('chat', 'Chat model', 'Picks drinks for Holiday Menu suggestions.', cfg.menu_suggest_model)}
             <div id="ai-engine" class="cfg-status"></div>
           </div>
         </div>
@@ -4130,6 +4129,16 @@ const Ai = {
         <div>
           ${head('Image prompts')}
           ${prompts.join('')}
+        </div>
+        <hr>
+        <div>
+          ${head('TypeSafe (optional)')}
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="cfg-status">Not needed: the chat model above handles menu suggestions. If you add a TypeSafe key, suggestions use TypeSafe instead.</div>
+            <label style="${lbl}">TypeSafe API key
+              <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
+            </label>
+          </div>
         </div>
         <div id="cfg-ai-message" class="cfg-status"></div>
       </div>`;
@@ -4139,73 +4148,103 @@ const Ai = {
   _fill(cfg) {
     el('cfg-ai-key').placeholder = cfg.ai_key_set ? '•••• (saved)' : '';
     el('cfg-typesafe-key').placeholder = cfg.typesafe_key_set ? '•••• (saved)' : '';
-    el('ai-engine').textContent = cfg.engine
-      ? `Suggestions use ${cfg.engine}.`
-      : 'Suggestions need a TypeSafe key here or an AI provider above.';
+    el('ai-engine').textContent = !cfg.engine
+      ? 'Menu suggestions are off until a provider and chat model are set.'
+      : cfg.typesafe_key_set
+        ? `Menu suggestions use ${cfg.engine}, because a TypeSafe key is saved.`
+        : `Menu suggestions use ${cfg.engine}.`;
+  },
+
+  // Defaults when the model list can't load (mirrors the server's).
+  _DEFAULTS: {
+    image: { openai: 'gpt-image-2', gemini: 'gemini-2.5-flash-image' },
+    chat: { openai: 'gpt-5.4-mini', gemini: 'gemini-2.5-flash' },
   },
 
   _syncAi() {
     const p = el('cfg-ai-provider').value;
     el('cfg-ai-base-wrap').style.display = p === 'compatible' ? 'flex' : 'none';
-    const defaults = { openai: 'gpt-image-2', gemini: 'gemini-2.5-flash-image' };
-    el('cfg-ai-model').placeholder = defaults[p] || (p === 'compatible' ? 'required' : '');
+    for (const kind of ['image', 'chat']) {
+      const d = this._DEFAULTS[kind][p];
+      el(`cfg-${kind}-model`).placeholder = d
+        ? `blank = default (${d})`
+        : p === 'compatible'
+          ? kind === 'image'
+            ? 'required'
+            : 'blank = no menu suggestions'
+          : '';
+    }
   },
 
   _providerChanged() {
-    el('cfg-ai-model').value = '';
-    el('cfg-ai-model-select').style.display = 'none';
+    for (const kind of ['image', 'chat']) {
+      el(`cfg-${kind}-model`).value = '';
+      el(`cfg-${kind}-model-select`).style.display = 'none';
+      el(`cfg-${kind}-model`).style.display = '';
+    }
     this._syncAi();
     this._loadModels();
   },
 
-  _aiModel() {
-    const sel = el('cfg-ai-model-select');
-    return sel.style.display === 'none' ? el('cfg-ai-model').value.trim() : sel.value;
+  _model(kind) {
+    const sel = el(`cfg-${kind}-model-select`);
+    return sel.style.display === 'none' ? el(`cfg-${kind}-model`).value.trim() : sel.value;
   },
 
-  // Fill the model dropdown with the provider's image models; fall back to the
-  // text box (with the reason) when the list can't be loaded.
+  // Fill both dropdowns from the provider's model list. The first option is the
+  // provider default (saved as blank); fall back to text boxes when the list
+  // can't be loaded.
   async _loadModels() {
     const provider = el('cfg-ai-provider').value;
-    const sel = el('cfg-ai-model-select');
-    const input = el('cfg-ai-model');
     const msg = el('cfg-ai-model-msg');
-    const current = this._aiModel();
+    const current = { image: this._model('image'), chat: this._model('chat') };
     const req = (this._modelsReq = {});
-    const stale = () => req !== this._modelsReq || !el('cfg-ai-model-select');
-    const useInput = (text) => {
-      sel.style.display = 'none';
-      input.style.display = '';
-      input.value = current;
+    const stale = () => req !== this._modelsReq || !el('cfg-image-model-select');
+    const useInputs = (text) => {
+      for (const kind of ['image', 'chat']) {
+        el(`cfg-${kind}-model-select`).style.display = 'none';
+        el(`cfg-${kind}-model`).style.display = '';
+        el(`cfg-${kind}-model`).value = current[kind];
+      }
       msg.textContent = text;
       msg.className = 'cfg-status' + (text ? ' err' : '');
     };
-    if (!provider) return useInput('');
+    if (!provider) return useInputs('');
     msg.textContent = 'Loading models…';
     msg.className = 'cfg-status';
+    let d;
     try {
-      const d = await post('/api/ai/models', {
+      d = await post('/api/ai/models', {
         provider,
         base_url: el('cfg-ai-base').value.trim(),
         api_key: el('cfg-ai-key').value,
       });
-      if (stale()) return;
-      const models = d.models || [];
-      const pick = current || d.default;
-      if (pick && !models.includes(pick)) models.unshift(pick);
-      if (!models.length) return useInput('No models found — type one.');
-      sel.innerHTML = models
-        .map(
-          (m) =>
-            `<option value="${escHtml(m)}" ${m === pick ? 'selected' : ''}>${escHtml(m)}</option>`
-        )
-        .join('');
-      sel.style.display = '';
-      input.style.display = 'none';
-      msg.textContent = '';
     } catch (e) {
-      if (!stale()) useInput(e.message);
+      if (!stale()) useInputs(e.message);
+      return;
     }
+    if (stale()) return;
+    const lists = {
+      image: { models: d.models || [], def: d.default, none: 'Choose a model' },
+      chat: {
+        models: d.chat_models || [],
+        def: d.chat_default,
+        none: 'None (menu suggestions off)',
+      },
+    };
+    for (const kind of ['image', 'chat']) {
+      const { models, def, none } = lists[kind];
+      const cur = current[kind];
+      if (cur && !models.includes(cur)) models.unshift(cur);
+      const first = def ? `Default (${def})` : none;
+      const opt = (v, t) =>
+        `<option value="${escHtml(v)}" ${v === cur ? 'selected' : ''}>${escHtml(t)}</option>`;
+      el(`cfg-${kind}-model-select`).innerHTML =
+        opt('', first) + models.map((m) => opt(m, m)).join('');
+      el(`cfg-${kind}-model-select`).style.display = '';
+      el(`cfg-${kind}-model`).style.display = 'none';
+    }
+    msg.textContent = '';
   },
 
   reset(kind) {
@@ -4217,10 +4256,10 @@ const Ai = {
   async save() {
     const msg = el('cfg-ai-message');
     const provider = el('cfg-ai-provider').value;
-    const model = this._aiModel();
+    const model = this._model('image');
     const base = el('cfg-ai-base').value.trim();
     if (provider === 'compatible' && (!base || !model)) {
-      msg.textContent = '✗ Base URL and model are required';
+      msg.textContent = '✗ Base URL and image model are required';
       msg.className = 'cfg-status err';
       return;
     }
@@ -4229,7 +4268,7 @@ const Ai = {
       ai_model: model,
       ai_base_url: base,
       ai_api_key: el('cfg-ai-key').value,
-      menu_suggest_model: el('cfg-suggest-model').value.trim(),
+      menu_suggest_model: this._model('chat'),
     };
     const typesafe = el('cfg-typesafe-key').value.trim();
     if (typesafe) body.typesafe_api_key = typesafe;
