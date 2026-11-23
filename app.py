@@ -6,6 +6,8 @@ import io
 import math
 import socket
 import secrets
+import tempfile
+import threading
 import logging
 import ipaddress
 from datetime import datetime, timedelta, timezone
@@ -918,6 +920,55 @@ def _ba_all(path, headers, params=None):
         page += 1
 
 
+SUGGEST_CACHE_KEYS = 20  # most recently used theme + engine pairs kept
+_suggest_cache_lock = threading.Lock()  # one read-modify-write at a time
+
+
+def _suggest_cache_path():
+    return os.path.join(menu.menu_dir(ENV_PATH), "suggest-cache.json")
+
+
+def _load_suggest_cache():
+    """{key: {"occasion", "drinks"}}, least recently used first; {} if missing or bad."""
+    try:
+        with open(_suggest_cache_path()) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+        app.logger.warning("Ignoring suggestion cache: not a JSON object")
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as e:
+        app.logger.warning("Ignoring unreadable suggestion cache: %s", e)
+    return {}
+
+
+def _stored_drinks(entry):
+    drinks = entry.get("drinks") if isinstance(entry, dict) else None
+    return dict(drinks) if isinstance(drinks, dict) else {}
+
+
+def _save_suggest_cache(key, entry):
+    """Replace one key (re-read first, so a concurrent run's key survives),
+    keep the most recently used, and write atomically. entry may be a function
+    of the key's current entry, called under the lock."""
+    with _suggest_cache_lock:
+        data = _load_suggest_cache()
+        prev = data.pop(key, None)
+        data[key] = entry(prev) if callable(entry) else entry
+        data = dict(list(data.items())[-SUGGEST_CACHE_KEYS:])
+        path = _suggest_cache_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except BaseException:
+            os.remove(tmp)
+            raise
+
+
 @app.route("/api/menu/suggest", methods=["POST"])
 @_menu_route
 def menu_suggest_route(body):
@@ -938,13 +989,46 @@ def menu_suggest_route(body):
     shelf = {i.get("id") for i in _ba_all(f"/bars/{bid}/ingredients", auth_headers())}
     cocktails = _ba_all("/cocktails", ba_headers(),
                         {"include": "ingredients.ingredient,glass,method"})
-    stream = menu_suggest.suggest_stream(engine[1], occasion, cocktails, shelf)
+    # Stored answers are per bar and theme, not per wording. TypeSafe's label
+    # doesn't name its pinned model, and a compatible provider's doesn't name
+    # its server, so add them.
+    ident = engine[0]
+    if ident.startswith("TypeSafe"):
+        ident += f" {menu_suggest.MODEL}"
+    elif os.getenv("AI_IMAGE_PROVIDER", "") == "compatible":
+        ident += f" @ {os.getenv('AI_IMAGE_BASE_URL', '')}"
+    key = menu_suggest.cache_key(bid, menu.theme(body.get("theme"))["id"], ident)
+    fresh = bool(body.get("fresh"))
+    before = _load_suggest_cache().get(key)
+    old_occasion = before.get("occasion") if isinstance(before, dict) else None
+    drinks = {} if fresh else _stored_drinks(before)
+    originals = dict(drinks)  # to tell newly judged entries from reused ones
+    stream = menu_suggest.suggest_stream(engine[1], occasion, cocktails, shelf, drinks)
+    reused = [0]
+    library = {str(c.get("id")) for c in cocktails}
+
+    def merged(prev):
+        """The entry to save. A fresh run (maybe cancelled) lays its answers
+        over the older ones instead of dropping those it didn't reach; this
+        run's judgments go last. The occasion named is the stored one only
+        while answers reused from it outnumber the new ones."""
+        out = drinks
+        if fresh:
+            out = {k: v for k, v in _stored_drinks(prev).items()
+                   if k in library and k not in drinks}
+            out.update(drinks)
+        new = sum(1 for k, v in drinks.items() if originals.get(k) is not v)
+        label = old_occasion if old_occasion and reused[0] > new else occasion
+        return {"occasion": label, "drinks": out}
 
     def events():
         try:
             for ev in stream:
                 if ev["type"] == "start":
                     ev["engine"] = engine[0]
+                    reused[0] = ev["cached"]
+                    if ev["cached"] and old_occasion and old_occasion != occasion:
+                        ev["cached_occasion"] = old_occasion
                 yield json.dumps(ev) + "\n"
         except menu_suggest.SuggestError as e:
             yield json.dumps({"type": "error", "error": str(e)}) + "\n"
@@ -953,6 +1037,11 @@ def menu_suggest_route(body):
             yield json.dumps({"type": "error", "error": "Suggestion failed; try again"}) + "\n"
         finally:
             stream.close()
+            # Partial runs count: whatever was judged is kept for next time.
+            try:
+                _save_suggest_cache(key, merged)
+            except Exception:
+                app.logger.exception("Couldn't save menu suggestion answers")
 
     return Response(events(), mimetype="application/x-ndjson",
                     headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

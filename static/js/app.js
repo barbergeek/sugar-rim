@@ -3387,6 +3387,9 @@ const HolidayMenu = {
               <input type="text" id="cfg-menu-occasion" class="text-input" placeholder="e.g. Thanksgiving dinner">
             </label>
             <button class="btn btn-ghost btn-wide" onclick="App.holidayMenu.suggestMenu()">Suggest a Menu</button>
+            <label style="display:flex;gap:8px;align-items:center;font-size:0.9rem;color:var(--text-dim)">
+              <input type="checkbox" id="cfg-menu-fresh"> Start fresh (judge every drink again)
+            </label>
             <div id="hm-engine" class="cfg-status"></div>
           </div>
         </div>`;
@@ -3470,6 +3473,8 @@ const HolidayMenu = {
       engine: '',
       considered: null,
       judged: 0,
+      cached: 0, // answers remembered from an earlier run for this theme
+      cachedOccasion: null, // the occasion they were judged for, when it differs
       latest: '',
       drinks: new Map(), // id → assessed drink, as judged
       pickIds: new Map(), // id → why it was picked (role), for the menu so far
@@ -3487,7 +3492,11 @@ const HolidayMenu = {
       const resp = await fetch('/api/menu/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ occasion }),
+        body: JSON.stringify({
+          occasion,
+          theme: el('cfg-menu-theme').value,
+          fresh: this._takeFresh(),
+        }),
         signal: sg.ctrl.signal,
       });
       if (!resp.ok) {
@@ -3522,16 +3531,26 @@ const HolidayMenu = {
     this._queueSuggestRender();
   },
 
+  // Start fresh applies to one run: read it, then untick it.
+  _takeFresh() {
+    const box = el('cfg-menu-fresh');
+    const fresh = !!box?.checked;
+    if (box) box.checked = false;
+    return fresh;
+  },
+
   _onSuggestEvent(sg, ev) {
     if (sg !== this._sg || sg.state !== 'running') return;
     if (ev.type === 'start') {
       sg.engine = ev.engine || '';
       sg.considered = ev.considered;
+      sg.cached = ev.cached || 0;
+      sg.cachedOccasion = ev.cached_occasion ?? null;
     } else if (ev.type === 'judged') {
       ev.drinks.forEach((d) => sg.drinks.set(d.id, d));
       sg.judged = ev.judged;
       sg.pickIds = new Map(ev.picks.map((p) => [p.id, p.role]));
-      sg.latest = ev.drinks[ev.drinks.length - 1]?.name || '';
+      if (!ev.remembered) sg.latest = ev.drinks[ev.drinks.length - 1]?.name || '';
     } else if (ev.type === 'done') {
       [...ev.picks, ...ev.alternates].forEach((d) => sg.drinks.set(d.id, d));
       sg.pickIds = new Map(ev.picks.map((p) => [p.id, p.role]));
@@ -3813,18 +3832,21 @@ const HolidayMenu = {
     const of = sg.considered == null ? '' : ` of ${sg.considered}`;
 
     // The working banner: what's happening now, and how far along.
+    const remembered = sg.cached
+      ? ` (${sg.cached} remembered from ${sg.cachedOccasion != null ? `‘${escHtml(sg.cachedOccasion)}’` : 'last time'})`
+      : '';
     const pct = sg.considered ? Math.round((100 * sg.judged) / sg.considered) : 0;
     let line, sub;
     if (running) {
       line =
         sg.considered == null
           ? 'Looking over your shelf and recipes…'
-          : `Asking ${escHtml(sg.engine || 'the model')} about your drinks: ${sg.judged}${of} judged`;
+          : `Asking ${escHtml(sg.engine || 'the model')} about your drinks: ${sg.judged}${of} judged${remembered}`;
       sub = sg.latest
         ? `Just judged: ${escHtml(sg.latest)}`
         : 'The menu fills in below as drinks are judged.';
     } else if (sg.state === 'done') {
-      line = `Judged ${sg.judged} drinks you can make or are at most two ingredients away from.`;
+      line = `Judged ${sg.judged} drinks you can make or are at most two ingredients away from${remembered}.`;
       sub = sg.unfilled.map(escHtml).join(' · ');
     } else if (sg.state === 'cancelled') {
       line = `Stopped after judging ${sg.judged}${of} drinks.`;

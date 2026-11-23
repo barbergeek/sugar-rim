@@ -442,7 +442,13 @@ def test_typesafe_key_is_write_only(owner, monkeypatch, env):
 def test_stream_reports_each_drink_as_it_is_judged(jev):
     pool = [{**CATALOG[1], "id": i, "name": f"Drink {i}"} for i in range(5)]
     events = list(ms.suggest_stream(TS, "x", pool, set()))
-    assert events[0] == {"type": "start", "occasion": "x", "considered": 5, "total": 5}
+    assert events[0] == {
+        "type": "start",
+        "occasion": "x",
+        "considered": 5,
+        "total": 5,
+        "cached": 0,
+    }
     judged = [e for e in events if e["type"] == "judged"]
     assert [e["judged"] for e in judged] == [1, 2, 3, 4, 5]
     assert sorted(d["id"] for e in judged for d in e["drinks"]) == list(range(5))
@@ -496,3 +502,321 @@ def test_a_slow_run_hits_the_deadline(monkeypatch):
             ms.judge("k", "x", [(CATALOG[1], [])])
     finally:
         gate.set()
+
+
+# ── Remembered answers ────────────────────────────────────────────────────────
+
+
+def library(n):
+    return [{**CATALOG[1], "id": i, "name": f"Drink {i}"} for i in range(n)]
+
+
+def picked(events):
+    return [p["id"] for p in events[-1]["picks"]]
+
+
+def test_a_repeat_run_only_asks_about_new_or_edited_drinks(jev):
+    cache = {}
+    first = list(ms.suggest_stream(TS, "x", library(5), set(), cache))
+    assert len(jev) == 5 and sorted(cache) == ["0", "1", "2", "3", "4"]
+
+    jev.clear()
+    again = list(ms.suggest_stream(TS, "x", library(5), set(), cache))
+    assert jev == []  # nothing changed: nothing sent
+    assert again[0]["cached"] == 5
+    assert [e["type"] for e in again] == ["start", "judged", "done"]
+    assert picked(again) == picked(first)
+
+    drinks = library(8)  # three added...
+    drinks[2] = {**drinks[2], "description": "Now with smoked salt"}  # ...one edited
+    events = list(ms.suggest_stream(TS, "x", drinks, set(), cache))
+    assert events[0]["cached"] == 4
+    assert sorted(c["state"]["drink"]["name"] for c in jev) == [
+        "Drink 2",
+        "Drink 5",
+        "Drink 6",
+        "Drink 7",
+    ]
+    assert events[1]["judged"] == 4  # remembered answers arrive first, all at once
+    assert events[-1]["considered"] == 8
+
+
+def test_drinks_gone_from_the_library_are_forgotten(jev):
+    cache = {}
+    list(ms.suggest_stream(TS, "x", library(3), set(), cache))
+    far = {**CATALOG[1], "id": 1, "name": "Drink 1", "ingredients": [ing(7, "P")] * 3}
+    list(ms.suggest_stream(TS, "x", [library(3)[0], far], set(), cache))
+    # 2 left the library; 1 is just too far from the shelf now, so it's kept.
+    assert sorted(cache) == ["0", "1"]
+
+
+def test_a_repeat_chat_run_gives_the_same_picks(monkeypatch):
+    def post(url, json=None, headers=None, timeout=None):
+        import json as _json
+
+        drinks = _json.loads(json["messages"][1]["content"])["drinks"]
+        # Every drink ties, so only the order they're seen in can decide.
+        return chat({"drinks": [entry(d["id"]) for d in drinks]})
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "LLM_BATCH", 3)
+
+    def judge(occasion, pool, on_answers=None):
+        return ms.judge_llm(LLM, occasion, pool, on_answers)
+
+    cache = {}
+    first = list(ms.suggest_stream(judge, "x", library(12), set(), cache))
+    stored = json.loads(json.dumps(cache))  # as it comes back from the file
+    again = list(ms.suggest_stream(judge, "x", library(12), set(), stored))
+    assert again[0]["cached"] == 12 and picked(again) == picked(first)
+
+
+def test_a_cancelled_run_keeps_what_was_judged(monkeypatch):
+    calls = []
+
+    def post(*a, **k):
+        calls.append(1)
+        time.sleep(0.02)  # a real call takes a while
+        return Resp(json_data={"answers": answers()})
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "WORKERS", 1)
+    cache = {}
+    stream = ms.suggest_stream(TS, "x", library(30), set(), cache)
+    next(stream)  # start
+    next(stream)  # first drink judged
+    stream.close()  # the popup was closed
+    assert 1 <= len(cache) < 30
+    time.sleep(0.1)  # let the cancelled run's last call finish
+    calls.clear()
+    events = list(ms.suggest_stream(TS, "x", library(30), set(), cache))
+    assert events[0]["cached"] == 30 - len(calls)  # picks up where it stopped
+    assert len(cache) == 30
+
+
+def test_cache_key_names_theme_engine_and_questions(monkeypatch):
+    key = ms.cache_key("1", "thanksgiving", "TypeSafe Jev jev-1.14.0")
+    assert key != ms.cache_key("2", "thanksgiving", "TypeSafe Jev jev-1.14.0")
+    assert key != ms.cache_key("1", "christmas", "TypeSafe Jev jev-1.14.0")
+    assert key != ms.cache_key("1", "thanksgiving", "OpenAI gpt-5.4-mini")
+    monkeypatch.setitem(ms.QUESTIONS["fit"], "instructions", "Reworded?")
+    assert key != ms.cache_key("1", "thanksgiving", "TypeSafe Jev jev-1.14.0")
+
+
+@pytest.fixture
+def engines(owner, monkeypatch):
+    """Fake engines on the suggest route; each records the drinks it was asked about."""
+    asked = {"A": [], "B": []}
+    use = {"engine": "A", "drinks": 4, "stop_after": None}
+
+    def judge_for(name):
+        def judge(occasion, pool, on_answers=None):
+            for n, (c, _) in enumerate(pool):
+                if n == use["stop_after"]:
+                    raise ms.SuggestError("Cancelled")
+                asked[name].append(c["id"])
+                on_answers({c["id"]: answers()})
+
+        return judge
+
+    monkeypatch.setattr(
+        app_module, "_suggest_engine", lambda: (use["engine"], judge_for(use["engine"]))
+    )
+    monkeypatch.setattr(
+        app_module, "_ba_all", lambda path, *a: library(use["drinks"])
+    )
+
+    def run(occasion="Thanksgiving dinner", **body):
+        r = owner.post(
+            "/api/menu/suggest",
+            json={"occasion": occasion, "theme": "thanksgiving", **body},
+        )
+        return [json.loads(line) for line in r.get_data(as_text=True).splitlines()]
+
+    return asked, use, run
+
+
+def test_same_theme_new_wording_reuses_and_names_the_old_occasion(engines):
+    asked, _, run = engines
+    first = run()
+    assert first[0]["cached"] == 0 and len(asked["A"]) == 4
+    again = run()
+    assert again[0]["cached"] == 4 and "cached_occasion" not in again[0]
+    reworded = run("Thanksgiving feast")
+    assert len(asked["A"]) == 4  # still only the first run's questions
+    assert reworded[0]["cached"] == 4
+    assert reworded[0]["cached_occasion"] == "Thanksgiving dinner"
+    assert run("Thanksgiving feast")[0]["cached_occasion"] == "Thanksgiving dinner"
+
+
+def test_another_theme_or_engine_keeps_its_own_answers(engines):
+    asked, use, run = engines
+    run()
+    assert run(theme="christmas")[0]["cached"] == 0 and len(asked["A"]) == 8
+    use["engine"] = "B"  # e.g. TypeSafe switched off
+    assert run()[0]["cached"] == 0 and len(asked["B"]) == 4
+    use["engine"] = "A"
+    assert run()[0]["cached"] == 4 and len(asked["A"]) == 8
+
+
+def test_typesafe_model_is_part_of_its_key(owner, monkeypatch, jev):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    monkeypatch.setattr(app_module, "_ba_all", lambda path, *a: library(2))
+    body = {"occasion": "x", "theme": "thanksgiving"}
+    owner.post("/api/menu/suggest", json=body).get_data()
+    monkeypatch.setattr(ms, "MODEL", "jev-2.0.0")
+    r = owner.post("/api/menu/suggest", json=body)
+    assert json.loads(r.get_data(as_text=True).splitlines()[0])["cached"] == 0
+    assert len(jev) == 4
+
+
+def test_start_fresh_judges_everything_and_replaces_the_answers(engines, env):
+    asked, _, run = engines
+    run()
+    assert run(fresh=True)[0]["cached"] == 0 and len(asked["A"]) == 8
+    with open(env / "menu" / "suggest-cache.json") as f:
+        data = json.load(f)
+    assert len(data) == 1 and len(next(iter(data.values()))["drinks"]) == 4
+    assert run()[0]["cached"] == 4
+
+
+def test_a_run_that_stops_early_keeps_what_was_judged(owner, monkeypatch):
+    def judge(occasion, pool, on_answers=None):
+        for c, _ in pool[:2]:
+            on_answers({c["id"]: answers()})
+        raise ms.SuggestError("TypeSafe took too long; try again in a minute")
+
+    monkeypatch.setattr(app_module, "_suggest_engine", lambda: ("Fake", judge))
+    monkeypatch.setattr(app_module, "_ba_all", lambda path, *a: library(5))
+    body = {"occasion": "x", "theme": "thanksgiving"}
+    r = owner.post("/api/menu/suggest", json=body)
+    assert json.loads(r.get_data(as_text=True).splitlines()[-1])["type"] == "error"
+    r = owner.post("/api/menu/suggest", json=body)
+    assert json.loads(r.get_data(as_text=True).splitlines()[0])["cached"] == 2
+
+
+def test_a_corrupt_cache_file_is_ignored(engines, env):
+    asked, _, run = engines
+    (env / "menu").mkdir()
+    (env / "menu" / "suggest-cache.json").write_text("{not json")
+    events = run()
+    assert events[0]["cached"] == 0 and events[-1]["type"] == "done"
+    assert run()[0]["cached"] == 4  # and it was rewritten cleanly
+
+
+def test_only_the_most_recently_used_keys_are_kept(env, monkeypatch):
+    for i in range(app_module.SUGGEST_CACHE_KEYS + 2):
+        app_module._save_suggest_cache(f"k{i}", {"occasion": "x", "drinks": {}})
+    app_module._save_suggest_cache("k1", {"occasion": "x", "drinks": {}})  # used again
+    data = app_module._load_suggest_cache()
+    assert len(data) == app_module.SUGGEST_CACHE_KEYS
+    assert "k0" not in data and "k2" not in data and "k1" in data
+
+
+def test_a_rejudged_drink_moves_to_the_end(monkeypatch):
+    def post(url, json=None, headers=None, timeout=None):
+        import json as _json
+
+        drinks = _json.loads(json["messages"][1]["content"])["drinks"]
+        return chat({"drinks": [entry(d["id"]) for d in drinks]})  # every drink ties
+
+    monkeypatch.setattr(ms.requests, "post", post)
+    monkeypatch.setattr(ms, "LLM_BATCH", 3)
+
+    def judge(occasion, pool, on_answers=None):
+        return ms.judge_llm(LLM, occasion, pool, on_answers)
+
+    cache = {}
+    list(ms.suggest_stream(judge, "x", library(12), set(), cache))
+    edited = int(next(iter(cache)))  # stored first, so it would be picked first
+    drinks = library(12)
+    drinks[edited] = {**drinks[edited], "description": "Now with smoked salt"}
+    second = list(ms.suggest_stream(judge, "x", drinks, set(), cache))
+    assert second[0]["cached"] == 11
+    assert list(cache)[-1] == str(edited)
+    third = list(ms.suggest_stream(judge, "x", drinks, set(), cache))
+    assert third[0]["cached"] == 12 and picked(third) == picked(second)
+
+
+def test_remembered_answers_are_marked(jev):
+    cache = {}
+    list(ms.suggest_stream(TS, "x", library(2), set(), cache))
+    events = list(ms.suggest_stream(TS, "x", library(3), set(), cache))
+    judged = [e for e in events if e["type"] == "judged"]
+    assert judged[0]["remembered"] is True and len(judged[0]["drinks"]) == 2
+    assert "remembered" not in judged[1]
+
+
+def saved(env):
+    with open(env / "menu" / "suggest-cache.json") as f:
+        return json.load(f)
+
+
+def test_a_cancelled_fresh_run_keeps_older_answers_it_did_not_reach(engines, env):
+    asked, use, run = engines
+    run()
+    use["stop_after"] = 1
+    assert run(fresh=True)[-1]["type"] == "error"
+    (entry,) = saved(env).values()
+    first_asked = str(asked["A"][-1])
+    assert sorted(entry["drinks"]) == ["0", "1", "2", "3"]
+    assert list(entry["drinks"])[-1] == first_asked  # newest judgment last
+    use["stop_after"] = None
+    assert run()[0]["cached"] == 4
+
+
+def test_the_saved_occasion_is_the_one_most_answers_came_from(engines, env):
+    _, use, run = engines
+    run()  # 4 judged for dinner
+    use["drinks"] = 5
+    run("Thanksgiving feast")  # 4 reused, 1 new: still mostly dinner's
+    assert next(iter(saved(env).values()))["occasion"] == "Thanksgiving dinner"
+    use["drinks"] = 12
+    run("Thanksgiving feast")  # 5 reused, 7 new
+    assert next(iter(saved(env).values()))["occasion"] == "Thanksgiving feast"
+    assert run()[0]["cached_occasion"] == "Thanksgiving feast"
+
+
+def test_an_entry_without_an_occasion_takes_the_current_one(engines, env):
+    _, _, run = engines
+    run()
+    data = saved(env)
+    (key,) = data
+    app_module._save_suggest_cache(key, {**data[key], "occasion": None})
+    events = run("Thanksgiving feast")
+    assert events[0]["cached"] == 4 and "cached_occasion" not in events[0]
+    assert saved(env)[key]["occasion"] == "Thanksgiving feast"
+
+
+def test_each_bar_keeps_its_own_answers(engines, env, monkeypatch):
+    asked, _, run = engines
+    run()
+    monkeypatch.setattr(app_module, "_menu_role_denied", lambda *a: None)
+    monkeypatch.setattr(app_module, "bar_id_or_err", lambda: ("2", None))
+    assert run()[0]["cached"] == 0 and len(asked["A"]) == 8
+    assert len(saved(env)) == 2
+    monkeypatch.setattr(app_module, "bar_id_or_err", lambda: ("1", None))
+    assert run()[0]["cached"] == 4
+
+
+def test_compatible_servers_keep_their_own_answers(owner, no_engines, monkeypatch):
+    asked = []
+
+    def judge_llm(llm, occasion, pool, on_answers=None):
+        for c, _ in pool:
+            asked.append(c["id"])
+            on_answers({c["id"]: answers()})
+
+    monkeypatch.setenv("AI_IMAGE_PROVIDER", "compatible")
+    monkeypatch.setenv("AI_IMAGE_BASE_URL", "http://llm-a.lan/v1")
+    monkeypatch.setenv("MENU_SUGGEST_MODEL", "llama3")
+    monkeypatch.setattr(ms, "judge_llm", judge_llm)
+    monkeypatch.setattr(app_module, "_ba_all", lambda path, *a: library(2))
+
+    def cached():
+        r = owner.post("/api/menu/suggest", json={"occasion": "x", "theme": "classic"})
+        return json.loads(r.get_data(as_text=True).splitlines()[0])["cached"]
+
+    assert cached() == 0 and cached() == 2
+    monkeypatch.setenv("AI_IMAGE_BASE_URL", "http://llm-b.lan/v1")
+    assert cached() == 0 and len(asked) == 4

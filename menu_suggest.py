@@ -19,6 +19,7 @@ rank the rest, reserve a zero-proof and a batchable slot, and avoid repeating
 a base spirit.
 """
 
+import hashlib
 import json
 import logging
 import queue
@@ -508,21 +509,58 @@ def pick(assessed, size=MENU_SIZE):
     return picks, [d for d in by_score if d["id"] not in taken], unfilled
 
 
-def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
-    """Yield events while the drinks are judged: "start" (how many will be),
-    "judged" for each batch of answers (those drinks assessed, plus the menu
-    picked so far), then "done" (the suggestion). judge_fn(occasion, pool,
-    on_answers) is TypeSafe or a chat model. Closing the generator stops any
-    further questions; a failure raises SuggestError."""
+# ── Remembered answers ────────────────────────────────────────────────────────
+# A drink's answers depend only on the occasion, the questions, the engine and
+# what the engine is shown (drink_state), so they're stored per theme + engine
+# + questions version and reused while the drink's state is unchanged.
+
+
+def _digest(obj):
+    return hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def fingerprint(c):
+    """Changes when anything the engine is shown about the drink changes."""
+    return _digest(drink_state(c))
+
+
+def cache_key(bar_id, theme_id, engine_id):
+    """Stored answers' key: a change of questions or engine starts afresh."""
+    return f"{bar_id}|{theme_id}|{engine_id}|{_digest([QUESTIONS, llm_prompt()])}"
+
+
+def suggest_stream(judge_fn, occasion, cocktails, shelf_ids, cache=None):
+    """Yield events while the drinks are judged: "start" (how many will be, and
+    how many were remembered), "judged" for each batch of answers (those drinks
+    assessed, plus the menu picked so far), then "done" (the suggestion).
+    judge_fn(occasion, pool, on_answers) is TypeSafe or a chat model. Closing
+    the generator stops any further questions; a failure raises SuggestError.
+
+    cache ({str(id): {"fp", "answers"}}) is updated in place as answers land:
+    drinks whose fingerprint matches are not asked again, and drinks no longer
+    in cocktails are dropped from it."""
+    cache = {} if cache is None else cache
+    ids = {str(c.get("id")) for c in cocktails}
+    for k in [k for k in cache if k not in ids]:
+        del cache[k]
     pool = candidates(cocktails, shelf_ids)
     considered = pool
     by_id = {c["id"]: (c, missing) for c, missing in considered}
+    fps = {c["id"]: fingerprint(c) for c, _ in considered}
+    # Remembered drinks in the order they were stored, so picks repeat exactly.
+    real_id = {str(i): i for i in by_id}  # stored keys are strings (JSON)
+    stored = {
+        real_id[k]: e["answers"]
+        for k, e in cache.items()
+        if k in real_id and isinstance(e, dict) and e.get("fp") == fps[real_id[k]]
+    }
+    to_judge = [p for p in considered if p[0]["id"] not in stored]
     head = {
         "occasion": occasion,
         "considered": len(considered),
         "total": len(cocktails),
     }
-    yield {"type": "start", **head}
+    yield {"type": "start", **head, "cached": len(stored)}
     events = queue.Queue()
     stop = threading.Event()
 
@@ -533,12 +571,14 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
 
     def run():
         try:
-            judge_fn(occasion, considered, on_answers)
+            judge_fn(occasion, to_judge, on_answers)
             events.put(("end", None))
         except Exception as e:  # handed to the generator, which re-raises it
             events.put(("error", e))
 
-    if considered:
+    if stored:
+        events.put(("stored", stored))
+    if to_judge:
         threading.Thread(target=run, daemon=True).start()
     else:
         events.put(("end", None))
@@ -550,6 +590,11 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
                 raise val
             if kind == "end":
                 break
+            if kind == "answers":
+                for i, a in val.items():
+                    if i in by_id:
+                        cache.pop(str(i), None)  # an edited drink moves to the end
+                        cache[str(i)] = {"fp": fps[i], "answers": a}
             new = [assess(*by_id[i], a) for i, a in val.items() if i in by_id]
             assessed += new
             picks, _, _ = pick(assessed)
@@ -558,6 +603,7 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids):
                 "judged": len(assessed),
                 "drinks": new,
                 "picks": [{"id": p["id"], "role": p["role"]} for p in picks],
+                **({"remembered": True} if kind == "stored" else {}),
             }
     finally:
         stop.set()
