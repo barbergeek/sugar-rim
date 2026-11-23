@@ -228,6 +228,7 @@ def no_engines(monkeypatch):
         "MENU_SUGGEST_MODEL",
     ):
         monkeypatch.setenv(var, "")
+    monkeypatch.delenv("TYPESAFE_ENABLED", raising=False)
 
 
 def test_suggest_needs_a_key(owner, no_engines):
@@ -244,6 +245,17 @@ def test_engine_prefers_typesafe_then_the_image_provider(no_engines, monkeypatch
     monkeypatch.setenv("MENU_SUGGEST_MODEL", "gpt-4.1-mini")
     assert app_module._suggest_engine()[0] == "OpenAI gpt-4.1-mini"
     monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    assert app_module._suggest_engine()[0] == "TypeSafe Jev"
+
+
+def test_typesafe_switch_off_keeps_the_key_but_uses_the_chat_model(no_engines, monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    monkeypatch.setenv("TYPESAFE_ENABLED", "0")
+    assert app_module._suggest_engine() is None  # no provider to fall back to
+    monkeypatch.setenv("AI_IMAGE_PROVIDER", "openai")
+    monkeypatch.setenv("AI_IMAGE_API_KEY", "sk")
+    assert app_module._suggest_engine()[0] == "OpenAI gpt-5.4-mini"
+    monkeypatch.setenv("TYPESAFE_ENABLED", "1")
     assert app_module._suggest_engine()[0] == "TypeSafe Jev"
 
 

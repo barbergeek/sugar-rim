@@ -4134,9 +4134,13 @@ const Ai = {
         <div>
           ${head('TypeSafe (optional)')}
           <div style="display:flex;flex-direction:column;gap:10px">
-            <div class="cfg-status">Not needed: the chat model above handles menu suggestions. If you add a TypeSafe key, suggestions use TypeSafe instead.</div>
+            <div class="cfg-status">Not needed: the chat model above handles menu suggestions. With a key saved and TypeSafe switched on, suggestions use TypeSafe instead.</div>
             <label style="${lbl}">TypeSafe API key
               <input type="password" id="cfg-typesafe-key" class="text-input" autocomplete="off">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:0.9rem;color:var(--text-dim)">
+              <input type="checkbox" id="cfg-typesafe-on" ${cfg.typesafe_enabled ? 'checked' : ''}>
+              Use TypeSafe for menu suggestions (off = use the chat model; the key stays saved)
             </label>
           </div>
         </div>
@@ -4150,8 +4154,8 @@ const Ai = {
     el('cfg-typesafe-key').placeholder = cfg.typesafe_key_set ? '•••• (saved)' : '';
     el('ai-engine').textContent = !cfg.engine
       ? 'Menu suggestions are off until a provider and chat model are set.'
-      : cfg.typesafe_key_set
-        ? `Menu suggestions use ${cfg.engine}, because a TypeSafe key is saved.`
+      : cfg.typesafe_key_set && cfg.typesafe_enabled
+        ? `Menu suggestions use ${cfg.engine}, because TypeSafe is switched on below.`
         : `Menu suggestions use ${cfg.engine}.`;
   },
 
@@ -4269,6 +4273,7 @@ const Ai = {
       ai_base_url: base,
       ai_api_key: el('cfg-ai-key').value,
       menu_suggest_model: this._model('chat'),
+      typesafe_enabled: el('cfg-typesafe-on').checked,
     };
     const typesafe = el('cfg-typesafe-key').value.trim();
     if (typesafe) body.typesafe_api_key = typesafe;

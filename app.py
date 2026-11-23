@@ -217,7 +217,7 @@ def get_config():
 # Every AI setting; only bar admins and moderators may change them.
 AI_FIELDS = ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
              "ai_prompt_ingredient", "ai_prompt_cocktail",
-             "typesafe_api_key", "menu_suggest_model")
+             "typesafe_api_key", "typesafe_enabled", "menu_suggest_model")
 AI_DENIED = "Only bar admins and moderators can change AI settings"
 
 
@@ -274,6 +274,10 @@ def set_config():
         key = str(body["typesafe_api_key"]).strip()
         set_key(ENV_PATH, "TYPESAFE_API_KEY", key, follow_symlinks=True)
         os.environ["TYPESAFE_API_KEY"] = key
+    if "typesafe_enabled" in body:  # off = keep the key but use the chat model
+        val = "1" if body["typesafe_enabled"] else "0"
+        set_key(ENV_PATH, "TYPESAFE_ENABLED", val, follow_symlinks=True)
+        os.environ["TYPESAFE_ENABLED"] = val
     if "menu_page_seconds" in body:  # how fast the TV menu board flips pages
         val = str(menu.page_seconds(body["menu_page_seconds"]))
         set_key(ENV_PATH, "MENU_PAGE_SECONDS", val, follow_symlinks=True)
@@ -631,11 +635,16 @@ def _menu_state():
     return out
 
 
+def _typesafe_enabled():
+    """The TypeSafe switch; on unless turned off (so an existing key keeps working)."""
+    return os.getenv("TYPESAFE_ENABLED", "1") != "0"
+
+
 def _suggest_engine():
     """(label, judge_fn) for menu suggestions, or None. TypeSafe when its key
-    is set; otherwise the chat model of the AI provider set up for images."""
+    is set and it's switched on; otherwise the AI provider's chat model."""
     key = os.getenv("TYPESAFE_API_KEY", "")
-    if key:
+    if key and _typesafe_enabled():
         return "TypeSafe Jev", lambda occasion, pool, on_answers=None: menu_suggest.judge(
             key, occasion, pool, on_answers)
     provider = os.getenv("AI_IMAGE_PROVIDER", "")
@@ -1266,6 +1275,7 @@ def ai_settings():
         "ai_prompt_ingredient": os.getenv("AI_PROMPT_INGREDIENT", ""),
         "ai_prompt_cocktail":   os.getenv("AI_PROMPT_COCKTAIL", ""),
         "typesafe_key_set":     bool(os.getenv("TYPESAFE_API_KEY")),
+        "typesafe_enabled":     _typesafe_enabled(),
         "menu_suggest_model":   os.getenv("MENU_SUGGEST_MODEL", ""),
         "engine":               engine[0] if engine else None,
     })

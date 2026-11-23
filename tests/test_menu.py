@@ -264,7 +264,8 @@ def test_ai_settings_never_return_a_key(owner, ba, monkeypatch):
     for k, v in {"AI_IMAGE_PROVIDER": "openai", "AI_IMAGE_MODEL": "m",
                  "AI_IMAGE_BASE_URL": "", "AI_IMAGE_API_KEY": "sk-secret",
                  "AI_PROMPT_INGREDIENT": "pi", "AI_PROMPT_COCKTAIL": "pc",
-                 "TYPESAFE_API_KEY": "ts-secret", "MENU_SUGGEST_MODEL": "chat"}.items():
+                 "TYPESAFE_API_KEY": "ts-secret", "TYPESAFE_ENABLED": "1",
+                 "MENU_SUGGEST_MODEL": "chat"}.items():
         monkeypatch.setenv(k, v)
     ba.role = 2
     r = owner.get("/api/ai/settings")
@@ -274,7 +275,8 @@ def test_ai_settings_never_return_a_key(owner, ba, monkeypatch):
     assert r.get_json() == {
         "ai_provider": "openai", "ai_model": "m", "ai_base_url": "", "ai_key_set": True,
         "ai_prompt_ingredient": "pi", "ai_prompt_cocktail": "pc",
-        "typesafe_key_set": True, "menu_suggest_model": "chat", "engine": "TypeSafe Jev",
+        "typesafe_key_set": True, "typesafe_enabled": True, "menu_suggest_model": "chat",
+        "engine": "TypeSafe Jev",
     }
 
 
@@ -297,6 +299,17 @@ def test_admin_saves_ai_settings(owner, ba, env, monkeypatch):
                                     "menu_suggest_model": "chat"})
     assert r.status_code == 200
     assert app_module.os.environ["MENU_SUGGEST_MODEL"] == "chat"
+
+
+def test_typesafe_switch_saves_and_keeps_the_key(owner, ba, env, monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-old")
+    monkeypatch.setenv("TYPESAFE_ENABLED", "1")
+    assert owner.post("/config", json={"typesafe_enabled": False}).status_code == 200
+    cfg = owner.get("/api/ai/settings").get_json()
+    assert cfg["typesafe_enabled"] is False and cfg["typesafe_key_set"] is True
+    assert cfg["engine"] != "TypeSafe Jev"
+    assert owner.post("/config", json={"typesafe_enabled": True}).status_code == 200
+    assert owner.get("/api/ai/settings").get_json()["engine"] == "TypeSafe Jev"
 
 
 def test_one_save_keeps_saved_keys(owner, ba, env, monkeypatch):
