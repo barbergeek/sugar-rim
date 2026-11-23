@@ -2336,6 +2336,19 @@ const Ingredients = {
 // ── Tokens ─────────────────────────────────────────────────────────────────
 
 const Tokens = {
+  // Bar Assistant accepts only these abilities (its AbilityEnum); "*" is rejected.
+  ABILITIES: [
+    'cocktails.read',
+    'cocktails.write',
+    'cocktails.import',
+    'ingredients.read',
+    'ingredients.write',
+    'bars.read',
+    'bars.write',
+    'menu.read',
+    'menu.write',
+  ],
+
   async load() {
     const grid = el('token-list');
     const empty = el('token-empty');
@@ -2375,9 +2388,16 @@ const Tokens = {
         <input class="text-input" id="tf-name" placeholder="e.g. Mobile App">
       </div>
       <div class="form-group">
-        <label class="form-label">Abilities (comma-separated)</label>
-        <input class="text-input" id="tf-abilities" value="*" placeholder="e.g. *, cocktails.read">
-        <p style="font-size:0.75rem;color:var(--text-dim);margin-top:4px">Use <strong>*</strong> for full access.</p>
+        <label class="form-label">Abilities</label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px">
+          ${this.ABILITIES.map(
+            (
+              a
+            ) => `<label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;color:var(--text-dim)">
+              <input type="checkbox" class="tf-ability" value="${a}" checked> ${a}
+            </label>`
+          ).join('')}
+        </div>
       </div>`,
       `<button class="btn btn-ghost" onclick="App.modal.close()">Cancel</button>
        <button class="btn btn-primary" onclick="App.tokens.submit()">Create Token</button>`
@@ -2387,12 +2407,13 @@ const Tokens = {
 
   async submit() {
     const name = el('tf-name').value.trim();
-    const abilities = el('tf-abilities')
-      .value.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const abilities = [...document.querySelectorAll('.tf-ability:checked')].map((c) => c.value);
     if (!name) {
       Toast.err('Name is required');
+      return;
+    }
+    if (!abilities.length) {
+      Toast.err('Choose at least one ability');
       return;
     }
     try {
