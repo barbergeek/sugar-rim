@@ -3366,7 +3366,8 @@ const HolidayMenu = {
             <div id="hm-results"></div>
             <div class="cfg-status" style="margin-top:6px">You can also add a drink from its cocktail page.</div>
           </div>
-          <button class="btn btn-primary btn-wide" style="margin-top:10px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
+          <button class="btn btn-ghost btn-wide" style="margin-top:10px" onclick="App.holidayMenu.previewMenu()">Preview</button>
+          <button class="btn btn-primary btn-wide" style="margin-top:8px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
           <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px">Loading…</div>
           <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (the TV and the QR codes use it; it always shows what's published)
@@ -3845,6 +3846,7 @@ const HolidayMenu = {
     const footer = `<button class="btn btn-ghost" onclick="App.holidayMenu.backFromSuggestion()">Back</button>
       <button class="btn btn-ghost" id="sg-cancel" onclick="App.holidayMenu.cancelSuggestion()">Cancel</button>
       <button class="btn btn-ghost" id="sg-repick" style="display:none" onclick="App.holidayMenu.repick()">Pick Again</button>
+      <button class="btn btn-ghost" onclick="App.holidayMenu.previewSuggestion()">Preview</button>
       <button class="btn btn-primary" id="sg-save" onclick="App.holidayMenu.approveSuggestion()">Save &amp; Publish</button>`;
     Modal.open(`Menu for ${sg.occasion}`, body, footer);
     this._renderSuggestion();
@@ -4088,6 +4090,26 @@ const HolidayMenu = {
       status.className = 'cfg-status err';
       status.textContent = e.message;
     }
+  },
+
+  // The board as it would look, in a new tab; nothing is saved.
+  _openPreview(title, subtitle, theme, ids) {
+    const q = new URLSearchParams({ title, subtitle, theme, ids: ids.join(',') });
+    window.open(`/menu/preview?${q}`, '_blank');
+  },
+
+  previewMenu() {
+    this._openPreview(
+      el('cfg-menu-title').value.trim(),
+      el('cfg-menu-subtitle').value.trim(),
+      el('cfg-menu-theme').value,
+      (App.cocktails._menu?.menu?.drinks || []).map((d) => d.id)
+    );
+  },
+
+  previewSuggestion() {
+    const d = this._draft;
+    this._openPreview(el('sg-name').value.trim(), d.subtitle, d.theme, this._chosenIds());
   },
 
   async publishMenu() {

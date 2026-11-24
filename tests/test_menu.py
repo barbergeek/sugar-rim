@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 import app as app_module
@@ -1287,3 +1289,27 @@ def test_kiosk_drinks_report_a_failed_lookup(owner, ba, listed, monkeypatch, fai
         monkeypatch.setattr(app_module.http, "get", down)
     r = owner.get("/api/menu/drinks")
     assert r.status_code == 502 and r.get_json()["error"]
+
+
+# ── Preview ───────────────────────────────────────────────────────────────────
+
+
+def test_preview_shows_the_board_without_saving_or_publishing(owner, ba, env):
+    r = owner.get(
+        "/menu/preview?title=Christmas+2026&subtitle=Merry&theme=christmas&ids=1"
+    )
+    page = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "Christmas 2026" in page and "Merry" in page and "Cider Sour" in page
+    assert '/api/images/77/thumb' in page  # BA's photo, nothing copied
+    assert not os.path.exists(os.path.join(menu.menu_dir(str(env / ".env")), "menu.json"))
+
+
+@pytest.mark.parametrize("role", [3, 4, None])
+def test_preview_is_for_admins_and_moderators(owner, ba, role):
+    ba.role = role
+    assert owner.get("/menu/preview?ids=1").status_code == 403
+
+
+def test_preview_needs_a_login(guest, ba):
+    assert guest.get("/menu/preview?ids=1").status_code == 401

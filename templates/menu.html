@@ -153,7 +153,9 @@
           {% for c in page %}
             {% set t = c.tile %}
             <article class="tile h-{{ t.h }} v-{{ t.v }} {{ t.size }}" style="grid-column: {{ t.cols }}; grid-row: {{ t.rows }}">
-              {% if c.image %}
+              {% if c.image_url %}
+                <img src="{{ c.image_url }}" alt="">
+              {% elif c.image %}
                 <img src="/menu/img/{{ c.slug }}{% if c.image_v %}?v={{ c.image_v }}{% endif %}" alt="">
               {% else %}
                 <div class="initial">{{ c.name[:1] }}</div>

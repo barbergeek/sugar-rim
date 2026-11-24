@@ -1099,6 +1099,10 @@ def _menu_public(fn):
 @app.route("/menu")
 @_menu_public
 def menu_board(snap):
+    return _render_board(snap)
+
+
+def _render_board(snap):
     cards = [{**c, "tagline": menu.tagline(c), "ings": menu.key_ingredients(c),
               # Short /m/<n> links make coarser, easier-to-scan codes on a TV.
               "qr": menu.qr_svg(f"{snap['public_base']}/m/{n}")}
@@ -1108,6 +1112,40 @@ def menu_board(snap):
     return render_template("menu.html", snap=snap, pages=menu.board_pages(cards),
                            seconds=seconds, theme=menu.theme((snap or {}).get("theme")),
                            inset=menu.inset(request.args.get("inset")))
+
+
+@app.route("/menu/preview")
+def menu_preview():
+    """The board as it would look with these drinks, title and theme, before
+    anything is saved or published. Photos are Bar Assistant's thumbnails."""
+    if not _logged_in():
+        return "Sign in to preview the menu", 401
+    denied = _menu_role_denied()
+    if denied:
+        return denied
+    ids = [int(i) for i in request.args.get("ids", "").split(",") if i.strip().isdigit()]
+    try:
+        raw = _menu_cocktails(list(dict.fromkeys(ids))[:MENU_MAX],
+                              include="images,glass,method,ingredients.ingredient")
+    except (MenuError, *BA_ERRORS):
+        return "Bar Assistant lookup failed", 502
+    cocktails = []
+    for c in raw:
+        slim = menu.slim_cocktail(c)
+        img = (c.get("images") or [None])[0]
+        if img and img.get("id"):
+            slim["image_url"] = f"/api/images/{img['id']}/thumb"
+        cocktails.append(slim)
+    resp = app.make_response(_render_board({
+        "title": request.args.get("title", "").strip() or "Menu",
+        "subtitle": request.args.get("subtitle", "").strip(),
+        "theme": menu.theme(request.args.get("theme"))["id"],
+        "public_base": request.host_url.rstrip("/"),
+        "cocktails": cocktails,
+    }))
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
 
 
 @app.route("/m/<int:n>")
