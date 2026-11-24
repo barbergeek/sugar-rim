@@ -3393,6 +3393,8 @@ const HolidayMenu = {
   },
 
   async _loadMenu() {
+    const back = this._restore;
+    this._restore = null;
     try {
       const state = await get('/api/menu');
       if (!el('cfg-menu-title')) return;
@@ -3408,6 +3410,12 @@ const HolidayMenu = {
         group('Holidays and events', 'holiday') + group('Any time of year', 'generic');
       el('cfg-menu-theme').value = state.menu.theme;
       el('cfg-menu-occasion').value = state.suggest?.occasion || '';
+      if (back) {
+        el('cfg-menu-title').value = back.title;
+        el('cfg-menu-subtitle').value = back.subtitle;
+        el('cfg-menu-theme').value = back.theme;
+        el('cfg-menu-occasion').value = back.occasion || '';
+      }
       this._showEngine(state.suggest);
       this._showMenu(state);
     } catch (e) {
@@ -3576,8 +3584,10 @@ const HolidayMenu = {
     this._renderSuggestion();
   },
 
+  // Back to the Holiday Menu screen as you left it, unsaved edits included.
   backFromSuggestion() {
     this.cancelSuggestion();
+    this._restore = { ...this._draft, occasion: this._sg?.occasion };
     this.show();
   },
 
