@@ -9,13 +9,12 @@ import socket
 import secrets
 import tempfile
 import threading
-import time
 import logging
 import ipaddress
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlparse
-from flask import (Flask, Response, g, jsonify, request, render_template, session, redirect,
+from flask import (Flask, Response, jsonify, request, render_template, session, redirect,
                    url_for, send_from_directory)
 import requests as http
 from dotenv import dotenv_values, set_key
@@ -100,24 +99,6 @@ def _is_public_http_url(url):
                 or ip.is_multicast or ip.is_unspecified):
             return False
     return True
-
-
-SLOW_REQUEST_SECONDS = 2
-
-
-@app.before_request
-def _start_timer():
-    g.started = time.monotonic()
-
-
-@app.after_request
-def _log_slow(resp):
-    """Log requests that take a while, so a slow save can be traced to its call."""
-    took = time.monotonic() - g.get("started", time.monotonic())
-    if took >= SLOW_REQUEST_SECONDS:
-        app.logger.info("Slow request: %s %s took %.1f s (%s)",
-                        request.method, request.path, took, resp.status_code)
-    return resp
 
 
 @app.after_request
