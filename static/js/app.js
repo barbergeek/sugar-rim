@@ -3882,6 +3882,7 @@ const HolidayMenu = {
       zero_proof: 'zero-proof slot',
       batchable: 'batch-ahead slot',
       variety: 'different spirit',
+      mix: 'for variety',
     };
     const more = fresh.filter((d) => !sg.pickIds.has(d.id)).sort((x, y) => y.value - x.value);
     const shown = more.slice(0, sg.moreShown);

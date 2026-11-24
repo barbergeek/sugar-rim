@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import queue
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -51,6 +52,13 @@ BASE_SURE = 0.5  # base spirit counts for variety only when this sure
 # other time of year, below 0 out of place), less these deductions.
 W_HARD = 2.0  # most an acquired taste loses (scaled by how unlikely a novice enjoys it)
 W_MISSING = 1.0  # per ingredient to buy
+# Variety: a drink loses up to W_ALIKE for sharing its distinctive ingredients
+# with a pick; ingredients in more than COMMON_SHARE of the drinks (citrus,
+# syrup, bitters) don't count. Any drink within NEAR_BEST of the best is
+# equally likely to be picked, so repeat runs can differ.
+W_ALIKE = 3.0
+COMMON_SHARE = 0.1
+NEAR_BEST = 1.0
 
 # ── Questions ─────────────────────────────────────────────────────────────────
 
@@ -441,6 +449,13 @@ def assess(c, missing, a):
         "id": c["id"],
         "name": c.get("name") or "",
         "missing": missing,
+        "ingredients": sorted(
+            {
+                (i.get("ingredient") or {}).get("id")
+                for i in c.get("ingredients") or []
+                if not i.get("optional") and (i.get("ingredient") or {}).get("id")
+            }
+        ),
         "tags": tags,
         "base": base,
         "clash": clash > CLASH_MAX,
@@ -460,49 +475,82 @@ def assess(c, missing, a):
     }
 
 
-def pick(assessed, size=MENU_SIZE):
+def _alike(a, b, common):
+    """Share of the smaller drink's distinctive ingredients the other also uses."""
+    x = set(a["ingredients"]) - common
+    y = set(b["ingredients"]) - common
+    if not x or not y:
+        return 0.0
+    return len(x & y) / min(len(x), len(y))
+
+
+def pick(assessed, size=MENU_SIZE, rng=None):
     """Choose the menu. Returns (picks, alternates, unfilled notes).
 
     1. Never pick drinks that clash with the occasion.
-    2. Reserve a slot for the best zero-proof drink that fits at least as well
-       as any other time of year, and one for the best batchable drink.
-    3. Fill the rest by score without repeating a base spirit.
-    4. If variety runs out, fill by score anyway.
+    2. Reserve a slot for a zero-proof drink that fits at least as well as any
+       other time of year, and one for a batchable drink.
+    3. Fill the rest without repeating a base spirit.
+    4. If variety runs out, fill anyway.
+
+    Each slot goes to the best drink after a deduction for being like the
+    drinks already picked; with rng, to a random one of those within NEAR_BEST
+    of the best (without rng, the best, so tests are repeatable).
 
     Each pick's role says why it's there when a higher score was passed over:
-    "zero_proof", "batchable" or "variety" (a spirit not yet on the menu);
-    None when it simply scored best. Alternates are everything else, clashing
-    drinks included, best score first.
+    "zero_proof", "batchable", "variety" (a spirit not yet on the menu) or
+    "mix" (less like the other picks); None when it simply scored best.
+    Alternates are everything else, clashing drinks included, best score first.
     """
     by_score = sorted(assessed, key=lambda d: -d["value"])
     ranked = [d for d in by_score if not d["clash"]]
     picks, unfilled = [], []
+    uses = {}
+    for d in assessed:
+        for i in d["ingredients"]:
+            uses[i] = uses.get(i, 0) + 1
+    common = {i for i, n in uses.items() if n > max(2, COMMON_SHARE * len(assessed))}
+
+    def choose(pool):
+        if not pool:
+            return None
+
+        def adjusted(d):
+            alike = max((_alike(d, p, common) for p in picks), default=0.0)
+            return d["value"] - W_ALIKE * alike
+
+        scored = [(adjusted(d), d) for d in pool]
+        best = max(a for a, _ in scored)
+        if rng is None:
+            return next(d for a, d in scored if a == best)
+        return rng.choice([d for a, d in scored if a >= best - NEAR_BEST])
 
     def take(d, role=None):
         picks.append({**d, "role": role})
         ranked.remove(d)
 
-    zero = next((d for d in ranked if d["zero_proof"] and d["fit"] >= 0), None)
+    zero = choose([d for d in ranked if d["zero_proof"] and d["fit"] >= 0])
     if zero:
         take(zero, "zero_proof")
     else:
         unfilled.append("No zero-proof drink suits the occasion")
-    batch = next((d for d in ranked if d["batchable"]), None)
+    batch = choose([d for d in ranked if d["batchable"]])
     if batch and len(picks) < size:
         take(batch, "batchable")
     elif not batch:
         unfilled.append("No drink can be batched ahead")
-    for d in list(ranked):
-        if len(picks) >= size:
-            break
+    while len(picks) < size and ranked:
         bases = {p["base"] for p in picks if p["base"]}
-        if d["base"] is None or d["base"] not in bases:
-            passed_over = ranked and ranked[0]["value"] > d["value"]
-            take(d, "variety" if passed_over else None)
-    for d in list(ranked):
-        if len(picks) >= size:
-            break
-        take(d)
+        fresh = [d for d in ranked if d["base"] is None or d["base"] not in bases]
+        d = choose(fresh or ranked)
+        top = ranked[0]
+        if not fresh or top is d or top["value"] <= d["value"]:
+            role = None
+        elif top["base"] in bases:
+            role = "variety"
+        else:
+            role = "mix"
+        take(d, role)
     if len(picks) < size:
         unfilled.append(f"Only {len(picks)} drinks fit; buy more or widen the shelf")
     taken = {p["id"] for p in picks}
@@ -583,6 +631,11 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids, cache=None):
     else:
         events.put(("end", None))
     assessed = []
+    seed = random.random()  # one draw per run, so the menu so far doesn't jump
+
+    def pick_run(ds):
+        return pick(ds, rng=random.Random(seed))
+
     try:
         while True:
             kind, val = events.get()
@@ -597,7 +650,7 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids, cache=None):
                         cache[str(i)] = {"fp": fps[i], "answers": a}
             new = [assess(*by_id[i], a) for i, a in val.items() if i in by_id]
             assessed += new
-            picks, _, _ = pick(assessed)
+            picks, _, _ = pick_run(assessed)
             yield {
                 "type": "judged",
                 "judged": len(assessed),
@@ -607,7 +660,7 @@ def suggest_stream(judge_fn, occasion, cocktails, shelf_ids, cache=None):
             }
     finally:
         stop.set()
-    picks, alternates, unfilled = pick(assessed)
+    picks, alternates, unfilled = pick_run(assessed)
     yield {
         "type": "done",
         **head,

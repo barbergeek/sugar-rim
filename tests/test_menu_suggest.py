@@ -1,4 +1,5 @@
 import json
+import random
 import time
 from datetime import date
 
@@ -148,6 +149,45 @@ def test_missing_ingredients_lower_the_rank():
         [drink(1, missing=2, base="rum"), drink(2, base="gin")], size=1
     )
     assert picks[0]["id"] == 2
+
+
+def mixed(i, ings, **kw):
+    """A drink made with the given ingredient ids."""
+    c = {
+        "id": i,
+        "name": f"D{i}",
+        "abv": 20,
+        "ingredients": [{"ingredient": {"id": n}} for n in ings],
+    }
+    return ms.assess(c, [], answers(**kw))
+
+
+def test_pick_passes_over_a_drink_too_like_one_already_picked():
+    ds = [
+        mixed(1, [10, 11], base="gin", fit=(0, 0, 1)),
+        mixed(2, [10, 11], base="rum", fit=(0, 0.05, 0.95)),  # same as 1, other spirit
+        mixed(3, [20, 21], base="vodka", fit=(0, 0.2, 0.8)),
+    ]
+    picks, _, _ = ms.pick(ds, size=2)
+    assert [p["id"] for p in picks] == [1, 3]
+    assert picks[1]["role"] == "mix"
+
+
+def test_common_ingredients_dont_make_drinks_alike():
+    # 99 is in every drink (think lemon juice), so it says nothing about likeness.
+    ds = [mixed(i, [99, i], base=f"b{i}", fit=(0, i / 20, 1 - i / 20)) for i in range(1, 6)]
+    picks, _, _ = ms.pick(ds, size=2)
+    assert [p["id"] for p in picks] == [1, 2]
+
+
+def test_random_picks_stay_near_the_best():
+    ds = [
+        mixed(1, [1], base="b1", fit=(0, 0, 1)),  # 10
+        mixed(2, [2], base="b2", fit=(0, 0.1, 0.9)),  # 9.5: close enough to swap in
+        mixed(3, [3], base="b3", fit=(0, 1, 0)),  # 5: too far behind
+    ]
+    seen = {ms.pick(ds, size=1, rng=random.Random(n))[0][0]["id"] for n in range(40)}
+    assert seen == {1, 2}
 
 
 # ── Asking TypeSafe ───────────────────────────────────────────────────────────
@@ -511,11 +551,17 @@ def library(n):
     return [{**CATALOG[1], "id": i, "name": f"Drink {i}"} for i in range(n)]
 
 
+@pytest.fixture
+def same_draw(monkeypatch):
+    """Every run makes the same random choice, so equal answers give equal picks."""
+    monkeypatch.setattr(ms.random, "random", lambda: 0.5)
+
+
 def picked(events):
     return [p["id"] for p in events[-1]["picks"]]
 
 
-def test_a_repeat_run_only_asks_about_new_or_edited_drinks(jev):
+def test_a_repeat_run_only_asks_about_new_or_edited_drinks(jev, same_draw):
     cache = {}
     first = list(ms.suggest_stream(TS, "x", library(5), set(), cache))
     assert len(jev) == 5 and sorted(cache) == ["0", "1", "2", "3", "4"]
@@ -550,7 +596,7 @@ def test_drinks_gone_from_the_library_are_forgotten(jev):
     assert sorted(cache) == ["0", "1"]
 
 
-def test_a_repeat_chat_run_gives_the_same_picks(monkeypatch):
+def test_a_repeat_chat_run_gives_the_same_picks(monkeypatch, same_draw):
     def post(url, json=None, headers=None, timeout=None):
         import json as _json
 
@@ -713,7 +759,7 @@ def test_only_the_most_recently_used_keys_are_kept(env, monkeypatch):
     assert "k0" not in data and "k2" not in data and "k1" in data
 
 
-def test_a_rejudged_drink_moves_to_the_end(monkeypatch):
+def test_a_rejudged_drink_moves_to_the_end(monkeypatch, same_draw):
     def post(url, json=None, headers=None, timeout=None):
         import json as _json
 
