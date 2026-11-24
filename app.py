@@ -652,8 +652,7 @@ def _menu_state():
                    "theme": menu.theme(stored.get("theme"))["id"],
                    "drinks": drinks, "cocktail_ids": [d["id"] for d in drinks]}
     engine = _suggest_engine()
-    out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None,
-                      "occasion": menu_suggest.default_occasion()}
+    out["suggest"] = {"ready": bool(engine), "engine": engine[0] if engine else None}
     return out
 
 

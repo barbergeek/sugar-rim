@@ -1,7 +1,6 @@
 import json
 import random
 import time
-from datetime import date
 
 import pytest
 
@@ -10,17 +9,7 @@ import menu_suggest as ms
 from tests.test_import_routes import Resp
 from tests.test_menu import BASE, CATALOG
 
-# ── Calendar and candidates (pure code) ───────────────────────────────────────
-
-
-def test_default_occasion_follows_the_calendar():
-    assert ms._thanksgiving(2026) == date(2026, 11, 26)
-    assert ms._thanksgiving(2025) == date(2025, 11, 27)
-    assert ms.default_occasion(date(2026, 11, 15)) == "Thanksgiving dinner"
-    assert ms.default_occasion(date(2026, 11, 27)) == "Christmas"
-    assert ms.default_occasion(date(2026, 12, 26)) == "New Year's Eve party"
-    assert ms.default_occasion(date(2027, 1, 2)) == ""
-    assert ms.default_occasion(date(2026, 6, 1)) == ""
+# ── Candidates (pure code) ───────────────────────────────────────
 
 
 def ing(iid, name, optional=False, flag=False):

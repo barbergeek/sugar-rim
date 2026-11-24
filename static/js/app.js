@@ -3357,7 +3357,7 @@ const HolidayMenu = {
             </div>
           </label>
           <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim);margin-top:10px">Theme
-            <select id="cfg-menu-theme" class="text-input"></select>
+            <select id="cfg-menu-theme" class="text-input" onchange="App.holidayMenu.themeChanged()"></select>
           </label>
           <div id="hm-drinks" style="margin-top:12px"></div>
           <button class="btn btn-ghost btn-wide" style="margin-top:8px" onclick="App.holidayMenu.openChecklist()">Ingredient Checklist</button>
@@ -3366,8 +3366,10 @@ const HolidayMenu = {
             <div id="hm-results"></div>
             <div class="cfg-status" style="margin-top:6px">You can also add a drink from its cocktail page.</div>
           </div>
-          <button class="btn btn-ghost btn-wide" style="margin-top:10px" onclick="App.holidayMenu.previewMenu()">Preview</button>
-          <button class="btn btn-primary btn-wide" style="margin-top:8px" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-ghost" style="flex:1" onclick="App.holidayMenu.previewMenu()">Preview</button>
+            <button class="btn btn-primary" style="flex:1" onclick="App.holidayMenu.publishMenu()">Publish Menu</button>
+          </div>
           <div id="cfg-menu-status" class="cfg-status" style="margin-top:6px">Loading…</div>
           <div id="cfg-menu-link" style="display:none;flex-direction:column;gap:8px;margin-top:10px">
             <label style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-dim)">Display link (the TV and the QR codes use it; it always shows what's published)
@@ -3410,13 +3412,13 @@ const HolidayMenu = {
       el('cfg-menu-theme').innerHTML =
         group('Holidays and events', 'holiday') + group('Any time of year', 'generic');
       el('cfg-menu-theme').value = state.menu.theme;
-      el('cfg-menu-occasion').value = state.suggest?.occasion || '';
       if (back) {
         el('cfg-menu-title').value = back.title;
         el('cfg-menu-subtitle').value = back.subtitle;
         el('cfg-menu-theme').value = back.theme;
-        el('cfg-menu-occasion').value = back.occasion || '';
       }
+      this._autoOccasion = this._themeOccasion();
+      el('cfg-menu-occasion').value = back?.occasion || this._autoOccasion;
       this._showEngine(state.suggest);
       this._showMenu(state);
     } catch (e) {
@@ -3457,6 +3459,19 @@ const HolidayMenu = {
     } catch (e) {
       Toast.err(e.message);
     }
+  },
+
+  // The suggestion box follows the theme ("Christmas party") until you type your own.
+  _themeOccasion() {
+    const name = el('cfg-menu-theme').selectedOptions[0]?.textContent || '';
+    return name ? `${name} party` : '';
+  },
+
+  themeChanged() {
+    const box = el('cfg-menu-occasion');
+    const next = this._themeOccasion();
+    if (!box.value.trim() || box.value === this._autoOccasion) box.value = next;
+    this._autoOccasion = next;
   },
 
   _showEngine(s) {

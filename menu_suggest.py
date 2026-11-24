@@ -27,7 +27,6 @@ import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
 
 import requests
 
@@ -117,29 +116,6 @@ QUESTIONS = {
         },
     },
 }
-
-# ── Occasion default (calendar math stays in code) ────────────────────────────
-
-
-def _thanksgiving(year):
-    nov1 = date(year, 11, 1)
-    first_thu = nov1 + timedelta(days=(3 - nov1.weekday()) % 7)
-    return first_thu + timedelta(weeks=3)
-
-
-def default_occasion(today=None):
-    """The next of these holidays within 45 days, else ''."""
-    today = today or date.today()
-    days = []
-    for year in (today.year, today.year + 1):
-        days += [
-            (_thanksgiving(year), "Thanksgiving dinner"),
-            (date(year, 12, 25), "Christmas"),
-            (date(year, 12, 31), "New Year's Eve party"),
-        ]
-    upcoming = sorted(d for d in days if 0 <= (d[0] - today).days <= 45)
-    return upcoming[0][1] if upcoming else ""
-
 
 # ── Candidates (code) ─────────────────────────────────────────────────────────
 
