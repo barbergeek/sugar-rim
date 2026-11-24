@@ -4,6 +4,7 @@ import re
 import base64
 import io
 import math
+import random
 import socket
 import secrets
 import tempfile
@@ -986,6 +987,22 @@ def _save_suggest_cache(key, entry):
         except BaseException:
             os.remove(tmp)
             raise
+
+
+@app.route("/api/menu/suggest/pick", methods=["POST"])
+@_menu_route
+def menu_suggest_repick(body):
+    """Pick again from drinks already judged (as the suggestion stream sent
+    them), with a new random draw; nothing is asked of the model."""
+    drinks = body.get("drinks")
+    if not isinstance(drinks, list) or not all(isinstance(d, dict) for d in drinks):
+        raise MenuError("drinks must be a list of judged drinks")
+    try:
+        picks, _, unfilled = menu_suggest.pick(drinks, rng=random.Random())
+    except (KeyError, TypeError, ValueError):
+        raise MenuError("drinks must be a list of judged drinks")
+    return jsonify({"picks": [{"id": p["id"], "role": p["role"]} for p in picks],
+                    "unfilled": unfilled})
 
 
 @app.route("/api/menu/suggest", methods=["POST"])

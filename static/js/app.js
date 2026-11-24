@@ -3584,6 +3584,25 @@ const HolidayMenu = {
     this._renderSuggestion();
   },
 
+  // A new random draw from the drinks already judged; your ticks start over.
+  async repick() {
+    const sg = this._sg;
+    const btn = el('sg-repick');
+    btn.disabled = true;
+    try {
+      const out = await post('/api/menu/suggest/pick', { drinks: [...sg.drinks.values()] });
+      if (sg !== this._sg) return;
+      sg.pickIds = new Map(out.picks.map((p) => [p.id, p.role]));
+      sg.unfilled = out.unfilled;
+      sg.choice = new Map();
+      this._renderSuggestion();
+    } catch (e) {
+      Toast.err(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  },
+
   // Back to the Holiday Menu screen as you left it, unsaved edits included.
   backFromSuggestion() {
     this.cancelSuggestion();
@@ -3825,6 +3844,7 @@ const HolidayMenu = {
       <div id="sg-status" class="cfg-status"></div>`;
     const footer = `<button class="btn btn-ghost" onclick="App.holidayMenu.backFromSuggestion()">Back</button>
       <button class="btn btn-ghost" id="sg-cancel" onclick="App.holidayMenu.cancelSuggestion()">Cancel</button>
+      <button class="btn btn-ghost" id="sg-repick" style="display:none" onclick="App.holidayMenu.repick()">Pick Again</button>
       <button class="btn btn-primary" id="sg-save" onclick="App.holidayMenu.approveSuggestion()">Save &amp; Publish</button>`;
     Modal.open(`Menu for ${sg.occasion}`, body, footer);
     this._renderSuggestion();
@@ -3923,6 +3943,7 @@ const HolidayMenu = {
           : ''
       }`;
     el('sg-cancel').style.display = running ? '' : 'none';
+    el('sg-repick').style.display = running || !sg.drinks.size ? 'none' : '';
     this._syncSuggestCount();
   },
 

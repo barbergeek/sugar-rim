@@ -283,6 +283,21 @@ def test_suggest_needs_a_key(owner, no_engines):
     assert r.status_code == 400 and "Manage → AI" in r.get_json()["error"]
 
 
+def test_pick_again_chooses_from_drinks_already_judged(owner, no_engines):
+    ds = [drink(1, base="gin"), drink(2, abv=None, alcohol=0.1), drink(3, base="rum")]
+    r = owner.post("/api/menu/suggest/pick", json={"drinks": ds})
+    assert r.status_code == 200
+    out = r.get_json()
+    assert {p["id"] for p in out["picks"]} == {1, 2, 3}  # no model needed
+    assert {p["role"] for p in out["picks"]} >= {"zero_proof"}
+
+
+def test_pick_again_refuses_anything_but_judged_drinks(owner):
+    for body in ({}, {"drinks": "x"}, {"drinks": [1]}, {"drinks": [{"id": 1}]}):
+        r = owner.post("/api/menu/suggest/pick", json=body)
+        assert r.status_code == 400, body
+
+
 def test_engine_prefers_typesafe_then_the_image_provider(no_engines, monkeypatch):
     assert app_module._suggest_engine() is None
     monkeypatch.setenv("AI_IMAGE_PROVIDER", "openai")
