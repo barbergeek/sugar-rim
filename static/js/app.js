@@ -198,9 +198,6 @@ const Modal = {
     this._required = false;
     el('modal-overlay').classList.add('hidden');
   },
-  closeOnBackdrop(e) {
-    if (e.target === el('modal-overlay') && !this._required) this.close();
-  },
   body() {
     return el('modal-body');
   },
