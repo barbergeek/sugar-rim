@@ -3467,10 +3467,15 @@ const HolidayMenu = {
   async suggestMenu() {
     const occasion = el('cfg-menu-occasion').value.trim();
     if (!occasion) return;
-    // Read the dialog before the suggestion popup replaces it.
+    // Read the dialog before the suggestion popup replaces it. Its title,
+    // subtitle and theme are saved with the approved menu.
     const theme = el('cfg-menu-theme').value;
     const fresh = this._takeFresh();
-    this._menuName = App.cocktails._menu?.menu?.title || '';
+    this._draft = {
+      title: el('cfg-menu-title').value.trim(),
+      subtitle: el('cfg-menu-subtitle').value.trim(),
+      theme,
+    };
     const sg = (this._sg = {
       occasion,
       engine: '',
@@ -3800,7 +3805,7 @@ const HolidayMenu = {
   _openSuggestion() {
     const sg = this._sg;
     const year = new Date().getFullYear();
-    const name = this._menuName || `${sg.occasion} ${year}`;
+    const name = this._draft.title || `${sg.occasion} ${year}`;
     const body = `
       <div id="sg-working" class="sg-working"></div>
       <div id="sg-list"></div>
@@ -3934,11 +3939,7 @@ const HolidayMenu = {
     status.className = 'cfg-status';
     status.textContent = 'Saving…';
     try {
-      if (name !== this._menuName)
-        await post('/api/menu/title', {
-          title: name,
-          subtitle: App.cocktails._menu?.menu?.subtitle || '',
-        });
+      await post('/api/menu/title', { ...this._draft, title: name });
       const state = await post('/api/menu/cocktails/set', {
         cocktail_ids: ids,
         public_base: location.origin,
