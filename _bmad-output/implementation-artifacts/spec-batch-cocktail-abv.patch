@@ -1,0 +1,366 @@
+diff --git a/abv.py b/abv.py
+new file mode 100644
+index 0000000..0e0f579
+--- /dev/null
++++ b/abv.py
+@@ -0,0 +1,100 @@
++"""ABV estimate for batch cocktails measured in cups, pints, quarts or gallons.
++
++Bar Assistant only counts lines in its own units (ml, cl, oz, ...) and skips
++the rest, so a batch written in cups comes back with ABV 0. This recomputes
++ABV with BA's formula (Utils::calculateAbv) for those cocktails only,
++converting to ml for the math; amounts and units shown are never changed.
++"""
++
++# BA's own units and factors (karlomikus/recipe-utils), in ml.
++_NATIVE = {
++    "ml": 1,
++    "cl": 10,
++    "oz": 30,
++    "dash": 0.3125,
++    "shot": 30,
++    "part": 30,
++    "l": 1000,
++    "barspoon": 5,
++}
++
++# Larger US measures: a line in one of these (with alcohol) triggers the estimate.
++_LARGE = {
++    "cup": 236.588,
++    "cups": 236.588,
++    "pint": 473.176,
++    "pints": 473.176,
++    "quart": 946.353,
++    "quarts": 946.353,
++    "gallon": 3785.41,
++    "gallons": 3785.41,
++    "liter": 1000,
++    "liters": 1000,
++    "litre": 1000,
++    "litres": 1000,
++}
++
++# Counted once a cocktail is being recomputed: batches measure syrups in spoons.
++_SPOON = {
++    "tbsp": 14.787,
++    "tablespoon": 14.787,
++    "tablespoons": 14.787,
++    "tsp": 4.929,
++    "teaspoon": 4.929,
++    "teaspoons": 4.929,
++    "dashes": 0.3125,
++}
++
++_ML = {**_NATIVE, **_LARGE, **_SPOON}
++
++
++def _unit(line):
++    return str(line.get("units") or "").strip().lower()
++
++
++def _ingredient_id(line):
++    return (line.get("ingredient") or {}).get("id")
++
++
++def _amount(line):
++    try:
++        return float(line.get("amount"))
++    except (TypeError, ValueError):
++        return None
++
++
++def needs_estimate(cocktail):
++    """True if any line uses a large measure (strength is checked later)."""
++    return any(_unit(i) in _LARGE for i in cocktail.get("ingredients") or [])
++
++
++def ingredient_ids(cocktail):
++    return {_ingredient_id(i) for i in cocktail.get("ingredients") or []} - {None}
++
++
++def estimate(cocktail, strengths):
++    """BA's ABV formula with large measures counted, or None to keep BA's value
++    (no method, or no large-measure line whose ingredient has strength > 0).
++    strengths maps ingredient id -> strength (% ABV)."""
++    method = cocktail.get("method")
++    if not method:
++        return None
++    lines = cocktail.get("ingredients") or []
++    if not any(
++        _unit(i) in _LARGE and (strengths.get(_ingredient_id(i)) or 0) > 0
++        for i in lines
++    ):
++        return None
++    alcohol = diluted = 0.0
++    dilution = float(method.get("dilution_percentage") or 0)
++    for line in lines:
++        factor = _ML.get(_unit(line))
++        amount = _amount(line)
++        if factor is None or amount is None:
++            continue
++        ml = amount * factor
++        alcohol += ml * float(strengths.get(_ingredient_id(line)) or 0) / 100
++        diluted += ml * (1 + dilution / 100)
++    if diluted <= 0:
++        return 0.0
++    return round(alcohol / diluted * 100, 2)
+diff --git a/app.py b/app.py
+index 45c5415..acdc75b 100644
+--- a/app.py
++++ b/app.py
+@@ -20,6 +20,7 @@ import requests as http
+ from dotenv import dotenv_values, set_key
+ from PIL import Image, ImageChops, ImageDraw, ImageFilter
+ 
++import abv
+ import menu
+ import menu_suggest
+ import scrapers
+@@ -452,7 +453,37 @@ def cocktails():
+ 
+ @app.route("/api/cocktails/<id_or_slug>")
+ def cocktail(id_or_slug):
+-    return proxy("GET", f"/cocktails/{id_or_slug}")
++    resp, status = proxy("GET", f"/cocktails/{id_or_slug}")
++    data = resp.get_json(silent=True)
++    if 200 <= status < 300 and isinstance(data, dict) and isinstance(data.get("data"), dict):
++        _apply_abv_estimates([data["data"]])
++        return jsonify(data), status
++    return resp, status
++
++
++def _apply_abv_estimates(cocktails):
++    """Replace BA's ABV with sugar-rim's estimate on batch cocktails (cups,
++    quarts, ...) that BA can't compute. Strengths come from one BA lookup; if
++    it fails the cocktails keep BA's value."""
++    todo = [c for c in cocktails if abv.needs_estimate(c)]
++    ids = set().union(*(abv.ingredient_ids(c) for c in todo))
++    if not ids:
++        return
++    try:
++        r = http.get(ba_url("/ingredients"), headers=ba_headers(), timeout=15,
++                     params={"filter[id]": ",".join(str(i) for i in sorted(ids)),
++                             "per_page": 100})
++        if not r.ok:
++            app.logger.warning("ABV estimate: ingredient lookup failed (%s)", r.status_code)
++            return
++        strengths = {i["id"]: float(i.get("strength") or 0) for i in r.json().get("data") or []}
++    except BA_ERRORS as e:
++        app.logger.warning("ABV estimate: ingredient lookup failed (%s)", e)
++        return
++    for c in todo:
++        value = abv.estimate(c, strengths)
++        if value is not None:
++            c["abv"] = value
+ 
+ 
+ @app.route("/api/cocktails", methods=["POST"])
+@@ -717,6 +748,7 @@ def _publish(base):
+     if len(raw) > MENU_MAX:
+         raise MenuError(f"A menu holds at most {MENU_MAX} cocktails; "
+                         f"that menu has {len(raw)}")
++    _apply_abv_estimates(raw)
+     os.makedirs(directory, exist_ok=True)
+     cocktails = []
+     for c in raw:
+diff --git a/tests/test_abv.py b/tests/test_abv.py
+new file mode 100644
+index 0000000..ee023ef
+--- /dev/null
++++ b/tests/test_abv.py
+@@ -0,0 +1,81 @@
++import abv
++
++BUILD = {"name": "Build", "dilution_percentage": 10}
++SHAKE = {"name": "Shake", "dilution_percentage": 20}
++
++
++def line(ing_id, amount, units):
++    return {
++        "amount": amount,
++        "units": units,
++        "ingredient": {"id": ing_id, "name": f"I{ing_id}"},
++    }
++
++
++def cocktail(method, *lines, abv_value=0):
++    return {"method": method, "abv": abv_value, "ingredients": list(lines)}
++
++
++BATCH_STRENGTHS = {1: 40, 2: 0, 3: 0, 4: 0}
++
++
++def test_batch_in_cups():
++    c = cocktail(
++        BUILD,
++        line(1, 4, "cup"),
++        line(2, 1, "cup"),
++        line(3, 2, "cup"),
++        line(4, 3, "whole"),
++    )
++    assert abv.needs_estimate(c)
++    assert abv.estimate(c, BATCH_STRENGTHS) == 20.78
++
++
++def test_mixed_units_count_quart_and_oz_and_skip_whole():
++    c = cocktail(BUILD, line(1, 1, "quart"), line(2, 2, "oz"), line(3, 1, "whole"))
++    ml = 946.353 + 60
++    expected = round((946.353 * 0.08 + 60 * 0.4) / (ml * 1.1) * 100, 2)
++    assert abv.estimate(c, {1: 8, 2: 40, 3: 0}) == expected
++
++
++def test_spoons_count_once_recomputing():
++    c = cocktail(BUILD, line(1, 1, "cup"), line(2, 2, "TBSP"), line(3, 1, "sprig"))
++    ml = 236.588 + 2 * 14.787
++    expected = round((236.588 * 0.4 + 2 * 14.787 * 0.2) / (ml * 1.1) * 100, 2)
++    assert abv.estimate(c, {1: 40, 2: 20, 3: 0}) == expected
++
++
++def test_regular_drink_is_not_recomputed():
++    c = cocktail(SHAKE, line(1, 2, "oz"), line(2, 2, "dashes"), abv_value=25.1)
++    assert not abv.needs_estimate(c)
++    assert abv.estimate(c, {1: 40, 2: 45}) is None
++
++
++def test_ba_native_units_are_not_recomputed():
++    # Irish Coffee style: all BA-native units, BA's value stands.
++    c = cocktail(
++        BUILD,
++        line(1, 4, "cl"),
++        line(2, 8, "cl"),
++        line(3, 1, "barspoon"),
++        line(4, 3, "cl"),
++        abv_value=9.92,
++    )
++    assert not abv.needs_estimate(c)
++    assert abv.estimate(c, {1: 40, 2: 0, 3: 0, 4: 0}) is None
++
++
++def test_large_measure_without_alcohol_is_not_recomputed():
++    c = cocktail(BUILD, line(1, 1, "cup"), line(2, 2, "oz"), abv_value=12)
++    assert abv.needs_estimate(c)
++    assert abv.estimate(c, {1: 0, 2: 40}) is None
++
++
++def test_no_method_keeps_ba_value():
++    c = cocktail(None, line(1, 2, "cups"), abv_value=None)
++    assert abv.estimate(c, {1: 40}) is None
++
++
++def test_lines_without_amount_are_skipped():
++    c = cocktail(BUILD, line(1, 1, "gallon"), line(2, None, "cup"))
++    assert abv.estimate(c, {1: 40, 2: 40}) == round(40 / 1.1, 2)
+diff --git a/tests/test_menu.py b/tests/test_menu.py
+index ea2c7ee..5fe6ac3 100644
+--- a/tests/test_menu.py
++++ b/tests/test_menu.py
+@@ -1,3 +1,4 @@
++import copy
+ import os
+ 
+ import pytest
+@@ -88,8 +89,13 @@ class FakeBA:
+         self.files = {}  # extra /uploads paths -> bytes
+         self.put_status = 200
+         self.detail_down = False
++        self.strengths = {}  # ingredient id -> strength, for /ingredients
++        self.ingredients_down = False
++        self.ingredient_lookups = 0
+ 
+     def request(self, method, url, **kw):
++        if method == "GET":
++            return self.get(url, **kw)
+         assert method == "PUT" and url.startswith(f"{BA}/api/cocktails/"), url
+         return Resp(self.put_status, json_data={"data": {}})
+ 
+@@ -112,6 +118,15 @@ class FakeBA:
+                     ]
+                 }
+             )
++        if url == f"{BA}/api/ingredients":
++            self.ingredient_lookups += 1
++            if isinstance(self.ingredients_down, Exception):
++                raise self.ingredients_down
++            if self.ingredients_down:
++                return Resp(500, json_data={})
++            ids = [int(i) for i in kw["params"]["filter[id]"].split(",")]
++            return Resp(json_data={"data": [{"id": i, "strength": self.strengths.get(i, 0)}
++                                            for i in ids]})
+         if url.startswith(f"{BA}/api/cocktails/"):
+             key = url.rsplit("/", 1)[-1]
+             if isinstance(self.detail_down, Exception):
+@@ -1334,3 +1349,74 @@ def test_preview_is_for_admins_and_moderators(owner, ba, role):
+ 
+ def test_preview_needs_a_login(guest, ba):
+     assert guest.get("/menu/preview?ids=1").status_code == 401
++
++
++# ── ABV estimate for batch cocktails
++
++
++def abv_line(ing_id, amount, units):
++    return {"amount": amount, "units": units, "ingredient": {"id": ing_id, "name": f"I{ing_id}"}}
++
++
++BATCH = {
++    "id": 641,
++    "slug": "bourbon-cranberry",
++    "name": "Bourbon-Cranberry",
++    "images": [],
++    "method": {"name": "Build", "dilution_percentage": 10},
++    "abv": 0,
++    "ingredients": [
++        abv_line(1, 4, "cups"),
++        abv_line(2, 1, "cup"),
++        abv_line(3, 2, "Cups"),
++        abv_line(4, 3, "whole"),
++    ],
++}
++BATCH_STRENGTHS = {1: 40, 2: 0, 3: 0, 4: 0}
++
++@pytest.fixture
++def batch(monkeypatch, ba):
++    # A copy: the fake hands out catalog dicts, and publish writes abv into them.
++    monkeypatch.setitem(CATALOG, BATCH["id"], copy.deepcopy(BATCH))
++    ba.strengths = BATCH_STRENGTHS
++    return BATCH
++
++
++def test_detail_serves_the_estimate(owner, ba, batch):
++    r = owner.get("/api/cocktails/641")
++    assert r.status_code == 200
++    data = r.get_json()["data"]
++    assert data["abv"] == 20.78
++    assert [(i["amount"], i["units"]) for i in data["ingredients"]] == [
++        (i["amount"], i["units"]) for i in BATCH["ingredients"]
++    ]
++    assert BATCH["abv"] == 0  # the catalog itself is untouched
++    assert ba.ingredient_lookups == 1
++
++
++def test_detail_of_a_regular_drink_makes_no_lookup(owner, ba):
++    r = owner.get("/api/cocktails/cider-sour")
++    assert r.status_code == 200 and r.get_json()["data"]["abv"] == 18.5
++    assert ba.ingredient_lookups == 0
++
++
++@pytest.mark.parametrize("down", [True, app_module.http.exceptions.ConnectionError("down")])
++def test_failed_strength_lookup_keeps_ba_value(owner, ba, batch, down):
++    ba.ingredients_down = down
++    r = owner.get("/api/cocktails/bourbon-cranberry")
++    assert r.status_code == 200 and r.get_json()["data"]["abv"] == 0
++
++
++def test_detail_404_passes_through(owner, ba):
++    r = owner.get("/api/cocktails/no-such-drink")
++    assert r.status_code == 404
++    assert ba.ingredient_lookups == 0
++
++
++def test_publish_writes_the_estimate(owner, guest, ba, env, batch):
++    publish(owner, env, [641, 1])
++    snap = menu.load(menu.menu_dir(str(env / ".env")))
++    assert snap["cocktails"][0]["abv"] == 20.78
++    assert snap["cocktails"][1]["abv"] == 18.5
++    page = guest.get("/menu").get_data(as_text=True)
++    assert "21% ABV" in page and "Zero proof" not in page

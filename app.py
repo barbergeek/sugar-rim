@@ -20,6 +20,7 @@ import requests as http
 from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import abv
 import menu
 import menu_suggest
 import scrapers
@@ -452,7 +453,51 @@ def cocktails():
 
 @app.route("/api/cocktails/<id_or_slug>")
 def cocktail(id_or_slug):
-    return proxy("GET", f"/cocktails/{id_or_slug}")
+    resp, status = proxy("GET", f"/cocktails/{id_or_slug}")
+    data = resp.get_json(silent=True)
+    if (
+        200 <= status < 300
+        and isinstance(data, dict)
+        and isinstance(data.get("data"), dict)
+    ):
+        _apply_abv_estimates([data["data"]])
+        return jsonify(data), status
+    return resp, status
+
+
+def _apply_abv_estimates(cocktails):
+    """Replace BA's ABV with sugar-rim's estimate on batch cocktails (cups,
+    quarts, ...) that BA can't compute. Strengths come from one BA lookup; if
+    it fails the cocktails keep BA's value."""
+    todo = [c for c in cocktails if abv.needs_estimate(c)]
+    ids = set().union(*(abv.ingredient_ids(c) for c in todo))
+    if not ids:
+        return
+    try:
+        r = http.get(
+            ba_url("/ingredients"),
+            headers=ba_headers(),
+            timeout=15,
+            params={
+                "filter[id]": ",".join(str(i) for i in sorted(ids)),
+                "per_page": 100,
+            },
+        )
+        if not r.ok:
+            app.logger.warning(
+                "ABV estimate: ingredient lookup failed (%s)", r.status_code
+            )
+            return
+        strengths = {
+            i["id"]: float(i.get("strength") or 0) for i in r.json().get("data") or []
+        }
+    except BA_ERRORS as e:
+        app.logger.warning("ABV estimate: ingredient lookup failed (%s)", e)
+        return
+    for c in todo:
+        value = abv.estimate(c, strengths)
+        if value is not None:
+            c["abv"] = value
 
 
 @app.route("/api/cocktails", methods=["POST"])
@@ -717,6 +762,7 @@ def _publish(base):
     if len(raw) > MENU_MAX:
         raise MenuError(f"A menu holds at most {MENU_MAX} cocktails; "
                         f"that menu has {len(raw)}")
+    _apply_abv_estimates(raw)
     os.makedirs(directory, exist_ok=True)
     cocktails = []
     for c in raw:
@@ -1129,6 +1175,7 @@ def menu_preview():
                               include="images,glass,method,ingredients.ingredient")
     except (MenuError, *BA_ERRORS):
         return "Bar Assistant lookup failed", 502
+    _apply_abv_estimates(raw)
     cocktails = []
     for c in raw:
         slim = menu.slim_cocktail(c)

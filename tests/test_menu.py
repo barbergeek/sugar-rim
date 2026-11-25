@@ -1,3 +1,4 @@
+import copy
 import os
 
 import pytest
@@ -88,8 +89,13 @@ class FakeBA:
         self.files = {}  # extra /uploads paths -> bytes
         self.put_status = 200
         self.detail_down = False
+        self.strengths = {}  # ingredient id -> strength, for /ingredients
+        self.ingredients_down = False
+        self.ingredient_lookups = 0
 
     def request(self, method, url, **kw):
+        if method == "GET":
+            return self.get(url, **kw)
         assert method == "PUT" and url.startswith(f"{BA}/api/cocktails/"), url
         return Resp(self.put_status, json_data={"data": {}})
 
@@ -112,6 +118,15 @@ class FakeBA:
                     ]
                 }
             )
+        if url == f"{BA}/api/ingredients":
+            self.ingredient_lookups += 1
+            if isinstance(self.ingredients_down, Exception):
+                raise self.ingredients_down
+            if self.ingredients_down:
+                return Resp(500, json_data={})
+            ids = [int(i) for i in kw["params"]["filter[id]"].split(",")]
+            return Resp(json_data={"data": [{"id": i, "strength": self.strengths.get(i, 0)}
+                                            for i in ids]})
         if url.startswith(f"{BA}/api/cocktails/"):
             key = url.rsplit("/", 1)[-1]
             if isinstance(self.detail_down, Exception):
@@ -1334,3 +1349,94 @@ def test_preview_is_for_admins_and_moderators(owner, ba, role):
 
 def test_preview_needs_a_login(guest, ba):
     assert guest.get("/menu/preview?ids=1").status_code == 401
+
+
+# ── ABV estimate for batch cocktails
+
+
+def abv_line(ing_id, amount, units):
+    return {"amount": amount, "units": units, "ingredient": {"id": ing_id, "name": f"I{ing_id}"}}
+
+
+BATCH = {
+    "id": 641,
+    "slug": "bourbon-cranberry",
+    "name": "Bourbon-Cranberry",
+    "images": [],
+    "method": {"name": "Build", "dilution_percentage": 10},
+    "abv": 0,
+    "ingredients": [
+        abv_line(1, 4, "cups"),
+        abv_line(2, 1, "cup"),
+        abv_line(3, 2, "Cups"),
+        abv_line(4, 3, "whole"),
+    ],
+}
+BATCH_STRENGTHS = {1: 40, 2: 0, 3: 0, 4: 0}
+
+
+@pytest.fixture
+def batch(monkeypatch, ba):
+    # A copy: the fake hands out catalog dicts, and publish writes abv into them.
+    monkeypatch.setitem(CATALOG, BATCH["id"], copy.deepcopy(BATCH))
+    ba.strengths = BATCH_STRENGTHS
+    return BATCH
+
+
+def test_detail_serves_the_estimate(owner, ba, batch):
+    r = owner.get("/api/cocktails/641")
+    assert r.status_code == 200
+    data = r.get_json()["data"]
+    assert data["abv"] == 20.78
+    assert [(i["amount"], i["units"]) for i in data["ingredients"]] == [
+        (i["amount"], i["units"]) for i in BATCH["ingredients"]
+    ]
+    assert CATALOG[641]["abv"] == 0  # the fake's catalog entry is untouched
+    assert ba.ingredient_lookups == 1
+
+
+def test_detail_of_a_regular_drink_makes_no_lookup(owner, ba):
+    r = owner.get("/api/cocktails/cider-sour")
+    assert r.status_code == 200 and r.get_json()["data"]["abv"] == 18.5
+    assert ba.ingredient_lookups == 0
+
+
+@pytest.mark.parametrize("down", [True, app_module.http.exceptions.ConnectionError("down")])
+def test_failed_strength_lookup_keeps_ba_value(owner, ba, batch, down):
+    ba.ingredients_down = down
+    r = owner.get("/api/cocktails/bourbon-cranberry")
+    assert r.status_code == 200 and r.get_json()["data"]["abv"] == 0
+
+
+def test_detail_404_passes_through(owner, ba):
+    r = owner.get("/api/cocktails/no-such-drink")
+    assert r.status_code == 404
+    assert ba.ingredient_lookups == 0
+
+
+CIDER_PUNCH = {
+    "id": 642,
+    "slug": "cider-punch",
+    "name": "Cider Punch",
+    "images": [],
+    "method": {"name": "Build", "dilution_percentage": 10},
+    "abv": 33.33,  # BA skips the cup of juice
+    "ingredients": [abv_line(5, 1, "cup"), abv_line(6, 2, "oz")],
+}
+
+
+def test_publish_writes_the_estimate(owner, guest, ba, env, batch, monkeypatch):
+    monkeypatch.setitem(CATALOG, CIDER_PUNCH["id"], copy.deepcopy(CIDER_PUNCH))
+    ba.strengths = {**BATCH_STRENGTHS, 5: 0, 6: 40}
+    publish(owner, env, [641, 642, 1])
+    snap = menu.load(menu.menu_dir(str(env / ".env")))
+    assert [c["abv"] for c in snap["cocktails"]] == [20.78, 7.36, 18.5]
+    assert ba.ingredient_lookups == 1
+    page = guest.get("/menu").get_data(as_text=True)
+    assert "21% ABV" in page and "Zero proof" not in page
+
+
+def test_preview_shows_the_estimate(owner, ba, env, batch):
+    page = owner.get("/menu/preview?ids=641").get_data(as_text=True)
+    assert "21% ABV" in page and "Zero proof" not in page
+    assert ba.ingredient_lookups == 1
