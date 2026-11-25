@@ -315,7 +315,17 @@ def login():
             session.permanent = True
             session["ba_token"] = data["data"]["token"]
             session.pop("ba_user_id", None)  # cleared so it's re-fetched fresh
-            return jsonify({"ok": True})
+            name = None
+            try:  # best-effort: the greeting falls back to a generic name
+                prof = http.get(ba_url("/profile"), headers=auth_headers(), timeout=10)
+                if prof.ok:
+                    pdata = prof.json().get("data") or {}
+                    name = pdata.get("name")
+                    if pdata.get("id"):
+                        session["ba_user_id"] = pdata["id"]
+            except Exception:
+                pass
+            return jsonify({"ok": True, "user": {"name": name}})
         return jsonify(data), resp.status_code
     # Before RequestException: requests' JSONDecodeError subclasses both.
     except ValueError:  # non-JSON reply: something answered, but it isn't Bar Assistant
