@@ -45,7 +45,7 @@ def page_url(html):
 
 # Site modules self-register on import. The generic scraper must be imported
 # too; ordering is handled in scrape().
-from . import (
+from . import (  # noqa: E402
     foodnetwork,  # noqa: F401
     jsonld,  # noqa: F401
 )
