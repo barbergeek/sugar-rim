@@ -215,6 +215,32 @@ ROUTES = [
 
 
 @pytest.mark.parametrize("role", [3, 4, None])
+@pytest.mark.parametrize("body", [{"api_url": "https://evil.test"}, {"api_token": "t"},
+                                  {"bar_id": 2}])
+def test_other_roles_cannot_change_the_connection(owner, ba, env, role, body):
+    ba.role = role
+    r = owner.post("/config", json=body)
+    assert r.status_code == 403
+    assert r.get_json()["error"] == app_module.CONN_DENIED
+    assert os.getenv("BA_API_URL") == BA and os.getenv("BA_BAR_ID") == "1"
+    assert not (env / ".env").exists()
+
+
+@pytest.mark.parametrize("role", [1, 2])
+def test_admins_and_moderators_change_the_connection(owner, ba, env, role):
+    ba.role = role
+    assert owner.post("/config", json={"bar_id": 2}).status_code == 200
+    assert os.getenv("BA_BAR_ID") == "2"
+
+
+def test_first_bar_pick_is_open_while_none_is_set(owner, ba, env, monkeypatch):
+    ba.role = 4
+    monkeypatch.setenv("BA_BAR_ID", "")
+    assert owner.post("/config", json={"bar_id": 1}).status_code == 200
+    assert os.getenv("BA_BAR_ID") == "1"
+
+
+@pytest.mark.parametrize("role", [3, 4, None])
 def test_other_roles_are_refused_and_nothing_is_written(owner, ba, env, role):
     ba.role = role
     for verb, path, body in ROUTES:
@@ -255,11 +281,6 @@ def test_no_bar_selected_is_not_permitted(owner, monkeypatch):
     monkeypatch.setenv("BA_BAR_ID", "")
     r = owner.get("/api/menu")
     assert r.status_code == 400 and "No bar selected" in r.get_json()["error"]
-
-
-def test_other_settings_stay_login_only(owner, ba):
-    ba.role = 4
-    assert owner.post("/config", json={"bar_id": "1"}).status_code == 200
 
 
 def test_ai_settings_never_return_a_key(owner, ba, monkeypatch):

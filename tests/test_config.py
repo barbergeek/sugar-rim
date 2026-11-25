@@ -63,3 +63,24 @@ def test_blank_env_var_does_not_shadow_saved_value(monkeypatch, tmp_path):
     app_module._load_env(str(env))
     assert app_module.os.environ["BA_API_URL"] == "http://saved.test"
     assert app_module.os.environ["BA_BAR_ID"] == "7"
+
+
+def test_image_from_url_refuses_a_redirect_into_the_lan(anon, monkeypatch):
+    from scrapers import fetch
+    from tests.test_fetch import Resp as FetchResp
+
+    with anon.session_transaction() as s:
+        s["ba_token"] = "tok"
+    monkeypatch.setattr(app_module, "_is_public_http_url",
+                        lambda u: u.startswith("https://public.test/"))
+    seen = []
+
+    def get(url, **kw):
+        seen.append(url)
+        return FetchResp(302, headers={"Location": "http://192.168.1.50/cam.jpg"})
+
+    monkeypatch.setattr(fetch.requests, "get", get)
+    r = anon.post("/api/images/from-url", json={"url": "https://public.test/r"})
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "URL not allowed"
+    assert seen == ["https://public.test/r"]

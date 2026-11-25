@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlparse
 from flask import (Flask, Response, jsonify, request, render_template, session, redirect,
-                   url_for, send_from_directory)
+                   send_from_directory)
 import requests as http
 from dotenv import dotenv_values, set_key
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
@@ -26,6 +26,7 @@ import scrapers
 from scrapers.draft2 import from_draft2, to_draft2
 from scrapers.match import rank as rank_ingredients
 from scrapers.fetch import fetch_html, FetchBlocked, FetchError, UrlNotAllowed
+from scrapers.fetch import _get as fetch_get
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
@@ -222,6 +223,7 @@ AI_FIELDS = ("ai_provider", "ai_model", "ai_base_url", "ai_api_key",
              "ai_prompt_ingredient", "ai_prompt_cocktail",
              "typesafe_api_key", "typesafe_enabled", "menu_suggest_model")
 AI_DENIED = "Only bar admins and moderators can change AI settings"
+CONN_DENIED = "Only bar admins and moderators can change the Bar Assistant connection"
 
 
 @app.route("/config", methods=["POST"])
@@ -241,6 +243,14 @@ def set_config():
             return denied
     if _logged_in() and any(k in body for k in AI_FIELDS):
         denied = _menu_role_denied(AI_DENIED)
+        if denied:
+            return denied
+    # The API URL/token decide where every user's login and token are sent, and
+    # the bar is server-wide, so only admins/moderators of the current bar may
+    # change them. Picking the first bar during setup (none set yet) stays open.
+    if _logged_in() and ("api_url" in body or "api_token" in body
+                         or ("bar_id" in body and os.getenv("BA_BAR_ID"))):
+        denied = _menu_role_denied(CONN_DENIED)
         if denied:
             return denied
     if not os.path.exists(ENV_PATH):
@@ -1203,10 +1213,13 @@ def image_from_url():
     if not _is_public_http_url(src_url):
         return jsonify({"error": "URL not allowed"}), 400
     try:
-        r = http.get(src_url, timeout=15,
-                     headers={"User-Agent": "Mozilla/5.0 (compatible; sugar-rim/1.0)"})
-        r.raise_for_status()
-        ct = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        # Manual redirects, each hop re-checked — a redirect can't reach the LAN.
+        status, content, ct, _ = fetch_get(
+            src_url, {"User-Agent": "Mozilla/5.0 (compatible; sugar-rim/1.0)"},
+            _is_public_http_url)
+        if status >= 300:
+            return jsonify({"error": f"Image URL returned HTTP {status}"}), 502
+        ct = (ct or "image/jpeg").split(";")[0].strip()
         if not ct.startswith("image/"):
             return jsonify({"error": f"URL did not return an image (got {ct})"}), 422
         # Derive a filename with extension from the URL or content-type
@@ -1215,14 +1228,16 @@ def image_from_url():
             ext = ct.split("/")[-1].replace("jpeg", "jpg")
             fname = f"image.{ext}"
         hdrs = {k: v for k, v in ba_headers().items() if k != "Content-Type"}
-        files = {"images[0][image]": (fname, r.content, ct)}
+        files = {"images[0][image]": (fname, content, ct)}
         resp = http.post(ba_url("/images"), headers=hdrs, files=files,
                          data={"images[0][sort]": "1"}, timeout=30)
         ba_data = resp.json()
         if not resp.ok:
             return jsonify({"error": ba_data.get("message", "Image upload failed")}), resp.status_code
         return jsonify(ba_data), resp.status_code
-    except http.exceptions.RequestException as e:
+    except UrlNotAllowed:
+        return jsonify({"error": "URL not allowed"}), 400
+    except (FetchError, http.exceptions.RequestException) as e:
         return jsonify({"error": str(e)}), 502
 
 

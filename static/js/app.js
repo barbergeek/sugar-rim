@@ -1655,7 +1655,7 @@ const Cocktails = {
       <div class="form-group"><label class="form-label">Garnish</label>
         <input class="text-input" id="cf-garnish" value="${escHtml(c?.garnish || '')}" placeholder="Optional garnish"></div>
       <div class="form-group"><label class="form-label">Tags (comma-separated)</label>
-        <input class="text-input" id="cf-tags" value="${(c?.tags || []).map((t) => t.name || t).join(', ')}"></div>
+        <input class="text-input" id="cf-tags" value="${escHtml((c?.tags || []).map((t) => t.name || t).join(', '))}"></div>
       <datalist id="cf-units-list">
         <option value="oz"></option><option value="ml"></option><option value="cl"></option>
         <option value="dashes"></option><option value="barspoon"></option>
