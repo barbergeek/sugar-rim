@@ -1860,7 +1860,7 @@ const Cocktails = {
     const body = {
       name,
       glass_id: glassVal ? parseInt(glassVal) : null,
-      method_id: methodVal ? parseInt(methodVal) : null,
+      cocktail_method_id: methodVal ? parseInt(methodVal) : null,
       instructions: el('cf-instructions').value.trim(),
       garnish: el('cf-garnish').value.trim(),
       tags: el('cf-tags')
